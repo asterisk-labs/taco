@@ -1,0 +1,57 @@
+/* === KEYFRAMES === */
+
+@keyframes pulse {
+  0%, 100% { transform: scale(1); opacity: .6; }
+  50%      { transform: scale(1.35); opacity: 1; }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0) rotate(-1deg); }
+  50%      { transform: translateY(-12px) rotate(1deg); }
+}
+
+@keyframes morph-taco {
+  0%, 36%   { opacity: 1; transform: scale(1) rotate(0deg); filter: blur(0); }
+  40%, 90%  { opacity: 0; transform: scale(.4) rotate(-15deg); filter: blur(3px); }
+  95%, 100% { opacity: 1; transform: scale(1) rotate(0deg); filter: blur(0); }
+}
+
+@keyframes morph-planet {
+  0%, 36%   { opacity: 0; transform: scale(.4) rotate(15deg); filter: blur(3px); }
+  40%, 90%  { opacity: 1; transform: scale(1) rotate(0deg); filter: blur(0); }
+  95%, 100% { opacity: 0; transform: scale(.4) rotate(15deg); filter: blur(3px); }
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+@keyframes counter-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(-360deg); }
+}
+
+@keyframes neb {
+  0%, 100% { opacity: .6; transform: scale(1); }
+  50%      { opacity: 1; transform: scale(1.1); }
+}
+
+@keyframes drift {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-5px); }
+}
+
+@keyframes blink {
+  0%, 100% { opacity: .15; text-shadow: none; }
+  50%      { opacity: .9; text-shadow: 0 0 10px var(--label-glow); }
+}
+
+@keyframes fade-in {
+  to { opacity: 1; }
+}
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(18px); }
+  to   { opacity: 1; transform: translateY(0); }
+}

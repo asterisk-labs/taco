@@ -1,0 +1,225 @@
+/* === RESET === */
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+html {
+  height: 100%;
+  overflow-y: scroll;
+  scroll-snap-type: y mandatory;
+  scroll-behavior: smooth;
+}
+
+body {
+  height: 100%;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  overflow-x: hidden;
+  background: #fff;
+}
+
+/* === HERO CONTAINER === */
+.hero {
+  position: relative;
+  width: 100%;
+  height: 100vh;
+  min-height: 500px;
+  scroll-snap-align: start;
+  background: radial-gradient(ellipse at 50% 45%, var(--hero-bg1), var(--hero-bg2) 50%, var(--hero-bg3) 100%);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  z-index: 2;
+}
+
+/* === CANVAS === */
+canvas#sky {
+  position: absolute; top: 0; left: 0;
+  width: 100%; height: 100%; z-index: 0;
+  pointer-events: none;
+}
+
+/* === NEBULA === */
+.nebula {
+  position: absolute; border-radius: 50%;
+  filter: blur(60px); z-index: 0; pointer-events: none;
+}
+.n1 { width: 300px; height: 200px; top: 8%; left: -5%; background: radial-gradient(ellipse, var(--neb1), transparent); animation: neb 8s ease-in-out infinite; }
+.n2 { width: 250px; height: 180px; bottom: 5%; right: -5%; background: radial-gradient(ellipse, var(--neb2), transparent); animation: neb 10s ease-in-out infinite 2s; }
+.n3 { width: 200px; height: 140px; top: 35%; right: 8%; background: radial-gradient(ellipse, var(--neb3), transparent); animation: neb 12s ease-in-out infinite 4s; }
+
+/* === CONTENT === */
+.content {
+  position: relative; z-index: 2;
+  display: flex; flex-direction: column; align-items: center;
+  gap: 16px; pointer-events: none;
+}
+
+/* === TACO SYSTEM === */
+.taco-system {
+  position: relative; width: 320px; height: 320px;
+  display: flex; justify-content: center; align-items: center;
+}
+
+.taco-glow {
+  position: absolute; width: 150px; height: 150px; border-radius: 50%;
+  background: radial-gradient(circle, var(--glow-color) 0%, var(--glow-color2) 50%, transparent 70%);
+  animation: pulse 4s ease-in-out infinite; z-index: 0;
+}
+
+/* === MORPH (taco <-> earth) === */
+.morph-center {
+  position: relative; z-index: 1; width: 120px; height: 120px;
+  display: flex; justify-content: center; align-items: center;
+  animation: float 6s ease-in-out infinite;
+  filter: drop-shadow(0 0 30px var(--earth-shadow));
+}
+
+.taco-emoji,
+.earth-emoji {
+  position: absolute; font-size: 6.5rem; line-height: 1;
+}
+.taco-emoji  { animation: morph-taco 8s infinite; }
+.earth-emoji { animation: morph-planet 8s infinite; }
+
+/* === ORBIT === */
+.orbit-ring {
+  position: absolute; width: 270px; height: 270px;
+  border: 1px solid var(--orbit-color); border-radius: 50%; z-index: 3;
+}
+
+.sat-orbit {
+  position: absolute; width: 270px; height: 270px;
+  animation: spin 12s linear infinite; z-index: 4;
+}
+
+.satellite {
+  position: absolute; top: -18px; left: calc(50% - 18px);
+  font-size: 1.8rem; line-height: 1;
+  animation: counter-spin 12s linear infinite;
+  filter: drop-shadow(0 0 6px var(--sat-glow));
+}
+
+/* === TITLES === */
+.title-wrap {
+  display: flex; flex-direction: column; align-items: center; text-align: center;
+}
+
+.title {
+  display: flex; align-items: baseline; gap: 8px;
+}
+
+.title-main {
+  font-size: 5rem; font-weight: 900; letter-spacing: 16px;
+  color: var(--text-primary);
+  text-shadow: 0 0 40px var(--title-glow);
+}
+
+.title-version {
+  font-size: 1.2rem; font-weight: 600; letter-spacing: 3px;
+  color: var(--text-ver);
+}
+
+.subtitle {
+  font-size: .85rem; letter-spacing: 4px; text-transform: uppercase;
+  margin-top: 8px; line-height: 1.6;
+  color: var(--text-sub);
+}
+
+/* === ENTRANCE === */
+.content { opacity: 0; animation: rise .8s ease-out .2s forwards; }
+
+/* === RESPONSIVE === */
+@media (max-width: 600px) {
+  html { scroll-snap-type: none; }
+  .hero { min-height: 100vh; }
+  .taco-system { width: 220px; height: 220px; }
+  .taco-glow { width: 100px; height: 100px; }
+  .morph-center { width: 80px; height: 80px; }
+  .taco-emoji, .earth-emoji { font-size: 4.5rem; }
+  .orbit-ring { width: 185px; height: 185px; }
+  .sat-orbit { width: 185px; height: 185px; }
+  .satellite { top: -14px; left: calc(50% - 14px); font-size: 1.4rem; }
+  .title-main { font-size: 3rem; letter-spacing: 10px; }
+  .title-version { font-size: 1rem; }
+  .subtitle { font-size: .7rem; letter-spacing: 3px; }
+  .label { display: none; }
+  .nav-dpad { bottom: 14px; right: 14px; }
+  .dpad-key { width: 36px; height: 36px; }
+  .dpad-key svg { width: 14px; height: 14px; }
+  .nav-dpad {
+    grid-template-columns: repeat(3, 36px);
+    grid-template-rows: repeat(2, 36px);
+  }
+}
+
+/* === NAV D-PAD === */
+.nav-dpad {
+  position: fixed; bottom: 24px; right: 24px; z-index: 50;
+  display: grid;
+  grid-template-areas:
+    ".  up  ."
+    "lt dn  rt";
+  grid-template-columns: repeat(3, 42px);
+  grid-template-rows: repeat(2, 42px);
+  gap: 4px;
+  opacity: 0; animation: fade-in .5s ease 1.5s forwards;
+}
+
+#key-up    { grid-area: up; }
+#key-left  { grid-area: lt; }
+#key-down  { grid-area: dn; }
+#key-right { grid-area: rt; }
+
+.dpad-key {
+  width: 42px; height: 42px; border-radius: 8px; border: none; cursor: pointer;
+  background: rgba(20, 20, 30, .55); backdrop-filter: blur(10px);
+  border: 1px solid rgba(0, 0, 0, .08);
+  display: flex; align-items: center; justify-content: center;
+  transition: background .3s ease, transform .12s ease, border-color .3s ease;
+}
+
+.dpad-key svg {
+  width: 18px; height: 18px;
+  stroke: #fff; stroke-width: 2.5; fill: none;
+  stroke-linecap: round; stroke-linejoin: round;
+  transition: stroke .3s ease;
+}
+
+/* --- Light slides (default) --- */
+.nav-dpad.on-light .dpad-key {
+  background: rgba(20, 20, 30, .55);
+  border-color: rgba(0, 0, 0, .08);
+}
+.nav-dpad.on-light .dpad-key svg { stroke: #fff; }
+.nav-dpad.on-light .dpad-key:hover:not(:disabled) {
+  background: rgba(20, 20, 30, .75);
+  border-color: rgba(0, 0, 0, .15);
+}
+.nav-dpad.on-light .dpad-key:active:not(:disabled),
+.nav-dpad.on-light .dpad-key.pressed {
+  background: rgba(20, 20, 30, .85);
+  border-color: rgba(0, 0, 0, .2);
+}
+
+/* --- Dark slides (hero) --- */
+.nav-dpad.on-dark .dpad-key {
+  background: rgba(255, 255, 255, .1);
+  border-color: rgba(255, 255, 255, .15);
+}
+.nav-dpad.on-dark .dpad-key svg { stroke: #fff; }
+.nav-dpad.on-dark .dpad-key:hover:not(:disabled) {
+  background: rgba(100, 180, 255, .2);
+  border-color: rgba(100, 180, 255, .35);
+}
+
+.nav-dpad.on-dark .dpad-key:active:not(:disabled),
+.nav-dpad.on-dark .dpad-key.pressed {
+  background: rgba(100, 180, 255, .3);
+  border-color: rgba(100, 180, 255, .5);
+}
+
+/* --- Shared states --- */
+.dpad-key:hover:not(:disabled) { transform: scale(1.08); }
+.dpad-key:active:not(:disabled),
+.dpad-key.pressed { transform: scale(.9); }
+.dpad-key:disabled { opacity: .2; cursor: default; }

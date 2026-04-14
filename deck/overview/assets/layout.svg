@@ -1,0 +1,98 @@
+<svg viewBox="0 0 450 660" width="100%" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="gradBlue" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#3b82f6;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1d4ed8;stop-opacity:1" />
+    </linearGradient>
+    <filter id="shadow" x="-5%" y="-5%" width="110%" height="110%">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#000" flood-opacity="0.08"/>
+    </filter>
+  </defs>
+  <rect width="450" height="660" fill="#fcfcfd" rx="12"/>
+  <style>
+    .mono { font: 700 12px 'JetBrains Mono', monospace; fill: #1f2937; }
+    .mono-sm { font: 400 11px 'JetBrains Mono', monospace; fill: #4b5563; }
+    .mono-dim { font: 400 10.5px 'JetBrains Mono', monospace; fill: #9ca3af; }
+    .branch { stroke: #d1d5db; stroke-width: 1.5; fill: none; stroke-linecap: round; }
+    .tag { font: 700 9px sans-serif; letter-spacing: 0.5px; }
+    .heading { font: 800 10px sans-serif; letter-spacing: 1.2px; text-transform: uppercase; fill: #94a3b8; }
+    .pq-card { fill: #f8fafc; }
+    .pq-name { font: 600 10.5px 'JetBrains Mono', monospace; fill: #2563eb; }
+    .pq-desc { font: 400 9.5px sans-serif; fill: #64748b; }
+  </style>
+
+  <g transform="translate(30, 40)">
+    <!-- Root -->
+    <rect width="18" height="14" rx="2" fill="#94a3b8" opacity="0.3"/>
+    <text class="mono" x="25" y="11">dataset/</text>
+
+    <!-- COLLECTION.json -->
+    <path class="branch" d="M10,15 v25 h15"/>
+    <rect x="30" y="32" width="110" height="18" rx="4" fill="#fef3c7"/>
+    <text class="mono-sm" x="36" y="45" fill="#92400e">COLLECTION.json</text>
+    <text class="tag" x="155" y="45" fill="#d97706">σ + μ</text>
+
+    <!-- DATA/ -->
+    <path class="branch" d="M10,15 v55 h15"/>
+    <text class="mono" x="30" y="80" fill="#059669">DATA/</text>
+
+    <!-- Sample 0 -->
+    <path class="branch" d="M40,85 v15 h15"/>
+    <text class="mono-sm" x="60" y="105">0/</text>
+
+    <!-- before/ -->
+    <path class="branch" d="M70,110 v15 h15"/>
+    <text class="mono-sm" x="90" y="130" fill="#6b7280">before/</text>
+    <text class="mono-dim" x="115" y="150">B02.tif, B03.tif, B04.tif</text>
+
+    <!-- after/ -->
+    <path class="branch" d="M70,110 v55 h15"/>
+    <text class="mono-sm" x="90" y="170" fill="#6b7280">after/</text>
+    <text class="mono-dim" x="115" y="190">B02.tif, B03.tif, B04.tif</text>
+
+    <!-- change_map.tif -->
+    <path class="branch" d="M70,110 v95 h15"/>
+    <text class="mono-dim" x="90" y="210">change_map.tif</text>
+
+    <!-- Sample 1 … N-1 -->
+    <path class="branch" d="M40,85 v150 h15"/>
+    <text class="mono-sm" x="60" y="240">1/</text>
+    <text class="mono-dim" x="85" y="258">…</text>
+
+    <path class="branch" d="M40,85 v195 h15"/>
+    <text class="mono-sm" x="60" y="285">N-1/</text>
+    <text class="mono-dim" x="85" y="303">…</text>
+
+    <!-- METADATA/ -->
+    <path class="branch" d="M10,15 v310 h15"/>
+    <text class="mono" x="30" y="335" fill="#2563eb">METADATA/</text>
+
+    <text class="heading" x="30" y="358">One Parquet per tree level</text>
+
+    <g transform="translate(30, 370)">
+      <!-- collection.parquet -->
+      <rect class="pq-card" x="0" y="0" width="360" height="35" rx="6"/>
+      <circle cx="15" cy="17" r="4" fill="url(#gradBlue)"/>
+      <text class="pq-name" x="30" y="16">collection.parquet</text>
+      <text class="pq-desc" x="30" y="28">N rows — one per sample</text>
+
+      <!-- sample.parquet -->
+      <rect class="pq-card" x="0" y="45" width="360" height="35" rx="6"/>
+      <circle cx="15" cy="62" r="4" fill="url(#gradBlue)"/>
+      <text class="pq-name" x="30" y="61">sample.parquet</text>
+      <text class="pq-desc" x="30" y="73">N × 3 rows — before/, after/, change_map</text>
+
+      <!-- sample__before.parquet -->
+      <rect class="pq-card" x="0" y="90" width="360" height="35" rx="6"/>
+      <circle cx="15" cy="107" r="4" fill="url(#gradBlue)"/>
+      <text class="pq-name" x="30" y="106">sample__before.parquet</text>
+      <text class="pq-desc" x="30" y="118">N × 3 rows — B02, B03, B04</text>
+
+      <!-- sample__after.parquet -->
+      <rect class="pq-card" x="0" y="135" width="360" height="35" rx="6"/>
+      <circle cx="15" cy="152" r="4" fill="url(#gradBlue)"/>
+      <text class="pq-name" x="30" y="151">sample__after.parquet</text>
+      <text class="pq-desc" x="30" y="163">N × 3 rows — B02, B03, B04</text>
+    </g>
+  </g>
+</svg>

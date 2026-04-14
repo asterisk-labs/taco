@@ -1,0 +1,95 @@
+<svg viewBox="0 0 400 300" width="100%" xmlns="http://www.w3.org/2000/svg">
+  <style>
+    .th { font: 700 9px 'JetBrains Mono', monospace; fill: #64748b; }
+    .td { font: 400 9.5px 'JetBrains Mono', monospace; fill: #1f2937; }
+    .td-dim { font: 400 9.5px 'JetBrains Mono', monospace; fill: #cbd5e1; }
+    .td-vsi { font: 400 8.5px 'JetBrains Mono', monospace; fill: #2563eb; }
+    .td-vsi-dim { font: 400 8.5px 'JetBrains Mono', monospace; fill: #e2e8f0; }
+    .heading { font: 800 10px 'Segoe UI', sans-serif; letter-spacing: 1px; text-transform: uppercase; fill: #94a3b8; }
+    .filter-label { font: 600 9px 'Segoe UI', sans-serif; fill: #16a34a; }
+    .skip-label { font: 600 8px 'Segoe UI', sans-serif; fill: #dc2626; }
+    .tag { font: 700 8px 'Segoe UI', sans-serif; letter-spacing: .3px; }
+  </style>
+
+  <!-- Title -->
+  <text class="heading" x="20" y="20">collection.parquet → in-memory table</text>
+
+  <!-- Filter badge -->
+  <text class="filter-label" x="20" y="42">WHERE cloud_cover &lt; 10</text>
+
+  <!-- Table header -->
+  <rect x="20" y="60" width="360" height="22" rx="0" fill="#f8fafc"/>
+  <line x1="20" y1="82" x2="380" y2="82" stroke="#e2e8f0" stroke-width="1.5"/>
+  <text class="th" x="36" y="75">id</text>
+  <text class="th" x="76" y="75">split</text>
+  <text class="th" x="132" y="75">cloud</text>
+  <text class="th" x="200" y="75">vsi_path</text>
+
+  <!-- Column dividers -->
+  <line x1="62" y1="60" x2="62" y2="290" stroke="#f1f5f9" stroke-width="1"/>
+  <line x1="118" y1="60" x2="118" y2="290" stroke="#f1f5f9" stroke-width="1"/>
+  <line x1="175" y1="60" x2="175" y2="290" stroke="#f1f5f9" stroke-width="1"/>
+
+  <!-- Row 0 — passes filter ✓ -->
+  <rect x="20" y="84" width="360" height="26" rx="0" fill="#f0fdf4"/>
+  <text class="td" x="36" y="101">0</text>
+  <text class="td" x="76" y="101">train</text>
+  <text class="td" x="132" y="101" fill="#16a34a">3.2</text>
+  <text class="td-vsi" x="184" y="101">/vsisubfile/8234_1024,ds.zip</text>
+  <text class="tag" x="370" y="101" fill="#16a34a">✓</text>
+
+  <!-- Row 1 — fails filter -->
+  <rect x="20" y="110" width="360" height="26" rx="0" fill="#fff"/>
+  <text class="td-dim" x="36" y="127">1</text>
+  <text class="td-dim" x="76" y="127">train</text>
+  <text class="td-dim" x="132" y="127">45.1</text>
+  <text class="td-vsi-dim" x="184" y="127">/vsisubfile/9258_1024,ds.zip</text>
+  <text class="skip-label" x="370" y="127">✗</text>
+
+  <!-- Row 2 — fails filter -->
+  <rect x="20" y="136" width="360" height="26" rx="0" fill="#fff"/>
+  <text class="td-dim" x="36" y="153">2</text>
+  <text class="td-dim" x="76" y="153">val</text>
+  <text class="td-dim" x="132" y="153">82.0</text>
+  <text class="td-vsi-dim" x="184" y="153">/vsisubfile/10282_1024,ds.zip</text>
+  <text class="skip-label" x="370" y="153">✗</text>
+
+  <!-- Row 3 — passes filter ✓ -->
+  <rect x="20" y="162" width="360" height="26" rx="0" fill="#f0fdf4"/>
+  <text class="td" x="36" y="179">3</text>
+  <text class="td" x="76" y="179">train</text>
+  <text class="td" x="132" y="179" fill="#16a34a">7.8</text>
+  <text class="td-vsi" x="184" y="179">/vsisubfile/11306_1024,ds.zip</text>
+  <text class="tag" x="370" y="179" fill="#16a34a">✓</text>
+
+  <!-- Row 4 — fails filter -->
+  <rect x="20" y="188" width="360" height="26" rx="0" fill="#fff"/>
+  <text class="td-dim" x="36" y="205">4</text>
+  <text class="td-dim" x="76" y="205">test</text>
+  <text class="td-dim" x="132" y="205">51.3</text>
+  <text class="td-vsi-dim" x="184" y="205">/vsisubfile/12330_1024,ds.zip</text>
+  <text class="skip-label" x="370" y="205">✗</text>
+
+  <!-- Row 5 — passes filter ✓ -->
+  <rect x="20" y="214" width="360" height="26" rx="0" fill="#f0fdf4"/>
+  <text class="td" x="36" y="231">5</text>
+  <text class="td" x="76" y="231">val</text>
+  <text class="td" x="132" y="231" fill="#16a34a">1.4</text>
+  <text class="td-vsi" x="184" y="231">/vsisubfile/13354_1024,ds.zip</text>
+  <text class="tag" x="370" y="231" fill="#16a34a">✓</text>
+
+  <!-- Ellipsis rows -->
+  <rect x="20" y="240" width="360" height="22" rx="0" fill="#fff"/>
+  <text class="td-dim" x="200" y="255" text-anchor="middle">…</text>
+
+  <!-- Row N-1 — passes filter ✓ -->
+  <rect x="20" y="262" width="360" height="26" rx="0" fill="#f0fdf4"/>
+  <text class="td" x="36" y="279">N-1</text>
+  <text class="td" x="76" y="279">train</text>
+  <text class="td" x="132" y="279" fill="#16a34a">0.5</text>
+  <text class="td-vsi" x="184" y="279">/vsisubfile/98234_1024,ds.zip</text>
+  <text class="tag" x="370" y="279" fill="#16a34a">✓</text>
+
+  <!-- Bottom border -->
+  <line x1="20" y1="290" x2="380" y2="290" stroke="#e2e8f0" stroke-width="1"/>
+</svg>

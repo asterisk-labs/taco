@@ -1,0 +1,28 @@
+<section id="problem">
+  <div class="col-text">
+    <div class="section-label">The Problem</div>
+    <h2>AI4EO datasets have no standard packaging</h2>
+    <p>
+      Earth Observation datasets for machine learning need data and metadata
+      together. Users filter by cloud cover, region, time, split, solar zenith,
+      and dozens of other variables before loading a single pixel. No existing
+      format packages data, metadata, and structure as a queryable portable unit.
+    </p>
+    <p>
+      <strong>STAC</strong> stores one JSON per sample — a million samples, a
+      million files. <strong>STAC-GeoParquet</strong> fixes queries but flattens
+      the hierarchy and doesn't bundle data. <strong>TACO</strong> solves both.
+    </p>
+    <table>
+      <tr><th></th><th>STAC</th><th>STAC-GP</th><th>TACO</th></tr>
+      <tr><td>Queryable without server</td><td class="no">No</td><td class="yes">Yes</td><td class="yes">Yes</td></tr>
+      <tr><td>Hierarchical samples</td><td class="yes">Yes</td><td class="no">No</td><td class="yes">Yes</td></tr>
+      <tr><td>Structural validation</td><td class="no">No</td><td class="no">No</td><td class="yes">Yes</td></tr>
+      <tr><td>Random access <code>dataset[i]</code></td><td class="no">No</td><td class="yes">O(1)</td><td class="yes">O(1)</td></tr>
+      <tr><td>Access method</td><td>Crawl JSONs + HTTP</td><td>Parquet + HTTP</td><td>Parquet + GDAL VSI</td></tr>
+    </table>
+  </div>
+  <div class="col-visual">
+    <img src="assets/problem.svg" alt="Data tree comparison: STAC vs STAC-GeoParquet vs TACO">
+  </div>
+</section>

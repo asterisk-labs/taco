@@ -1,0 +1,127 @@
+<svg width="100%" viewBox="0 0 400 700" xmlns="http://www.w3.org/2000/svg">
+<style>
+  .name { font: 500 15px 'Segoe UI', system-ui, sans-serif; fill: #1a1a1a; }
+  .lab { font: 400 12px 'Segoe UI', system-ui, sans-serif; fill: #666; }
+</style>
+<defs>
+<marker id="a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+<path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+</marker>
+</defs>
+
+<!-- ===== STAC ===== -->
+<text class="name" x="200" y="22" text-anchor="middle">STAC</text>
+
+<!-- Catalog -->
+<circle cx="200" cy="56" r="16" fill="#FFB3B3" stroke="#D08080" stroke-width="1"/>
+<!-- Collections -->
+<circle cx="110" cy="120" r="15" fill="#B8E6B8" stroke="#7CB87C" stroke-width="1"/>
+<circle cx="290" cy="120" r="15" fill="#B8E6B8" stroke="#7CB87C" stroke-width="1"/>
+<!-- Catalog → Collections -->
+<line x1="188" y1="68" x2="119" y2="107" stroke="#999" stroke-width="0.8" marker-end="url(#a)"/>
+<line x1="212" y1="68" x2="281" y2="107" stroke="#999" stroke-width="0.8" marker-end="url(#a)"/>
+
+<!-- Items — clearly under each collection, none between -->
+<!-- Under Collection1 -->
+<circle cx="65" cy="190" r="14" fill="#D4B8E8" stroke="#A888C0" stroke-width="1"/>
+<circle cx="110" cy="190" r="14" fill="#D4B8E8" stroke="#A888C0" stroke-width="1"/>
+<!-- Under Collection2 -->
+<circle cx="290" cy="190" r="14" fill="#D4B8E8" stroke="#A888C0" stroke-width="1"/>
+<circle cx="335" cy="190" r="14" fill="#D4B8E8" stroke="#A888C0" stroke-width="1"/>
+<!-- Catalog → Item directly (far right, no overlap) -->
+<circle cx="155" cy="190" r="14" fill="#D4B8E8" stroke="#A888C0" stroke-width="1"/>
+
+<!-- Collection1 → Items -->
+<line x1="101" y1="133" x2="70" y2="176" stroke="#999" stroke-width="0.7" marker-end="url(#a)"/>
+<line x1="110" y1="135" x2="110" y2="176" stroke="#999" stroke-width="0.7" marker-end="url(#a)"/>
+<!-- Collection2 → Items -->
+<line x1="290" y1="135" x2="290" y2="176" stroke="#999" stroke-width="0.7" marker-end="url(#a)"/>
+<line x1="299" y1="133" x2="330" y2="176" stroke="#999" stroke-width="0.7" marker-end="url(#a)"/>
+<!-- Catalog → Item directly -->
+<line x1="200" y1="72" x2="158" y2="176" stroke="#999" stroke-width="0.7" marker-end="url(#a)" opacity="0.6"/>
+<!-- Cross-links (curves that go wide to avoid nodes) -->
+<path d="M280 132 Q250 190 164 186" fill="none" stroke="#999" stroke-width="0.6" marker-end="url(#a)" opacity="0.45"/>
+<path d="M119 133 Q200 210 281 200" fill="none" stroke="#999" stroke-width="0.6" marker-end="url(#a)" opacity="0.45"/>
+
+<!-- Assets — inconsistent -->
+<circle cx="52" cy="250" r="11" fill="#FFE6A3" stroke="#D8C060" stroke-width="0.8"/>
+<circle cx="78" cy="250" r="11" fill="#FFE6A3" stroke="#D8C060" stroke-width="0.8"/>
+<circle cx="112" cy="250" r="11" fill="#FFE6A3" stroke="#D8C060" stroke-width="0.8"/>
+<circle cx="335" cy="250" r="11" fill="#FFE6A3" stroke="#D8C060" stroke-width="0.8"/>
+
+<line x1="60" y1="204" x2="54" y2="239" stroke="#999" stroke-width="0.6" marker-end="url(#a)"/>
+<line x1="70" y1="204" x2="76" y2="239" stroke="#999" stroke-width="0.6" marker-end="url(#a)"/>
+<line x1="110" y1="204" x2="111" y2="239" stroke="#999" stroke-width="0.6" marker-end="url(#a)"/>
+<line x1="335" y1="204" x2="335" y2="239" stroke="#999" stroke-width="0.6" marker-end="url(#a)"/>
+
+<!-- ===== STAC-GeoParquet ===== -->
+<text class="name" x="200" y="300" text-anchor="middle">STAC-GeoParquet</text>
+
+<!-- Root -->
+<circle cx="200" cy="332" r="16" fill="#FFB3B3" stroke="#D08080" stroke-width="1"/>
+
+<!-- Items flat -->
+<circle cx="80" cy="404" r="14" fill="#D4B8E8" stroke="#A888C0" stroke-width="1"/>
+<circle cx="140" cy="404" r="14" fill="#D4B8E8" stroke="#A888C0" stroke-width="1"/>
+<circle cx="200" cy="404" r="14" fill="#D4B8E8" stroke="#A888C0" stroke-width="1"/>
+<circle cx="260" cy="404" r="14" fill="#D4B8E8" stroke="#A888C0" stroke-width="1"/>
+<circle cx="320" cy="404" r="14" fill="#D4B8E8" stroke="#A888C0" stroke-width="1"/>
+
+<!-- Root → Items -->
+<line x1="188" y1="345" x2="85" y2="390" stroke="#999" stroke-width="0.7" marker-end="url(#a)"/>
+<line x1="192" y1="346" x2="143" y2="390" stroke="#999" stroke-width="0.7" marker-end="url(#a)"/>
+<line x1="200" y1="348" x2="200" y2="390" stroke="#999" stroke-width="0.7" marker-end="url(#a)"/>
+<line x1="208" y1="346" x2="257" y2="390" stroke="#999" stroke-width="0.7" marker-end="url(#a)"/>
+<line x1="212" y1="345" x2="315" y2="390" stroke="#999" stroke-width="0.7" marker-end="url(#a)"/>
+
+<!-- ===== TACO ===== -->
+<text class="name" x="200" y="455" text-anchor="middle">TACO</text>
+
+<!-- Collection -->
+<circle cx="200" cy="484" r="16" fill="#FFB3B3" stroke="#D08080" stroke-width="1"/>
+
+<!-- Samples -->
+<circle cx="110" cy="540" r="15" fill="#D4B8E8" stroke="#A888C0" stroke-width="1"/>
+<circle cx="200" cy="540" r="15" fill="#D4B8E8" stroke="#A888C0" stroke-width="1"/>
+<circle cx="290" cy="540" r="15" fill="#D4B8E8" stroke="#A888C0" stroke-width="1"/>
+
+<!-- Collection → Samples -->
+<line x1="190" y1="498" x2="118" y2="526" stroke="#888" stroke-width="0.8" marker-end="url(#a)"/>
+<line x1="200" y1="500" x2="200" y2="525" stroke="#888" stroke-width="0.8" marker-end="url(#a)"/>
+<line x1="210" y1="498" x2="282" y2="526" stroke="#888" stroke-width="0.8" marker-end="url(#a)"/>
+
+<!-- Assets + Folders — uniform -->
+<circle cx="85" cy="594" r="11" fill="#FFE6A3" stroke="#D8C060" stroke-width="0.8"/>
+<circle cx="110" cy="594" r="11" fill="#FFE6A3" stroke="#D8C060" stroke-width="0.8"/>
+<circle cx="135" cy="594" r="11" fill="#FFE6A3" stroke="#D8C060" stroke-width="0.8" stroke-dasharray="2 1.5"/>
+<circle cx="175" cy="594" r="11" fill="#FFE6A3" stroke="#D8C060" stroke-width="0.8"/>
+<circle cx="200" cy="594" r="11" fill="#FFE6A3" stroke="#D8C060" stroke-width="0.8"/>
+<circle cx="225" cy="594" r="11" fill="#FFE6A3" stroke="#D8C060" stroke-width="0.8" stroke-dasharray="2 1.5"/>
+<circle cx="265" cy="594" r="11" fill="#FFE6A3" stroke="#D8C060" stroke-width="0.8"/>
+<circle cx="290" cy="594" r="11" fill="#FFE6A3" stroke="#D8C060" stroke-width="0.8"/>
+<circle cx="315" cy="594" r="11" fill="#FFE6A3" stroke="#D8C060" stroke-width="0.8" stroke-dasharray="2 1.5"/>
+
+<!-- Sample → Assets/Folders -->
+<line x1="102" y1="554" x2="87" y2="583" stroke="#888" stroke-width="0.7" marker-end="url(#a)"/>
+<line x1="110" y1="555" x2="110" y2="583" stroke="#888" stroke-width="0.7" marker-end="url(#a)"/>
+<line x1="118" y1="554" x2="133" y2="583" stroke="#888" stroke-width="0.7" marker-end="url(#a)"/>
+<line x1="192" y1="554" x2="177" y2="583" stroke="#888" stroke-width="0.7" marker-end="url(#a)"/>
+<line x1="200" y1="555" x2="200" y2="583" stroke="#888" stroke-width="0.7" marker-end="url(#a)"/>
+<line x1="208" y1="554" x2="223" y2="583" stroke="#888" stroke-width="0.7" marker-end="url(#a)"/>
+<line x1="282" y1="554" x2="267" y2="583" stroke="#888" stroke-width="0.7" marker-end="url(#a)"/>
+<line x1="290" y1="555" x2="290" y2="583" stroke="#888" stroke-width="0.7" marker-end="url(#a)"/>
+<line x1="298" y1="554" x2="313" y2="583" stroke="#888" stroke-width="0.7" marker-end="url(#a)"/>
+
+<!-- ===== LEGEND (2 rows, spaced) ===== -->
+<circle cx="80" cy="660" r="7" fill="#FFB3B3" stroke="#D08080" stroke-width="0.7"/>
+<text class="lab" x="92" y="664">Catalog / Collection</text>
+<circle cx="250" cy="660" r="7" fill="#B8E6B8" stroke="#7CB87C" stroke-width="0.7"/>
+<text class="lab" x="262" y="664">Collection (STAC)</text>
+
+<circle cx="80" cy="690" r="7" fill="#D4B8E8" stroke="#A888C0" stroke-width="0.7"/>
+<text class="lab" x="92" y="694">Item / Sample</text>
+<circle cx="205" cy="690" r="7" fill="#FFE6A3" stroke="#D8C060" stroke-width="0.7"/>
+<text class="lab" x="217" y="694">Asset</text>
+<circle cx="270" cy="690" r="7" fill="#FFE6A3" stroke="#D8C060" stroke-width="0.7" stroke-dasharray="2 1.5"/>
+<text class="lab" x="282" y="694">Folder</text>
+</svg>

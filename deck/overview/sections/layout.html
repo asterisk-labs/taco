@@ -1,0 +1,28 @@
+<section id="layout">
+  <div class="col-text">
+    <div class="section-label">Physical Layout</div>
+    <h2>How it looks on disk</h2>
+    <p>
+      <code>COLLECTION.json</code> stores the contract and dataset-level fields
+      like license, providers, and spatial extent. <code>DATA/</code> holds the
+      files — samples are numbered <code>0, 1, 2, …, N-1</code>, and the path
+      to any file is predictable from the index and the contract alone.
+    </p>
+    <p>
+      Metadata lives in Parquet files, one per level of the hierarchy.
+      <code>collection.parquet</code> has one row per sample.
+      <code>sample.parquet</code> has one row per child inside each sample.
+      If the structure has subfolders like <code>before/</code> and
+      <code>after/</code>, each gets its own Parquet with one row per file
+      inside it.
+    </p>
+    <p>
+      A TACO dataset can exist as a <strong>FOLDER</strong> (plain directory,
+      supports incremental append) or as a <strong>cloud-optimized ZIP</strong>
+      (single archive, immutable, byte-range accessible).
+    </p>
+  </div>
+  <div class="col-visual">
+    <img src="assets/layout.svg" alt="TACO dataset directory structure: DATA/, METADATA/, and COLLECTION.json">
+  </div>
+</section>

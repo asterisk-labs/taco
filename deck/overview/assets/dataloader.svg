@@ -1,0 +1,224 @@
+<svg viewBox="0 0 480 395" width="100%" xmlns="http://www.w3.org/2000/svg">
+  <style>
+    .code { font: 400 8.5px 'JetBrains Mono', monospace; }
+    .kw { fill: #7c3aed; } .fn { fill: #2563eb; } .str { fill: #059669; }
+    .var { fill: #1f2937; } .op { fill: #64748b; } .cls { fill: #dc2626; }
+    .col-head { font: 700 9px 'Segoe UI', sans-serif; text-anchor: middle; }
+    .mono-sm { font: 600 8.5px 'JetBrains Mono', monospace; text-anchor: middle; }
+    .wlabel { font: 500 7.5px 'JetBrains Mono', monospace; fill: #2563eb; text-anchor: middle; }
+    .sub { font: 400 7px 'JetBrains Mono', monospace; fill: #94a3b8; text-anchor: middle; }
+    .taco-tag { font: 700 7px 'Segoe UI', sans-serif; fill: #f59e0b; letter-spacing: 1px; text-anchor: middle; }
+    .arrow { stroke: #cbd5e1; stroke-width: 1; fill: none; marker-end: url(#a); }
+
+    .ip0, .ip1, .ip2, .ip3, .fl0, .fl1, .fl2, .fl3, .d0, .d1, .d2, .d3, .bla {
+      transform-box: fill-box;
+      transform-origin: center;
+    }
+
+    /* Sampler: appears, travels to worker, disappears on arrival */
+    @keyframes ip {
+      0%, 2% { opacity: 0; transform: scale(0.85); }
+      8% { opacity: 1; transform: scale(1); }
+      20% { opacity: 1; }
+      25% { opacity: 0; }
+      100% { opacity: 0; }
+    }
+
+    /* Worker: lights up when sample arrives (15%), stays lit until tile leaves for collate (65%) */
+    @keyframes wp {
+      0%, 12% { fill: #fff; stroke: #e2e8f0; }
+      15% { fill: #dbeafe; stroke: #60a5fa; }
+      60% { fill: #eff6ff; stroke: #93c5fd; }
+      65% { fill: #fff; stroke: #e2e8f0; }
+      100% { fill: #fff; stroke: #e2e8f0; }
+    }
+
+    /* Tiles: appear at worker, fly horizontal then converge, shrink into cube */
+    @keyframes fly0 {
+      0%, 40% { opacity: 0; transform: translate(0, 0) scale(0.9); }
+      45% { opacity: 1; transform: translate(0, 0) scale(1); }
+      55% { opacity: 1; transform: translate(45px, 0) scale(1); }
+      65% { opacity: 0; transform: translate(110px, 32px) scale(0.5); }
+      100% { opacity: 0; }
+    }
+    @keyframes fly1 {
+      0%, 42% { opacity: 0; transform: translate(0, 0) scale(0.9); }
+      47% { opacity: 1; transform: translate(0, 0) scale(1); }
+      57% { opacity: 1; transform: translate(45px, 0) scale(1); }
+      67% { opacity: 0; transform: translate(110px, 0px) scale(0.5); }
+      100% { opacity: 0; }
+    }
+    @keyframes fly2 {
+      0%, 44% { opacity: 0; transform: translate(0, 0) scale(0.9); }
+      49% { opacity: 1; transform: translate(0, 0) scale(1); }
+      59% { opacity: 1; transform: translate(45px, 0) scale(1); }
+      69% { opacity: 0; transform: translate(110px, -32px) scale(0.5); }
+      100% { opacity: 0; }
+    }
+    @keyframes fly3 {
+      0%, 46% { opacity: 0; transform: translate(0, 0) scale(0.9); }
+      51% { opacity: 1; transform: translate(0, 0) scale(1); }
+      61% { opacity: 1; transform: translate(45px, 0) scale(1); }
+      71% { opacity: 0; transform: translate(110px, -64px) scale(0.5); }
+      100% { opacity: 0; }
+    }
+
+    /* Cube layers: appear and STAY visible much longer */
+    @keyframes ld0 {
+      0%, 60% { opacity: 0; transform: translateY(-12px) scale(0.95); }
+      68% { opacity: 1; transform: translateY(0) scale(1); }
+      92% { opacity: 1; }
+      98%, 100% { opacity: 0; transform: translateY(6px) scale(0.95); }
+    }
+    @keyframes ld1 {
+      0%, 62% { opacity: 0; transform: translateY(-12px) scale(0.95); }
+      70% { opacity: 1; transform: translateY(0) scale(1); }
+      92% { opacity: 1; }
+      98%, 100% { opacity: 0; transform: translateY(6px) scale(0.95); }
+    }
+    @keyframes ld2 {
+      0%, 64% { opacity: 0; transform: translateY(-12px) scale(0.95); }
+      72% { opacity: 1; transform: translateY(0) scale(1); }
+      92% { opacity: 1; }
+      98%, 100% { opacity: 0; transform: translateY(6px) scale(0.95); }
+    }
+    @keyframes ld3 {
+      0%, 66% { opacity: 0; transform: translateY(-12px) scale(0.95); }
+      74% { opacity: 1; transform: translateY(0) scale(1); }
+      92% { opacity: 1; }
+      98%, 100% { opacity: 0; transform: translateY(6px) scale(0.95); }
+    }
+
+    /* Batch label: stays visible longer too */
+    @keyframes bl {
+      0%, 72% { opacity: 0; transform: translateY(6px); }
+      78% { opacity: 1; transform: translateY(0); }
+      92% { opacity: 1; }
+      98%, 100% { opacity: 0; transform: translateY(-4px); }
+    }
+
+    @keyframes gh {
+      0%, 12% { fill: transparent; }
+      15%, 60% { fill: #eef2ff; }
+      65%, 100% { fill: transparent; }
+    }
+
+    .ip0 { animation: ip 6s ease-in-out infinite; opacity: 0; }
+    .ip1 { animation: ip 6s ease-in-out .08s infinite; opacity: 0; }
+    .ip2 { animation: ip 6s ease-in-out .16s infinite; opacity: 0; }
+    .ip3 { animation: ip 6s ease-in-out .24s infinite; opacity: 0; }
+
+    .wp0 { animation: wp 6s ease-in-out infinite; }
+    .wp1 { animation: wp 6s ease-in-out .08s infinite; }
+    .wp2 { animation: wp 6s ease-in-out .16s infinite; }
+    .wp3 { animation: wp 6s ease-in-out .24s infinite; }
+
+    .fl0 { animation: fly0 6s ease-in-out infinite; opacity: 0; }
+    .fl1 { animation: fly1 6s ease-in-out infinite; opacity: 0; }
+    .fl2 { animation: fly2 6s ease-in-out infinite; opacity: 0; }
+    .fl3 { animation: fly3 6s ease-in-out infinite; opacity: 0; }
+
+    .d0 { animation: ld0 6s cubic-bezier(0.2, 0.8, 0.2, 1) infinite; opacity: 0; }
+    .d1 { animation: ld1 6s cubic-bezier(0.2, 0.8, 0.2, 1) infinite; opacity: 0; }
+    .d2 { animation: ld2 6s cubic-bezier(0.2, 0.8, 0.2, 1) infinite; opacity: 0; }
+    .d3 { animation: ld3 6s cubic-bezier(0.2, 0.8, 0.2, 1) infinite; opacity: 0; }
+
+    .bla { animation: bl 6s ease-out infinite; opacity: 0; }
+    .ghl { animation: gh 6s ease-in-out infinite; }
+  </style>
+
+  <defs>
+    <marker id="a" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="5" markerHeight="5" orient="auto">
+      <path d="M0 0 L8 4 L0 8 Z" fill="#cbd5e1"/>
+    </marker>
+  </defs>
+
+  <!-- ═══ CODE ═══ -->
+  <rect x="8" y="6" width="464" height="160" rx="6" fill="#fff"/>
+  <text class="code kw" x="16" y="22">class <tspan class="cls">TACODataset</tspan><tspan class="op">(</tspan><tspan class="cls">Dataset</tspan><tspan class="op">):</tspan></text>
+  <text class="code" x="40" y="38"><tspan class="kw">def </tspan><tspan class="fn">__init__</tspan><tspan class="op">(</tspan><tspan class="var">self</tspan><tspan class="op">, </tspan><tspan class="var">path</tspan><tspan class="op">):</tspan></text>
+  <text class="code" x="64" y="52"><tspan class="var">self.df</tspan><tspan class="op"> = </tspan><tspan class="var">pd</tspan><tspan class="op">.</tspan><tspan class="fn">read_parquet</tspan><tspan class="op">(</tspan><tspan class="var">path</tspan><tspan class="op">)</tspan></text>
+  <rect class="ghl" x="34" y="60" width="420" height="44" rx="4"/>
+  <text class="code" x="40" y="74"><tspan class="kw">def </tspan><tspan class="fn">__getitem__</tspan><tspan class="op">(</tspan><tspan class="var">self</tspan><tspan class="op">, </tspan><tspan class="var">idx</tspan><tspan class="op">):</tspan></text>
+  <text class="code" x="64" y="88"><tspan class="var">row</tspan><tspan class="op"> = </tspan><tspan class="var">self.df</tspan><tspan class="op">.</tspan><tspan class="fn">iloc</tspan><tspan class="op">[</tspan><tspan class="var">idx</tspan><tspan class="op">]</tspan></text>
+  <text class="code" x="64" y="102"><tspan class="kw">return </tspan><tspan class="var">rasterio</tspan><tspan class="op">.</tspan><tspan class="fn">open</tspan><tspan class="op">(</tspan><tspan class="var">row.vsi_path</tspan><tspan class="op">).</tspan><tspan class="fn">read</tspan><tspan class="op">()</tspan></text>
+  <text class="code" x="40" y="122"><tspan class="kw">def </tspan><tspan class="fn">__len__</tspan><tspan class="op">(</tspan><tspan class="var">self</tspan><tspan class="op">):</tspan></text>
+  <text class="code" x="64" y="136"><tspan class="kw">return </tspan><tspan class="fn">len</tspan><tspan class="op">(</tspan><tspan class="var">self.df</tspan><tspan class="op">)</tspan></text>
+  <text class="code" x="16" y="152"><tspan class="var">ds</tspan><tspan class="op"> = </tspan><tspan class="cls">TACODataset</tspan><tspan class="op">(</tspan><tspan class="str">"collection.parquet"</tspan><tspan class="op">)</tspan></text>
+  <text class="code" x="16" y="164"><tspan class="var">loader</tspan><tspan class="op"> = </tspan><tspan class="cls">DataLoader</tspan><tspan class="op">(</tspan><tspan class="var">ds</tspan><tspan class="op">, </tspan><tspan class="var">batch_size</tspan><tspan class="op">=</tspan><tspan class="var">4</tspan><tspan class="op">, </tspan><tspan class="var">num_workers</tspan><tspan class="op">=</tspan><tspan class="var">4</tspan><tspan class="op">)</tspan></text>
+
+  <!-- ═══ PIPELINE ═══ -->
+  <line x1="12" y1="185" x2="220" y2="185" stroke="#f59e0b" stroke-width="1.5" stroke-dasharray="4 2"/>
+  <text class="taco-tag" x="116" y="182">TACO HANDLES THIS</text>
+
+  <text class="col-head" x="38" y="200" fill="#7c3aed">Sampler</text>
+  <text class="col-head" x="155" y="200" fill="#2563eb">__getitem__</text>
+  <text class="sub" x="155" y="209">rasterio.open(vsi)</text>
+  <text class="col-head" x="410" y="200" fill="#059669">collate_fn</text>
+  <text class="sub" x="410" y="209">torch.stack()</text>
+
+  <!-- Sampler: disappears once reaching workers -->
+  <rect class="ip0" x="10" y="216" width="55" height="20" rx="4" fill="#ede9fe" stroke="#c4b5fd" stroke-width="1"/>
+  <text class="mono-sm ip0" x="38" y="230" fill="#5b21b6">102</text>
+  <rect class="ip1" x="10" y="250" width="55" height="20" rx="4" fill="#ede9fe" stroke="#c4b5fd" stroke-width="1"/>
+  <text class="mono-sm ip1" x="38" y="264" fill="#5b21b6">45</text>
+  <rect class="ip2" x="10" y="284" width="55" height="20" rx="4" fill="#ede9fe" stroke="#c4b5fd" stroke-width="1"/>
+  <text class="mono-sm ip2" x="38" y="298" fill="#5b21b6">8</text>
+  <rect class="ip3" x="10" y="318" width="55" height="20" rx="4" fill="#ede9fe" stroke="#c4b5fd" stroke-width="1"/>
+  <text class="mono-sm ip3" x="38" y="332" fill="#5b21b6">310</text>
+
+  <line class="arrow" x1="67" y1="226" x2="88" y2="226"/>
+  <line class="arrow" x1="67" y1="260" x2="88" y2="260"/>
+  <line class="arrow" x1="67" y1="294" x2="88" y2="294"/>
+  <line class="arrow" x1="67" y1="328" x2="88" y2="328"/>
+
+  <!-- Workers: blue from sample arrival until tile leaves -->
+  <rect class="wp0" x="90" y="216" width="130" height="20" rx="4" stroke-width="1"/>
+  <text class="wlabel" x="155" y="230">Worker 0</text>
+  <rect class="wp1" x="90" y="250" width="130" height="20" rx="4" stroke-width="1"/>
+  <text class="wlabel" x="155" y="264">Worker 1</text>
+  <rect class="wp2" x="90" y="284" width="130" height="20" rx="4" stroke-width="1"/>
+  <text class="wlabel" x="155" y="298">Worker 2</text>
+  <rect class="wp3" x="90" y="318" width="130" height="20" rx="4" stroke-width="1"/>
+  <text class="wlabel" x="155" y="332">Worker 3</text>
+
+  <line class="arrow" x1="222" y1="226" x2="242" y2="226"/>
+  <line class="arrow" x1="222" y1="260" x2="242" y2="260"/>
+  <line class="arrow" x1="222" y1="294" x2="242" y2="294"/>
+  <line class="arrow" x1="222" y1="328" x2="242" y2="328"/>
+
+  <!-- Flying tiles -->
+  <rect class="fl0" x="244" y="220" width="14" height="14" rx="2" fill="#93c5fd"/>
+  <rect class="fl1" x="244" y="254" width="14" height="14" rx="2" fill="#86efac"/>
+  <rect class="fl2" x="244" y="288" width="14" height="14" rx="2" fill="#c4b5fd"/>
+  <rect class="fl3" x="244" y="322" width="14" height="14" rx="2" fill="#fdba74"/>
+
+  <!-- Cube: stays visible much longer -->
+  <g transform="translate(378, 250)">
+    <g class="d0">
+      <path d="M0 52 L30 34 L60 52 L30 70 Z" fill="#93c5fd"/>
+      <path d="M0 52 L0 60 L30 78 L30 70 Z" fill="#7db8fc"/>
+      <path d="M60 52 L60 60 L30 78 L30 70 Z" fill="#60a5fa"/>
+    </g>
+    <g class="d1">
+      <path d="M0 36 L30 18 L60 36 L30 54 Z" fill="#86efac"/>
+      <path d="M0 36 L0 44 L30 62 L30 54 Z" fill="#6ee79a"/>
+      <path d="M60 36 L60 44 L30 62 L30 54 Z" fill="#4ade80"/>
+    </g>
+    <g class="d2">
+      <path d="M0 20 L30 2 L60 20 L30 38 Z" fill="#c4b5fd"/>
+      <path d="M0 20 L0 28 L30 46 L30 38 Z" fill="#b3a0f0"/>
+      <path d="M60 20 L60 28 L30 46 L30 38 Z" fill="#a28de5"/>
+    </g>
+    <g class="d3">
+      <path d="M0 4 L30 -14 L60 4 L30 22 Z" fill="#fdba74"/>
+      <path d="M0 4 L0 12 L30 30 L30 22 Z" fill="#f0a860"/>
+      <path d="M60 4 L60 12 L30 30 L30 22 Z" fill="#e09850"/>
+    </g>
+  </g>
+
+  <!-- Batch label: stays visible longer -->
+  <g class="bla">
+    <text style="font: 700 11px 'JetBrains Mono', monospace; fill: #16a34a; text-anchor: middle;" x="408" y="380">[4, C, H, W]</text>
+  </g>
+</svg>

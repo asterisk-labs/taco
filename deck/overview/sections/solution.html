@@ -1,0 +1,27 @@
+<section id="solution">
+  <div class="col-text">
+    <div class="section-label">The Solution</div>
+    <h2>Declare a contract, build your dataset</h2>
+    <p>
+      Before writing a single byte, you declare a <strong>contract</strong> that
+      fixes the shape of your dataset. Every sample obeys this contract. It has
+      two parts.
+    </p>
+    <p>
+      The <strong>structure (σ)</strong> defines the file tree inside each
+      sample — which files and folders exist, their names, and their nesting.
+      Every sample shares the exact same tree.
+    </p>
+    <p>
+      The <strong>metadata (μ)</strong> defines what fields exist at each
+      level of the hierarchy. Each non-leaf level generates its own Parquet
+      table, queryable with SQL — no server needed.
+    </p>
+    <p>
+      A TACO dataset is valid when every sample satisfies both: <strong>contract = σ ∧ μ</strong>.
+    </p>
+  </div>
+  <div class="col-visual">
+    <div class="anim-svg" data-svg="assets/solution.svg" style="width:100%"></div>
+  </div>
+</section>

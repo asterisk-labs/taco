@@ -1,0 +1,123 @@
+<section id="how-it-works" data-substeps="4">
+
+  <!-- Breadcrumb — always visible -->
+  <div class="pipeline-bar">
+    <span class="pip active" data-step="0">COZ</span>
+    <span class="pip-arrow">→</span>
+    <span class="pip" data-step="1">Parquet</span>
+    <span class="pip-arrow">→</span>
+    <span class="pip" data-step="2">VSI</span>
+    <span class="pip-arrow">→</span>
+    <span class="pip" data-step="3">data</span>
+  </div>
+
+  <!-- Sub-slide 0: Cloud-Optimized ZIP -->
+  <div class="substep" data-step="0">
+    <div class="col-text">
+      <div class="section-label">How It Works · Step 1</div>
+      <h2>The problem with normal ZIP</h2>
+      <p>
+        A ZIP stores its file index, the Central Directory, at the end of
+        the archive. For a dataset with one million samples and three files
+        each, the CD alone weighs around 200 MB. To open anything remotely,
+        you have to fetch those 200 MB from the tail first. This is why many
+        people assume ZIP is slow for large datasets.
+      </p>
+      <h2>Cloud-optimized ZIP flips this</h2>
+      <p>
+        A small JSON index at byte 0 stores offsets to a handful of key
+        files. In TACO, those are the Parquets in <code>METADATA/</code>
+        and <code>COLLECTION.json</code>. A few kilobytes instead of
+        hundreds of megabytes.
+      </p>
+      <p>
+        Once you reach the Parquets, you have pointers to every data file
+        in the archive. The CD at the end becomes irrelevant.
+      </p>
+      <p class="note-dim">FOLDER mode skips this step.</p>
+    </div>
+    <div class="col-visual" style="justify-content:flex-end;">
+      <img src="assets/coz.svg" alt="Normal ZIP vs Cloud-Optimized ZIP" style="width:100%">
+    </div>
+  </div>
+
+  <!-- Sub-slide 1: Parquet -->
+  <div class="substep" data-step="1" style="display:none">
+    <div class="col-text">
+      <div class="section-label">How It Works · Step 2</div>
+      <h2>Metadata loads once, access is instant</h2>
+      <p>
+        When you open a TACO dataset, the reader loads the Parquet files
+        from <code>METADATA/</code> into in-memory tables. Even for one
+        million samples, the files are small on disk, so this takes a
+        moment. It happens once.
+      </p>
+      <p>
+        After that, every sample is a direct row lookup. Filtering by cloud
+        cover, split, or region scans an in-memory table. Random access in
+        microseconds.
+      </p>
+      <p>
+        Each row represents a node in the sample tree. When the node is a
+        file, the reader builds a VSI path, a pointer to the exact bytes
+        on disk or cloud.
+      </p>
+    </div>
+    <div class="col-visual" style="justify-content:flex-end;">
+      <img src="assets/parquet.svg" alt="Parquet predicate pushdown" style="width:100%">
+    </div>
+  </div>
+
+  <!-- Sub-slide 2: VSI Paths -->
+  <div class="substep" data-step="2" style="display:none">
+    <div class="col-text">
+      <div class="section-label">How It Works · Step 3</div>
+      <h2>From filtered rows to raw bytes</h2>
+      <p>
+        Each row that passed the filter carries a VSI path. Think of it as
+        a URL that works for anything, not just HTTP.
+        <code>/vsicurl/</code> reads over HTTP. <code>/vsis3/</code> reads
+        from S3. <code>/vsisubfile/</code> reads a byte range from any
+        source.
+      </p>
+      <p>
+        These paths are chainable.
+        <code>/vsisubfile/8234_1024,/vsicurl/https://hf.co/ds.zip</code>
+        tells the reader: connect to this URL, jump to byte 8234, read
+        1024 bytes. One path, only the bytes you need.
+      </p>
+      <p>
+        FOLDER mode is the same chain without <code>/vsisubfile/</code>.
+        The files are individual, so there is no byte range to resolve.
+        <code>/vsicurl/https://hf.co/DATA/42/before/B02.tif</code> works
+        just as well.
+      </p>
+    </div>
+    <div class="col-visual" style="justify-content:flex-end;">
+      <img src="assets/vsi.svg" alt="VSI path construction" style="width:100%">
+    </div>
+  </div>
+
+  <!-- Sub-slide 3: Data / Dataloader -->
+  <div class="substep" data-step="3" style="display:none">
+    <div class="col-text" style="flex:0 0 38%; max-width:38%">
+      <div class="section-label">How It Works · Step 4</div>
+      <h2>From query to training loop</h2>
+      <p>
+        TACO slots naturally into ML pipelines. Query the metadata, filter
+        the samples you need, iterate. Your dataloader receives VSI paths
+        and reads them.
+      </p>
+      <p>
+        VSI paths work the same whether the dataset is on local disk or on
+        a remote server. Download everything and train offline, or stream
+        directly from cloud storage. The format works either way, you
+        choose what fits your setup.
+      </p>
+    </div>
+    <div class="col-visual" style="justify-content:flex-end;">
+      <div class="anim-svg" data-svg="assets/dataloader.svg" style="width:100%"></div>
+    </div>
+  </div>
+
+</section>

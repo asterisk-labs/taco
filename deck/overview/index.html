@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TACO — Transparent Access to Cloud Optimized Datasets</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+  <link rel="stylesheet" href="css/variables.css">
+  <link rel="stylesheet" href="css/animations.css">
+  <link rel="stylesheet" href="css/hero.css">
+  <link rel="stylesheet" href="css/labels.css">
+  <link rel="stylesheet" href="css/content.css">
+</head>
+<body>
+
+  <!-- ═══ HERO ═══ -->
+  <div class="hero" id="hero">
+    <canvas id="sky"></canvas>
+    <div class="nebula n1"></div>
+    <div class="nebula n2"></div>
+    <div class="nebula n3"></div>
+
+    <div class="label top l1">COG<span class="tip">Cloud Optimized GeoTIFF</span></div>
+    <div class="label bot l2">COZ<span class="tip">Cloud Optimized ZIP</span></div>
+    <div class="label top l3">Parquet<span class="tip">Columnar metadata storage</span></div>
+    <div class="label bot l4">GDAL<span class="tip">Geospatial Data Abstraction Library</span></div>
+    <div class="label top l5">DuckDB<span class="tip">In-process SQL analytics engine</span></div>
+    <div class="label top l6">STAC<span class="tip">SpatioTemporal Asset Catalog</span></div>
+
+    <div class="content">
+      <div class="taco-system">
+        <div class="taco-glow"></div>
+        <div class="morph-center">
+          <div class="taco-emoji">🌮</div>
+          <div class="earth-emoji">🌍</div>
+        </div>
+        <div class="orbit-ring"></div>
+        <div class="sat-orbit">
+          <div class="satellite">🛰️</div>
+        </div>
+      </div>
+      <div class="title-wrap">
+        <div class="title">
+          <span class="title-main">TACO</span>
+          <span class="title-version">v3.0</span>
+        </div>
+        <div class="subtitle">Transparent Access to<br>Cloud Optimized Datasets</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ NAV D-PAD ═══ -->
+  <div class="nav-dpad on-dark" id="nav-dpad">
+    <button class="dpad-key" id="key-up" aria-label="Previous section" disabled>
+      <svg viewBox="0 0 16 16"><polyline points="4 10 8 6 12 10"/></svg>
+    </button>
+    <button class="dpad-key" id="key-left" aria-label="Back" disabled>
+      <svg viewBox="0 0 16 16"><polyline points="10 4 6 8 10 12"/></svg>
+    </button>
+    <button class="dpad-key" id="key-down" aria-label="Next section">
+      <svg viewBox="0 0 16 16"><polyline points="4 6 8 10 12 6"/></svg>
+    </button>
+    <button class="dpad-key" id="key-right" aria-label="Expand" disabled>
+      <svg viewBox="0 0 16 16"><polyline points="6 4 10 8 6 12"/></svg>
+    </button>
+  </div>
+
+  <!-- ═══ CONTENT ═══ -->
+  <main id="main"></main>
+
+  <script src="js/main.js" defer></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <script src="js/nav.js"></script>
+</body>
+</html>

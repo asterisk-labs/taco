@@ -1,0 +1,71 @@
+<svg viewBox="0 0 450 380" width="100%" xmlns="http://www.w3.org/2000/svg">
+  <style>
+    .heading { font: 800 11px 'Segoe UI', sans-serif; letter-spacing: 1px; text-transform: uppercase; fill: #94a3b8; }
+    .mono { font: 600 11px 'JetBrains Mono', monospace; }
+    .mono-sm { font: 400 10px 'JetBrains Mono', monospace; fill: #64748b; }
+    .label { font: 700 10px 'Segoe UI', sans-serif; }
+    .label-dim { font: 400 9px 'Segoe UI', sans-serif; fill: #94a3b8; }
+    .connector { stroke: #cbd5e1; stroke-width: 1.2; fill: none; }
+  </style>
+
+  <text class="heading" x="20" y="25">ZIP mode — chained VSI path</text>
+
+  <rect x="16" y="38" width="418" height="28" rx="6" fill="#f8fafc"/>
+  <text class="mono" x="26" y="56">
+    <tspan fill="#7c3aed">/vsisubfile/</tspan>
+    <tspan fill="#dc2626" x="110">8234</tspan>
+    <tspan fill="#64748b" x="145">_</tspan>
+    <tspan fill="#2563eb" x="165">1024</tspan>
+    <tspan fill="#64748b" x="200">,</tspan>
+    <tspan fill="#059669" x="215">/vsicurl/https://hf.co/ds.zip</tspan>
+  </text>
+
+  <line x1="65" y1="66" x2="65" y2="85" class="connector"/>
+  <text class="label" x="65" y="98" text-anchor="middle" fill="#7c3aed">byte-range</text>
+  <text class="label-dim" x="65" y="108" text-anchor="middle">handler</text>
+
+  <line x1="125" y1="66" x2="125" y2="85" class="connector"/>
+  <text class="label" x="125" y="98" text-anchor="middle" fill="#dc2626">offset</text>
+  <text class="label-dim" x="125" y="108" text-anchor="middle">start byte</text>
+
+  <line x1="180" y1="66" x2="180" y2="85" class="connector"/>
+  <text class="label" x="180" y="98" text-anchor="middle" fill="#2563eb">size</text>
+  <text class="label-dim" x="180" y="108" text-anchor="middle">bytes to read</text>
+
+  <line x1="315" y1="66" x2="315" y2="85" class="connector"/>
+  <text class="label" x="315" y="98" text-anchor="middle" fill="#059669">source</text>
+  <text class="label-dim" x="315" y="108" text-anchor="middle">any protocol</text>
+
+  <text class="label-dim" x="20" y="145">The reader resolves right to left:</text>
+  <g transform="translate(20, 155)">
+    <rect x="0" y="0" width="125" height="26" rx="4" fill="#ecfdf5"/>
+    <text class="mono-sm" x="10" y="17" fill="#059669">connect to URL</text>
+    <text fill="#cbd5e1" x="135" y="17" style="font: bold 12px sans-serif;">→</text>
+
+    <rect x="150" y="0" width="125" height="26" rx="4" fill="#faf5ff"/>
+    <text class="mono-sm" x="160" y="17" fill="#7c3aed">jump to byte 8234</text>
+    <text fill="#cbd5e1" x="285" y="17" style="font: bold 12px sans-serif;">→</text>
+
+    <rect x="300" y="0" width="110" height="26" rx="4" fill="#eff6ff"/>
+    <text class="mono-sm" x="310" y="17" fill="#2563eb">read 1024 bytes</text>
+  </g>
+
+  <line x1="20" y1="210" x2="430" y2="210" stroke="#e2e8f0" stroke-width="1"/>
+
+  <text class="heading" x="20" y="235">FOLDER mode — no byte range needed</text>
+  <rect x="16" y="245" width="418" height="28" rx="6" fill="#f8fafc"/>
+  <text class="mono" x="26" y="263">
+    <tspan fill="#059669">/vsicurl/https://hf.co/</tspan><tspan fill="#1f2937">DATA/42/before/B02.tif</tspan>
+  </text>
+
+  <line x1="120" y1="273" x2="120" y2="290" class="connector"/>
+  <text class="label" x="120" y="303" text-anchor="middle" fill="#059669">protocol</text>
+
+  <line x1="320" y1="273" x2="320" y2="290" class="connector"/>
+  <text class="label" x="320" y="303" text-anchor="middle" fill="#1f2937">direct file path</text>
+  <text class="label-dim" x="320" y="313" text-anchor="middle">index + contract</text>
+
+  <text class="label-dim" x="20" y="345" style="font-weight: 600; fill: #64748b;">Local disk? Even simpler:</text>
+  <rect x="16" y="352" width="280" height="26" rx="6" fill="#f8fafc"/>
+  <text class="mono" x="26" y="369" fill="#1f2937">DATA/42/before/B02.tif</text>
+</svg>

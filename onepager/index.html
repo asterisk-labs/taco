@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TACO v3.0.0 — One Pager</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- PDF BUTTON -->
+  <div class="btn-wrap">
+    <button class="btn-pdf" onclick="window.print()">📄 Get PDF</button>
+  </div>
+
+  <div class="page">
+
+    <!-- ==================== HEADER ==================== -->
+    <div class="header">
+      <div class="header-left">
+        <div style="margin-top:-2px;">
+          <span class="title">🌮 TACO</span>
+          <span class="version">v3.0.0</span>
+        </div>
+        <div class="subtitle">Transparent Access to Cloud-Optimized Datasets</div>
+      </div>
+      <div class="header-right">
+        <div>April 2026 · Specification</div>
+        <div>
+          <span class="tag tag-blue">AI4EO</span>
+          <span class="tag tag-green">Open Source</span>
+          <span class="tag tag-amber">MIT</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== COLUMNS ==================== -->
+    <div class="cols">
+
+      <!-- ========== LEFT COLUMN ========== -->
+      <div>
+
+        <!-- PROBLEM -->
+        <div class="section">
+          <div class="s-label">The Problem</div>
+          <div class="s-title">No standard packaging for AI4EO datasets</div>
+          <p>
+            Every EO benchmark defines its own folder layout, metadata format, and
+            loading logic. PyTorch, Hugging Face, and Grain all assume samples are
+            enumerable, indexable, and structurally uniform, but no format guarantees
+            this. Researchers write custom data loaders for every dataset. At
+            foundation-model scale, this becomes a hard ceiling.
+          </p>
+          <p>
+            <span class="bold">STAC</span> stores one JSON per sample. A million
+            samples means a million files. <span class="bold">STAC-GeoParquet</span>
+            fixes queries but flattens the hierarchy and does not bundle data.
+            Neither provides structural validation or constant-time access to data.
+          </p>
+        </div>
+
+        <!-- SOLUTION -->
+        <div class="section">
+          <div class="s-label">The Solution</div>
+          <div class="s-title">Declare a contract, build your dataset</div>
+          <p>
+            TACO is a specification for packaging AI-ready EO datasets. Before
+            writing any data, you declare a <span class="bold">contract (σ, μ)</span>
+            that fixes the shape of the entire dataset. Every sample is validated
+            against this contract on insertion.
+          </p>
+          <div class="contract-box">
+            <div class="contract-formula">Contract = (σ, μ)</div>
+            <div class="contract-sub">σ = structure tree · μ = metadata schema</div>
+          </div>
+          <p>
+            <span class="bold">Structure (σ)</span> defines the file tree inside
+            each sample. Fixed leaves like <code>B02.tif</code> and variable leaves
+            like <code>img*[4,16].tif</code>. All samples share the same tree.
+          </p>
+          <p>
+            <span class="bold">Metadata (μ)</span> assigns typed fields to every
+            non-leaf node. Each level generates its own Parquet table, queryable
+            with SQL. No server needed.
+          </p>
+        </div>
+
+        <!-- COMPARISON TABLE -->
+        <div class="section">
+          <div class="s-label">Comparison</div>
+          <table>
+            <thead>
+              <tr>
+                <th></th>
+                <th>STAC</th>
+                <th>STAC-GP</th>
+                <th>TACO</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td class="label">Queryable w/o server</td>     <td class="no">✗</td> <td class="yes">✓</td> <td class="yes">✓</td></tr>
+              <tr><td class="label">Hierarchical samples</td>     <td class="yes">✓</td><td class="no">✗</td>  <td class="yes">✓</td></tr>
+              <tr><td class="label">Bundles data + metadata</td>  <td class="no">✗</td> <td class="no">✗</td>  <td class="yes">✓</td></tr>
+              <tr><td class="label">Structural validation</td>    <td class="no">✗</td> <td class="no">✗</td>  <td class="yes">✓</td></tr>
+              <tr><td class="label">Self-contained unit</td>      <td class="no">✗</td> <td class="no">✗</td>  <td class="yes">✓</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- TRADEOFFS -->
+        <div class="section">
+          <div class="s-label">Tradeoffs</div>
+          <p>
+            <span class="bold">Structural immutability.</span> The contract (σ,&nbsp;μ)
+            is fixed at creation time. Adding new file types or metadata fields
+            requires a new dataset version. STAC is maximally flexible: any sample
+            can carry any assets and properties. TACO trades that flexibility for
+            strong guarantees — constant-time access, schema validation, and
+            reproducibility. If your workflow needs per-sample variability, use
+            STAC. If you need datasets that behave like database tables, use TACO.
+          </p>
+        </div>
+
+      </div>
+
+      <!-- ========== RIGHT COLUMN ========== -->
+      <div>
+
+        <!-- HOW IT WORKS -->
+        <div class="section">
+          <div class="s-label">How It Works</div>
+          <div class="s-title">Three technologies, one pipeline</div>
+          <div class="pillars">
+            <div class="pillar">
+              <div class="pillar-icon">📦</div>
+              <div class="pillar-title">Cloud-Optimized ZIP</div>
+              <p class="pillar-text">
+                Index header at byte 0 with offsets to every Parquet file.
+                One range request reads the header. No Central Directory scan.
+              </p>
+            </div>
+            <div class="pillar">
+              <div class="pillar-icon">🗂️</div>
+              <div class="pillar-title">Apache Parquet</div>
+              <p class="pillar-text">
+                Metadata loaded and filtered with SQL. Predicate pushdown
+                skips row groups. Rows contain byte offsets to data files.
+              </p>
+            </div>
+            <div class="pillar">
+              <div class="pillar-icon">🔗</div>
+              <div class="pillar-title">VSI Paths</div>
+              <p class="pillar-text">
+                Offset + size build <code>/vsisubfile/</code> paths.
+                GDAL reads exact bytes. No extraction needed.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- PHYSICAL LAYOUT -->
+        <div class="section">
+          <div class="s-label">Physical Layout</div>
+          <div class="tree">dataset/
+├── COLLECTION.json          ← contract (σ, μ) + dataset metadata
+├── METADATA/
+│   ├── collection.parquet   ← 1 row per sample
+│   ├── sample.parquet       ← 1 row per child per sample
+│   ├── sample__before.parquet
+│   └── sample__after.parquet
+└── DATA/
+    ├── 0/
+    │   ├── before/
+    │   │   ├── B02.tif
+    │   │   └── B03.tif
+    │   ├── after/
+    │   │   ├── B02.tif
+    │   │   └── B03.tif
+    │   └── change_map.tif
+    ├── 1/ ...
+    └── N/ ...</div>
+          <p style="color:#666;">
+            Parquet filenames mirror metadata keys with <code>__</code> replacing
+            <code>/</code>. ZIP and FOLDER containers are interchangeable.
+            Same data, different packaging.
+          </p>
+        </div>
+
+        <!-- SQL CODE -->
+        <div class="section">
+          <div class="s-label">SQL Interface</div>
+<pre><code><span class="kw">INSTALL</span> taco <span class="kw">FROM</span> community;
+<span class="kw">LOAD</span> taco;
+
+<span class="cm">-- All samples, one row per sample, VSI paths as columns</span>
+<span class="kw">SELECT</span> <span class="op">*</span> <span class="kw">FROM</span> <span class="fn">read_taco</span>(<span class="str">'cloudsen12.zip'</span>);
+
+<span class="cm">-- Filter with SQL. Predicate pushdown to Parquet</span>
+<span class="kw">SELECT</span> <span class="op">*</span> <span class="kw">FROM</span> <span class="fn">read_taco</span>(<span class="str">'cloudsen12.zip'</span>)
+ <span class="kw">WHERE</span> cloud_cover <span class="op">&lt;</span> <span class="op">10</span> <span class="kw">AND</span> split <span class="op">=</span> <span class="str">'train'</span>;
+
+<span class="cm">-- Single sample or range</span>
+<span class="kw">SELECT</span> <span class="op">*</span> <span class="kw">FROM</span> <span class="fn">read_taco</span>(<span class="str">'dataset.zip'</span>, idx<span class="op">=</span><span class="op">5</span>);
+<span class="kw">SELECT</span> <span class="op">*</span> <span class="kw">FROM</span> <span class="fn">read_taco</span>(<span class="str">'dataset.zip'</span>, idx<span class="op">=</span>[<span class="op">0</span>,<span class="op">100</span>]);</code></pre>
+        </div>
+
+        <!-- DESIGN PRINCIPLES -->
+        <div class="section">
+          <div class="s-label">Design Principles</div>
+          <p>
+            <span class="bold">Self-contained.</span> No server, no database, no external catalog.
+            <span class="bold">Contract-first.</span> Structure declared before data is written.
+            <span class="bold">Cloud-optimized.</span> Partial reads via byte-range access.
+            <span class="bold">Language-agnostic.</span> DuckDB extension works from Python, R, Julia.
+            <span class="bold">FAIR-compliant.</span> Persistent IDs, licensing, spatial and temporal extent.
+          </p>
+        </div>
+
+        <!-- ECOSYSTEM -->
+        <div class="section">
+          <div class="s-label">Ecosystem</div>
+          <table>
+            <tbody>
+              <tr><td class="name">TacoToolbox</td> <td class="desc">Python writer. Structure, Metadata, Contract, create()</td></tr>
+              <tr><td class="name">TacoReader</td>  <td class="desc">DuckDB extension. read_taco() + thin wrappers for Py, R, Julia</td></tr>
+              <tr><td class="name">COZ</td>          <td class="desc">Cloud-Optimized ZIP. C library + wrappers for Python, R, Julia</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ==================== FOOTER ==================== -->
+    <div class="footer">
+      <div>
+        <span class="bold">Asterisk Labs</span> · asterisk.coop · UK Worker-Owned Cooperative
+      </div>
+      <div class="footer-links">
+        <a href="http://asterisk.coop/taco">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+          asterisk.coop/taco
+        </a>
+        <span class="sep">·</span>
+        <a href="https://source.coop/taco">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+          source.coop/taco
+        </a>
+        <span class="sep">·</span>
+        <a href="https://github.com/asterisk-labs/taco">
+          <svg class="ico" viewBox="0 0 24 24" fill="currentColor"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg>
+          github.com/asterisk-labs/taco
+        </a>
+      </div>
+    </div>
+
+  </div>
+
+</body>
+</html>

@@ -1,0 +1,283 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: #e5e7eb;
+  margin: 0;
+  padding: 20px 0;
+}
+
+/* === A4 PAGE === */
+.page {
+  width: 210mm;
+  height: 297mm;
+  margin: 0 auto;
+  background: #fff;
+  color: #1a1a1a;
+  font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  font-size: 8pt;
+  line-height: 1.45;
+  padding: 14mm 16mm 12mm;
+  position: relative;
+  overflow: hidden;
+}
+
+/* === HEADER === */
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  border-bottom: 2.5px solid #1a1a1a;
+  padding-bottom: 6px;
+  margin-bottom: 10px;
+}
+.header-left .title {
+  font-size: 22pt;
+  font-weight: 900;
+  letter-spacing: -0.5px;
+  line-height: 1.1;
+}
+.header-left .version {
+  font-size: 9pt;
+  font-weight: 600;
+  color: #2563eb;
+  margin-left: 8px;
+}
+.header-left .subtitle {
+  font-size: 9.5pt;
+  color: #555;
+  margin-top: 2px;
+}
+.header-right {
+  text-align: right;
+  font-size: 7.5pt;
+  color: #888;
+  line-height: 1.5;
+}
+
+/* === TAGS === */
+.tag {
+  display: inline-block;
+  font-size: 6.5pt;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 3px;
+  margin-right: 4px;
+}
+.tag-blue   { background: #dbeafe; color: #1e40af; }
+.tag-green  { background: #dcfce7; color: #166534; }
+.tag-amber  { background: #fef3c7; color: #92400e; }
+
+/* === TWO COLUMNS === */
+.cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-top: 2px;
+}
+
+/* === SECTIONS === */
+.section { margin-bottom: 9px; }
+
+.s-label {
+  font-size: 6.5pt;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: #2563eb;
+  margin-bottom: 3px;
+}
+.s-title {
+  font-size: 11pt;
+  font-weight: 800;
+  margin-bottom: 4px;
+  line-height: 1.2;
+}
+.section p {
+  margin: 0 0 5px;
+  color: #333;
+}
+.bold { font-weight: 700; }
+
+/* === CONTRACT BOX === */
+.contract-box {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 6px;
+  padding: 7px 9px;
+  margin: 6px 0;
+  text-align: center;
+}
+.contract-formula {
+  font-size: 11pt;
+  font-weight: 800;
+  color: #1e40af;
+  margin: 2px 0;
+}
+.contract-sub {
+  font-size: 7.5pt;
+  color: #3b82f6;
+}
+
+/* === INLINE CODE === */
+code {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 7.5pt;
+  background: #f1f5f9;
+  padding: 1px 4px;
+  border-radius: 3px;
+  color: #1e293b;
+}
+
+/* === CODE BLOCKS === */
+pre {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 7.5pt;
+  background: #0f172a;
+  color: #e2e8f0;
+  border-radius: 5px;
+  padding: 7px 9px;
+  margin: 6px 0;
+  line-height: 1.5;
+  white-space: pre;
+  overflow: hidden;
+}
+pre code {
+  background: none;
+  padding: 0;
+  border-radius: 0;
+  color: inherit;
+  font-size: inherit;
+}
+
+/* SQL syntax colors */
+.kw  { color: #7dd3fc; }  /* keywords */
+.fn  { color: #a5f3fc; }  /* functions */
+.str { color: #86efac; }  /* strings */
+.cm  { color: #64748b; }  /* comments */
+.op  { color: #fbbf24; }  /* operators and numbers */
+
+/* === TABLES === */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 7.5pt;
+  margin: 6px 0;
+}
+th {
+  text-align: left;
+  padding: 4px 6px;
+  font-weight: 700;
+  border-bottom: 2px solid #e2e8f0;
+  font-size: 7pt;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #555;
+}
+td {
+  padding: 3px 6px;
+  border-bottom: 1px solid #f1f5f9;
+}
+td.yes     { color: #16a34a; font-weight: 700; }
+td.no      { color: #dc2626; font-weight: 700; }
+td.partial { color: #d97706; font-weight: 700; }
+td.label   { font-weight: 600; }
+td.name    { font-weight: 700; white-space: nowrap; width: 90px; }
+td.desc    { color: #555; }
+
+/* === PILLARS === */
+.pillars {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+  margin: 6px 0;
+}
+.pillar {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 8px 9px;
+}
+.pillar-icon  { font-size: 14pt; margin-bottom: 2px; }
+.pillar-title { font-size: 8pt; font-weight: 800; margin-bottom: 2px; }
+.pillar-text  { font-size: 7.5pt; color: #555; margin: 0; line-height: 1.4; }
+
+/* === TREE === */
+.tree {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 7.5pt;
+  line-height: 1.5;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 5px;
+  padding: 7px 9px;
+  margin: 6px 0;
+  color: #334155;
+  white-space: pre;
+}
+
+/* === FOOTER === */
+.footer {
+  position: absolute;
+  bottom: 4mm;
+  left: 16mm;
+  right: 16mm;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-top: 1px solid #e2e8f0;
+  padding-top: 6px;
+  font-size: 7pt;
+  color: #999;
+}
+.footer a {
+  color: #2563eb;
+  text-decoration: none;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.footer .ico {
+  width: 10px;
+  height: 10px;
+  flex-shrink: 0;
+}
+.footer-links {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.footer-links .sep {
+  color: #ccc;
+}
+
+/* === PRINT BUTTON === */
+.btn-wrap {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 100;
+}
+.btn-pdf {
+  background: #1a1a1a;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 20px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0,0,0,.15);
+}
+.btn-pdf:hover { background: #333; }
+
+/* === PRINT === */
+@media print {
+  body { background: #fff; padding: 0; }
+  .page { margin: 0; box-shadow: none; }
+  .btn-wrap { display: none !important; }
+  @page { size: A4; margin: 0; }
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}

@@ -1,10 +1,9 @@
 <div align="center">
   <img src="images/cozip_logo.png" alt="cozip" width="180"/>
 
-  # cozip
-
-  **A valid ZIP archive with a fast index at byte 0**<br>
-  *Write once. Fetch once. Jump straight to the files you need.*
+  # Cloud Optimized ZIP
+  
+  *Random access over HTTP. Open a ZIP like a table.*
 
   [![License MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
   [![C](https://img.shields.io/badge/Language-C-A8B9CC.svg?logo=c&logoColor=white)]()
@@ -14,32 +13,21 @@
 
 ---
 
+<p align="center">
+  <img src="images/fig1_request_comparison.svg" alt="ZIP vs cozip range requests" width="100%"/>
+</p>
+
 ## What is cozip
 
-A cozip is a normal ZIP archive with one extra idea.
+A cozip is a ZIP archive designed for direct access over the network.
 
-The files you care about are listed in a compact binary index at byte 0. A reader fetches that index with one range request, gets the byte offsets and sizes, then jumps directly to the file it needs.
+It places a compact index at byte 0 with the offsets and sizes of selected files. A reader fetches that index in one request and jumps straight to the data it needs.
 
-The rest of the ZIP stays valid. Standard ZIP tools still work.
+Everything else stays standard. Any ZIP tool can still open it.
 
-## Why it exists
+In practice, cozip archives often include a `__metadata__` Parquet file that lists every entry with its name, offset, and size. Because it is just Parquet, tools like DuckDB, Arrow, or Polars can read it directly. This makes it possible to treat a cozip archive as a table and query its contents without scanning the whole file.
 
-Standard ZIP puts its table of contents at the end of the file. On large archives that table can be huge, so a remote reader has to fetch a lot of data before it can open anything.
-
-Cozip puts the fast access path at the front.
-
-## Highlights
-
-- Index at byte 0
-- Valid ZIP archive
-- STORE mode only
-- Write once and immutable after creation
-- Structural integrity hash
-- ZIP64 capable
-- Optional profiles for Flat and TACO datasets
-- DuckDB extension for reading
-
-# License
+## License
 
 MIT
 

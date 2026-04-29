@@ -52,17 +52,55 @@ jobs:
           vcpkg install libzip:x64-windows
           choco install ninja -y
 
-      - name: Add vcpkg bin to PATH (Windows)
+      # Switch from MinGW (default on PATH) to MSVC. Eliminates the
+      # MinGW runtime DLL dependencies and matches the ABI vcpkg uses
+      # for libzip:x64-windows.
+      - name: Setup MSVC (Windows)
         if: runner.os == 'Windows'
-        shell: bash
-        run: echo "$VCPKG_INSTALLATION_ROOT/installed/x64-windows/bin" >> $GITHUB_PATH
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
 
       - name: Install Python build deps
         run: pip install build pytest cffi pyarrow hatchling
 
+      # ── DEBUG (delete once Windows is green) ──
+      # Verify MSVC is actually first on PATH and inspect what vcpkg shipped.
+      - name: Diagnose toolchain (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          echo "=== compilers on PATH ==="
+          which cl  2>&1 || echo "cl not found"
+          which cc  2>&1 || echo "cc not found"
+          which gcc 2>&1 || echo "gcc not found"
+          echo
+          echo "=== cl.exe version ==="
+          cl 2>&1 | head -3 || true
+          echo
+          echo "=== vcpkg bin contents ==="
+          ls -la "$VCPKG_INSTALLATION_ROOT/installed/x64-windows/bin/" || echo "vcpkg bin missing"
+          echo
+          echo "=== PATH ==="
+          echo "$PATH" | tr ':' '\n'
+
       # Single command: build C lib → install package → run tests.
       - name: Build + test
         run: make test
+
+      # ── DEBUG (delete once Windows is green) ──
+      # Confirm cozip.dll is linked against MSVC runtime (vcruntime/MSVCP),
+      # NOT MinGW (libgcc_s_seh / libwinpthread), and that bundled DLLs
+      # are present in _lib/.
+      - name: Diagnose built lib (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          echo "=== _lib/ contents ==="
+          ls -la python/cozip/_lib/
+          echo
+          echo "=== cozip.dll dependencies ==="
+          dumpbin //dependents python/cozip/_lib/cozip.dll || true
 
       # Build the distributable wheel for this OS.
       - name: Build wheel
@@ -95,11 +133,9 @@ jobs:
   sdist:
     name: cozip / source bundle
     runs-on: ubuntu-latest
-
     defaults:
       run:
         working-directory: cozip
-
     steps:
       - uses: actions/checkout@v4
 

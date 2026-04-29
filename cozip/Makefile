@@ -31,10 +31,13 @@ ifeq ($(UNAME_S),Linux)
 endif
 ifeq ($(OS),Windows_NT)
     LIB_NAME := cozip.dll
-    # vcpkg ships libzip on Windows but CMake doesn't auto-discover it.
-    # Route through the vcpkg toolchain file (works in GH Actions and
-    # locally if VCPKG_INSTALLATION_ROOT is set).
-    VCPKG_ROOT ?= $(VCPKG_INSTALLATION_ROOT)
+    # The MSVC setup action (ilammy/msvc-dev-cmd) EXPORTS VCPKG_ROOT
+    # pointing to Visual Studio's bundled vcpkg, where libzip is NOT
+    # installed. We use ':=' (not '?=') so the Makefile assignment wins
+    # over the environment variable. Command-line override still works:
+    #     make VCPKG_ROOT=D:/path/vcpkg test
+    VCPKG_ROOT := C:/vcpkg
+    VCPKG_BIN  := $(VCPKG_ROOT)/installed/x64-windows/bin
     CMAKE_EXTRA := -DCMAKE_TOOLCHAIN_FILE=$(VCPKG_ROOT)/scripts/buildsystems/vcpkg.cmake
 endif
 
@@ -47,6 +50,13 @@ lib:
 	cmake --build $(BUILD_DIR)
 	mkdir -p $(PY_LIB_DIR)
 	cp $(BUILD_DIR)/$(LIB_NAME) $(PY_LIB_DIR)/$(LIB_NAME)
+ifeq ($(OS),Windows_NT)
+	# Python 3.8+ on Windows only searches the DLL's own folder for
+	# transitive deps. Bundle vcpkg's runtime DLLs (libzip + zlib +
+	# friends) alongside cozip.dll. This is what delvewheel does for
+	# production wheels.
+	cp $(VCPKG_BIN)/*.dll $(PY_LIB_DIR)/
+endif
 
 # 2. Editable install of the Python package. No CMake involved here —
 #    hatchling just packages cozip/ as it sits on disk.

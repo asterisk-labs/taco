@@ -24,7 +24,8 @@ else()
     add_compile_options(-Wall -Wextra -Wpedantic -Wshadow)
 endif()
 
-option(COZIP_INSTALL "Generate install / export targets" ON)
+option(COZIP_INSTALL     "Generate install / export targets" ON)
+option(COZIP_BUILD_TESTS "Build the test suite"              OFF)
 
 
 # ----------------------------------------------------------------------
@@ -45,7 +46,7 @@ include(FetchContent)
 # ---- zlib v1.3.1 ----
 
 set(ZLIB_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-set(SKIP_INSTALL_ALL ON CACHE BOOL "" FORCE)
+set(SKIP_INSTALL_ALL    ON  CACHE BOOL "" FORCE)
 
 FetchContent_Declare(zlib
     GIT_REPOSITORY https://github.com/madler/zlib.git
@@ -77,20 +78,20 @@ endif()
 # than deflate (which lives in zlib) and every crypto backend. cozip
 # only uses STORE so the only piece of libzip we actually exercise is
 # its LFH and Central Directory writer.
-set(BUILD_SHARED_LIBS    OFF CACHE BOOL "" FORCE)
-set(BUILD_TOOLS          OFF CACHE BOOL "" FORCE)
-set(BUILD_REGRESS        OFF CACHE BOOL "" FORCE)
-set(BUILD_EXAMPLES       OFF CACHE BOOL "" FORCE)
-set(BUILD_DOC            OFF CACHE BOOL "" FORCE)
-set(ENABLE_BZIP2         OFF CACHE BOOL "" FORCE)
-set(ENABLE_LZMA          OFF CACHE BOOL "" FORCE)
-set(ENABLE_ZSTD          OFF CACHE BOOL "" FORCE)
-set(ENABLE_OPENSSL       OFF CACHE BOOL "" FORCE)
-set(ENABLE_COMMONCRYPTO  OFF CACHE BOOL "" FORCE)
+set(BUILD_SHARED_LIBS     OFF CACHE BOOL "" FORCE)
+set(BUILD_TOOLS           OFF CACHE BOOL "" FORCE)
+set(BUILD_REGRESS         OFF CACHE BOOL "" FORCE)
+set(BUILD_EXAMPLES        OFF CACHE BOOL "" FORCE)
+set(BUILD_DOC             OFF CACHE BOOL "" FORCE)
+set(ENABLE_BZIP2          OFF CACHE BOOL "" FORCE)
+set(ENABLE_LZMA           OFF CACHE BOOL "" FORCE)
+set(ENABLE_ZSTD           OFF CACHE BOOL "" FORCE)
+set(ENABLE_OPENSSL        OFF CACHE BOOL "" FORCE)
+set(ENABLE_COMMONCRYPTO   OFF CACHE BOOL "" FORCE)
 set(ENABLE_WINDOWS_CRYPTO OFF CACHE BOOL "" FORCE)
-set(ENABLE_MBEDTLS       OFF CACHE BOOL "" FORCE)
-set(ENABLE_GNUTLS        OFF CACHE BOOL "" FORCE)
-set(LIBZIP_DO_INSTALL    OFF CACHE BOOL "" FORCE)
+set(ENABLE_MBEDTLS        OFF CACHE BOOL "" FORCE)
+set(ENABLE_GNUTLS         OFF CACHE BOOL "" FORCE)
+set(LIBZIP_DO_INSTALL     OFF CACHE BOOL "" FORCE)
 
 FetchContent_Declare(libzip
     GIT_REPOSITORY https://github.com/nih-at/libzip.git
@@ -116,15 +117,25 @@ target_include_directories(cozip
 # so we do not list it here.
 target_link_libraries(cozip PRIVATE zip)
 
-# PREFIX "" disables the automatic "lib" prefix that CMake adds on
-# MinGW/GCC builds for Windows. Without it the artifact is libcozip.dll
-# instead of cozip.dll, and the Makefile cp step fails.
+# Common properties.
+# PREFIX "" disables the automatic "lib" prefix so the artifact is
+# always cozip.<ext> across platforms (matches what the Makefile and
+# Python loader expect).
 set_target_properties(cozip PROPERTIES
     VERSION       ${PROJECT_VERSION}
-    SOVERSION     ${PROJECT_VERSION_MAJOR}
     PUBLIC_HEADER cozip.h
     OUTPUT_NAME   cozip
     PREFIX        "")
+
+# SOVERSION is a Linux/ELF concept that maps to install_name's
+# compatibility_version on Apple. On a universal fat dylib produced by
+# CMAKE_OSX_ARCHITECTURES="arm64;x86_64" it triggers symlink and lipo
+# merge edge cases. Apple dylibs already encode VERSION in the
+# install_name, so we just skip SOVERSION on Apple.
+if(NOT APPLE)
+    set_target_properties(cozip PROPERTIES
+        SOVERSION ${PROJECT_VERSION_MAJOR})
+endif()
 
 # rpath setup so the binary finds bundled libs (none today, but ready
 # for the day we add LICENSE/THIRD_PARTY notices alongside the .so).
@@ -166,4 +177,17 @@ if(COZIP_INSTALL)
         "${CMAKE_CURRENT_BINARY_DIR}/cozipConfig.cmake"
         "${CMAKE_CURRENT_BINARY_DIR}/cozipConfigVersion.cmake"
         DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/cozip)
+endif()
+
+
+# ----------------------------------------------------------------------
+# Tests (OFF by default — flip COZIP_BUILD_TESTS=ON when you add them).
+# Add a `tests/` subdirectory with its own CMakeLists.txt that calls
+# add_test(...). The CI workflow already supports flipping this via
+# -DCOZIP_BUILD_TESTS=ON in the Configure step.
+# ----------------------------------------------------------------------
+
+if(COZIP_BUILD_TESTS)
+    enable_testing()
+    add_subdirectory(tests)
 endif()

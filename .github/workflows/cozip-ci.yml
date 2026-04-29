@@ -41,7 +41,7 @@ jobs:
             archive_ext: tar.gz
             shell: bash
             cmake_extra: >-
-              -DCMAKE_OSX_ARCHITECTURES=arm64;x86_64
+              "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64"
               -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
 
           # Windows x86_64 — MSVC + Ninja. windows-2022 = VS 2022 / MSVC 19.
@@ -94,19 +94,6 @@ jobs:
           -DCMAKE_BUILD_TYPE=Release
           -DCMAKE_INSTALL_PREFIX=install
           -DBUILD_SHARED_LIBS=ON
-          -DCOZIP_BUILD_TESTS=ON
-          -DENABLE_BZIP2=OFF
-          -DENABLE_LZMA=OFF
-          -DENABLE_ZSTD=OFF
-          -DENABLE_OPENSSL=OFF
-          -DENABLE_GNUTLS=OFF
-          -DENABLE_MBEDTLS=OFF
-          -DENABLE_WINDOWS_CRYPTO=OFF
-          -DENABLE_COMMONCRYPTO=OFF
-          -DBUILD_TOOLS=OFF
-          -DBUILD_REGRESS=OFF
-          -DBUILD_EXAMPLES=OFF
-          -DBUILD_DOC=OFF
           ${{ matrix.cmake_extra }}
 
       - name: Build
@@ -133,14 +120,20 @@ jobs:
       - name: Install
         run: cmake --install build --config Release
 
-      # Sanity-check macOS universal: confirm both arches are actually in
-      # the dylib. Fails loudly if FetchContent dependencies somehow
+      # Sanity-check macOS universal: confirm both arches are actually
+      # in the dylib. Fails loudly if FetchContent dependencies somehow
       # produced a thin binary instead of a fat one.
+      # Note: cozip/core/CMakeLists.txt sets PREFIX "", so the artifact
+      # is cozip.dylib (no "lib" prefix).
       - name: Verify macOS universal
         if: matrix.name == 'macos-universal'
         run: |
-          lipo -info install/lib/libcozip.dylib
-          lipo -info install/lib/libcozip.dylib | grep -q "x86_64 arm64\|arm64 x86_64"
+          DYLIB=install/lib/cozip.dylib
+          lipo -info "$DYLIB"
+          ARCHS=$(lipo -archs "$DYLIB")
+          echo "Architectures present: $ARCHS"
+          echo "$ARCHS" | grep -qw x86_64 || { echo "Missing x86_64 slice"; exit 1; }
+          echo "$ARCHS" | grep -qw arm64  || { echo "Missing arm64 slice";  exit 1; }
 
       # ── Package ────────────────────────────────────────────────────────
 

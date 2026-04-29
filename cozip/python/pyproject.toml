@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "cozip"
-version = "2026.4.28"
+version = "2026.4.29"
 description = "Cloud-Optimized ZIP — Python bindings"
 requires-python = ">=3.10"
 dependencies = ["cffi>=1.16", "pyarrow>=14"]

@@ -1,116 +1,209 @@
-name: cozip CI
+name: CI
 
 on:
   push:
     branches: [main]
-    paths:
-      - 'cozip/**'
-      - '.github/workflows/cozip-ci.yml'
+    tags: ['v*']
   pull_request:
-    paths:
-      - 'cozip/**'
-      - '.github/workflows/cozip-ci.yml'
-  workflow_dispatch:
+    branches: [main]
 
 jobs:
-  # ----------------------------------------------------------------------
-  # Build job: compiles the C library, runs Python tests, packages a
-  # wheel, and uploads BOTH the wheel and the raw shared library.
-  # ----------------------------------------------------------------------
   build:
-    name: cozip / ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.container }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          # Linux x86_64 — manylinux_2_28 (AlmaLinux 8 base, glibc 2.28).
+          # Covers Ubuntu 20+, Debian 11+, RHEL 8+, AlmaLinux/Rocky 8+,
+          # Fedora 30+. Effectively every modern glibc Linux.
+          - name: linux-x86_64
+            runner: ubuntu-24.04
+            container: quay.io/pypa/manylinux_2_28_x86_64
+            archive_ext: tar.gz
+            shell: bash
+
+          # Linux ARM64 — same manylinux_2_28 base, native ARM runner.
+          # Covers AWS Graviton, Ampere, Raspberry Pi 4+ on 64-bit OS.
+          - name: linux-aarch64
+            runner: ubuntu-24.04-arm
+            container: quay.io/pypa/manylinux_2_28_aarch64
+            archive_ext: tar.gz
+            shell: bash
+
+          # macOS universal — arm64 + x86_64 fused into one .dylib.
+          # Cross-compiled from Apple Silicon. Floor: macOS 11 (Big Sur).
+          - name: macos-universal
+            runner: macos-14
+            container: ''
+            archive_ext: tar.gz
+            shell: bash
+            cmake_extra: >-
+              -DCMAKE_OSX_ARCHITECTURES=arm64;x86_64
+              -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+
+          # Windows x86_64 — MSVC + Ninja. windows-2022 = VS 2022 / MSVC 19.
+          - name: windows-x86_64
+            runner: windows-2022
+            container: ''
+            archive_ext: zip
+            shell: pwsh
 
     defaults:
       run:
-        working-directory: cozip
+        shell: ${{ matrix.shell }}
 
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
+      # ── Toolchain setup ────────────────────────────────────────────────
 
-      # Platform-specific deps (libzip + ninja).
-      - name: Install deps (Linux)
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libzip-dev zipcmp zipmerge ziptool ninja-build
+      # manylinux containers come with cmake/gcc/git but NOT ninja.
+      # EPEL is preinstalled in manylinux_2_28, so this is one yum away.
+      - name: Install Ninja (manylinux)
+        if: startsWith(matrix.name, 'linux')
+        run: yum install -y ninja-build
 
-      - name: Install deps (macOS)
+      - name: Install Ninja (macOS)
         if: runner.os == 'macOS'
-        run: brew install libzip ninja
+        run: brew install ninja
 
-      - name: Install deps (Windows)
+      - name: Install Ninja (Windows)
         if: runner.os == 'Windows'
-        shell: bash
-        run: |
-          vcpkg install libzip:x64-windows
-          choco install ninja -y
+        run: choco install ninja -y
 
-      # Switch from MinGW (default on PATH) to MSVC. Eliminates the
-      # MinGW runtime DLL dependencies and matches the ABI vcpkg uses
-      # for libzip:x64-windows.
-      - name: Setup MSVC (Windows)
+      # MSVC env vars (cl.exe, link.exe). Required for Ninja on Windows
+      # since Ninja doesn't auto-locate VS toolchains the way CMake does
+      # with the "Visual Studio" generator.
+      - name: Set up MSVC (Windows)
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
 
-      - name: Install Python build deps
-        run: pip install build pytest cffi pyarrow hatchling
+      # ── Configure ──────────────────────────────────────────────────────
 
-      # Single command: build C lib → install package → run tests.
-      - name: Build + test
-        run: make test
+      # Force-disable every libzip optional dep we don't use, so FetchContent
+      # doesn't try to find BZip2/LZMA/Zstd/OpenSSL/etc. on the runner.
+      # zlib is the only dep we let through — also vendored via FetchContent.
+      - name: Configure
+        run: >
+          cmake -B build -S cozip/core -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_INSTALL_PREFIX=install
+          -DBUILD_SHARED_LIBS=ON
+          -DCOZIP_BUILD_TESTS=ON
+          -DENABLE_BZIP2=OFF
+          -DENABLE_LZMA=OFF
+          -DENABLE_ZSTD=OFF
+          -DENABLE_OPENSSL=OFF
+          -DENABLE_GNUTLS=OFF
+          -DENABLE_MBEDTLS=OFF
+          -DENABLE_WINDOWS_CRYPTO=OFF
+          -DENABLE_COMMONCRYPTO=OFF
+          -DBUILD_TOOLS=OFF
+          -DBUILD_REGRESS=OFF
+          -DBUILD_EXAMPLES=OFF
+          -DBUILD_DOC=OFF
+          ${{ matrix.cmake_extra }}
 
-      # Build the distributable wheel for this OS.
-      - name: Build wheel
-        run: make wheel
+      - name: Build
+        run: cmake --build build --config Release --parallel
 
-      # ── Artifact 1: the Python wheel (for PyPI / pip install) ──
-      - name: Upload wheel
+      # ── Test ───────────────────────────────────────────────────────────
+
+      # On Windows the .dll must be locatable when test binaries run.
+      # CMake puts it in build/Release/ or build/ depending on generator;
+      # we add both to PATH defensively. On Unix, RPATH or install rules
+      # in the CMakeLists handle it.
+      - name: Test (Unix)
+        if: runner.os != 'Windows'
+        run: ctest --test-dir build --output-on-failure -C Release
+
+      - name: Test (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          $env:PATH = "$pwd\build;$pwd\build\Release;" + $env:PATH
+          ctest --test-dir build --output-on-failure -C Release
+
+      # ── Install & verify ───────────────────────────────────────────────
+
+      - name: Install
+        run: cmake --install build --config Release
+
+      # Sanity-check macOS universal: confirm both arches are actually in
+      # the dylib. Fails loudly if FetchContent dependencies somehow
+      # produced a thin binary instead of a fat one.
+      - name: Verify macOS universal
+        if: matrix.name == 'macos-universal'
+        run: |
+          lipo -info install/lib/libcozip.dylib
+          lipo -info install/lib/libcozip.dylib | grep -q "x86_64 arm64\|arm64 x86_64"
+
+      # ── Package ────────────────────────────────────────────────────────
+
+      - name: Package (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          VERSION=$(cat VERSION 2>/dev/null || echo "0.0.0-dev")
+          PKG="libcozip-${VERSION}-${{ matrix.name }}"
+          mkdir -p "dist/${PKG}"
+          cp -r install/include "dist/${PKG}/"
+          cp -r install/lib "dist/${PKG}/"
+          [ -f LICENSE ] && cp LICENSE "dist/${PKG}/" || true
+          [ -f README.md ] && cp README.md "dist/${PKG}/" || true
+          cd dist && tar czf "${PKG}.tar.gz" "${PKG}"
+          ls -la
+
+      # On Windows the runtime .dll lives in install/bin/, the import .lib
+      # in install/lib/. Both must ship.
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          $version = if (Test-Path VERSION) { Get-Content VERSION } else { "0.0.0-dev" }
+          $pkg = "libcozip-$version-${{ matrix.name }}"
+          New-Item -ItemType Directory -Force -Path "dist/$pkg" | Out-Null
+          Copy-Item -Recurse install/include "dist/$pkg/"
+          Copy-Item -Recurse install/lib     "dist/$pkg/"
+          Copy-Item -Recurse install/bin     "dist/$pkg/" -ErrorAction SilentlyContinue
+          if (Test-Path LICENSE)   { Copy-Item LICENSE   "dist/$pkg/" }
+          if (Test-Path README.md) { Copy-Item README.md "dist/$pkg/" }
+          Compress-Archive -Path "dist/$pkg" -DestinationPath "dist/$pkg.zip"
+          Get-ChildItem dist
+
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: taco-cozip-wheels-${{ matrix.os }}
-          path: cozip/python/dist/*.whl
+          name: libcozip-${{ matrix.name }}
+          path: dist/libcozip-*.${{ matrix.archive_ext }}
+          if-no-files-found: error
 
-      # ── Artifact 2: the raw shared library (for R / Julia / C users) ──
-      # The Makefile already copied the lib into python/cozip/_lib/ as
-      # part of `make test`. We grab whatever's there for this platform.
-      - name: Upload raw lib
-        uses: actions/upload-artifact@v4
-        with:
-          name: taco-cozip-libs-${{ matrix.os }}
-          path: |
-            cozip/python/cozip/_lib/libcozip.dylib
-            cozip/python/cozip/_lib/libcozip.so
-            cozip/python/cozip/_lib/cozip.dll
-          if-no-files-found: ignore
-
-  # ----------------------------------------------------------------------
-  # Sdist job: bundles the source tree (core + python + Makefile + docs).
-  # Runs once on Linux only — source is platform-independent.
-  # ----------------------------------------------------------------------
-  sdist:
-    name: cozip / source bundle
+  # ── Release ──────────────────────────────────────────────────────────────
+  # Triggered only by version tags (vX.Y.Z). Collects all 4 platform
+  # archives and publishes them as a GitHub release.
+  release:
+    name: Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: cozip
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Build source bundle
-        run: make sdist
-
-      # ── Artifact 3: the source tarball ──
-      - name: Upload sdist
-        uses: actions/upload-artifact@v4
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
         with:
-          name: taco-cozip-sdist
-          path: cozip/dist/cozip-source-*.tar.gz
+          path: artifacts
+          merge-multiple: true
+
+      - name: List artifacts
+        run: ls -la artifacts/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/libcozip-*
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref, '-') }}

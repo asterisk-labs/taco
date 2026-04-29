@@ -499,13 +499,14 @@ cozip_status_t cozip_index_parse(const uint8_t *payload, size_t payload_size,
     out->n_entries     = n_entries;
     out->_payload      = payload;
     out->_payload_size = payload_size;
-    /* Pointer arithmetic only. Reads always go through get_uXX so
-     * unaligned hosts stay safe.
+    /* Plain byte pointers into the payload. Reads always go through
+     * get_uXX so unaligned hosts and strict-aliasing toolchains stay
+     * safe.
      */
-    out->_name_lens    = (const uint16_t *)(payload + name_lens_pos);
-    out->_names_offset = names_pos;
-    out->_offsets      = (const uint64_t *)(payload + offsets_pos);
-    out->_sizes        = (const uint64_t *)(payload + sizes_pos);
+    out->_name_lens = payload + name_lens_pos;
+    out->_names     = payload + names_pos;
+    out->_offsets   = payload + offsets_pos;
+    out->_sizes     = payload + sizes_pos;
     return COZIP_OK;
 }
 
@@ -519,15 +520,14 @@ cozip_status_t cozip_index_get(const cozip_index_t *index, uint32_t i,
     /* Locating entry i requires summing the first i name lengths */
     size_t name_byte_offset = 0;
     for (uint32_t k = 0; k < i; k++) {
-        name_byte_offset += get_u16((const uint8_t *)(index->_name_lens + k));
+        name_byte_offset += get_u16(index->_name_lens + 2 * k);
     }
-    uint16_t nl = get_u16((const uint8_t *)(index->_name_lens + i));
+    uint16_t nl = get_u16(index->_name_lens + 2 * i);
 
-    out->name     = (const char *)(index->_payload + index->_names_offset
-                                   + name_byte_offset);
+    out->name     = (const char *)(index->_names + name_byte_offset);
     out->name_len = nl;
-    out->offset   = get_u64((const uint8_t *)(index->_offsets + i));
-    out->size     = get_u64((const uint8_t *)(index->_sizes + i));
+    out->offset   = get_u64(index->_offsets + 8 * i);
+    out->size     = get_u64(index->_sizes + 8 * i);
     return COZIP_OK;
 }
 
@@ -537,18 +537,15 @@ cozip_status_t cozip_index_find(const cozip_index_t *index, const char *name,
     size_t name_len = strlen(name);
     size_t name_byte_offset = 0;
     for (uint32_t i = 0; i < index->n_entries; i++) {
-        uint16_t nl = get_u16((const uint8_t *)(index->_name_lens + i));
+        uint16_t nl = get_u16(index->_name_lens + 2 * i);
         if ((size_t)nl == name_len) {
             const char *candidate =
-                (const char *)(index->_payload + index->_names_offset
-                               + name_byte_offset);
+                (const char *)(index->_names + name_byte_offset);
             if (memcmp(candidate, name, name_len) == 0) {
                 out->name     = candidate;
                 out->name_len = nl;
-                out->offset   =
-                    get_u64((const uint8_t *)(index->_offsets + i));
-                out->size     =
-                    get_u64((const uint8_t *)(index->_sizes + i));
+                out->offset   = get_u64(index->_offsets + 8 * i);
+                out->size     = get_u64(index->_sizes + 8 * i);
                 return COZIP_OK;
             }
         }

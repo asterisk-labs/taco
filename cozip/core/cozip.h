@@ -469,12 +469,12 @@ typedef struct cozip_index {
     cozip_profile_t profile;
     uint32_t        n_entries;
 
-    const uint8_t  *_payload;
-    size_t          _payload_size;
-    const uint16_t *_name_lens;
-    size_t          _names_offset;
-    const uint64_t *_offsets;
-    const uint64_t *_sizes;
+    const uint8_t *_payload;
+    size_t         _payload_size;
+    const uint8_t *_name_lens;
+    const uint8_t *_names;
+    const uint8_t *_offsets;
+    const uint8_t *_sizes;
 } cozip_index_t;
 
 /* Parses the index payload into a non-owning view.

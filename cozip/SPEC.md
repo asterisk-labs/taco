@@ -96,7 +96,7 @@ The ZIP archive comment length in the EOCD **MUST** be zero. Therefore, the EOCD
 5. Every ZIP entry **MUST** use compression method `0` (STORE), and its resolved compressed size and resolved uncompressed size **MUST** be equal and greater than zero. Explicit directory entries (zero-byte folder records) are not allowed.
 6. Every ZIP entry **MUST** be unencrypted: General Purpose Bit Flag bits 0, 6, and 13 **MUST NOT** be set, compression method `99` **MUST NOT** be used, and archive-level Central Directory Encryption **MUST NOT** be used.
 7. General Purpose Bit Flag bit 3 (Data Descriptor) **MUST NOT** be set for any entry.
-8. All ZIP entry filenames **MUST** be valid UTF-8 path strings, and General Purpose Bit Flag bit 11 (UTF-8 language encoding) **MUST** be set in both the Local File Header and the Central Directory Header for every entry.
+8. All ZIP entry filenames **MUST** be valid UTF-8 path strings. General Purpose Bit Flag bit 11 (UTF-8 language encoding) **MUST** be set in both the Local File Header and the Central Directory Header for every entry whose filename contains any byte greater than or equal to `0x80`. For filenames composed entirely of bytes less than `0x80` (pure ASCII), bit 11 **MAY** be either set or unset, since ASCII is unambiguously valid UTF-8. This relaxation reflects the behaviour of common ZIP writers (e.g. libzip).
 9. All ZIP entry filenames **MUST** be unique within the archive.
 
 #### Archive-level
@@ -254,7 +254,7 @@ The canonical validation procedure is:
 
 1. Read the first 51 bytes of the archive and validate the index Local File Header:
    1. signature is `0x04034b50`;
-   2. General Purpose Bit Flag bit 11 is **set** (UTF-8);
+   2. General Purpose Bit Flag bit 11 may be either set or unset; the literal `__cozip__` is pure ASCII, so the flag is informational for the index entry;   
    3. General Purpose Bit Flag bits 0, 3, 6, and 13 are **unset**;
    4. compression method is `0`;
    5. `compressed_size` and `uncompressed_size` are equal, greater than zero, and strictly less than `0xFFFFFFFF`;
@@ -478,6 +478,8 @@ When serving `.zip` over HTTP, servers must preserve byte-exact object bytes for
 | 1.0-draft.2  | 2026-04-27 | Added ZIP64 policy for non-index entries; explicitly prohibited encryption, split/spanned archives, data descriptors, directory entries, and zero-size entries; changed the integrity hash to cover the index payload plus the final 32 KiB; fixed HTTP byte-range inclusivity; made UTF-8 and filename uniqueness requirements explicit; fixed Flat profile `__metadata__` semantics; made TACO priority files contiguous; replaced pending TACO reference. |
 | 1.0-draft.3  | 2026-04-28 | **Editorial refactor of Part I.** Removed the *Semantics and guarantees* section as fully redundant with §4–§8. Consolidated STORE+size, encryption, ZIP64-sentinel, name-uniqueness, archive-immutability, and hash-byte-range statements that were repeated across §5, §6, §7, §8, §9. Reorganised §5.1 into three groups (Index entry / All ZIP entries / Archive-level). Reduced §5.2 from six items to three. Made §8.5 step 1 the single canonical LFH validation list and added a missing check for GP bit 11 set and exact 9-byte filename equality; §10 step 2 now references it. Relaxed the §7.5 archive-size constraint from MUST to SHOULD on the reader side (writers still MUST). Reduced error codes from 24 to 15 by collapsing index/zip duplicate-name codes, name/UTF-8 codes, range/overflow codes, and per-entry violation codes into single canonical names. Fixed the APPNOTE URL in Appendix C. |
 | 1.0-draft.4  | 2026-04-28 | **Editorial refactor of Part II.** Collapsed *what a profile MAY do* and *what a profile MUST NOT do* into a single profile-constraints section, and folded reader-behaviour duplication into §7.1. Removed the Flat-profile §14.3 *position requirement* as a normative MUST; placement of `__metadata__` is now an informative writer hint. Removed the Flat-profile schema's *Must be unique* note for the `name` column (already covered archive-wide by §5.1.9) and clarified that an archive with no other data entries may carry a zero-row `__metadata__`. Removed from the TACO profile the prohibition on directory entries for `DATA/` and `METADATA/` (already prohibited archive-wide by §5.1.5). Clarified that the relative order of TACO priority files within the contiguous priority block is unspecified. Section numbering shifted: Profiles is now §12, Flat is §13, TACO is §14. |
+| 1.0-draft.5  | 2026-04-29 | Relaxed §5.1.8 and §8.5 step 1.ii to require GP bit 11 (UTF-8) only when the filename contains bytes ≥ 0x80. Aligns the spec with common ZIP writer behaviour and unblocks libzip builds that omit the flag for ASCII-only names. |
+
 
 ## Appendix C. References
 

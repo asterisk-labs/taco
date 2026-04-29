@@ -354,12 +354,8 @@ cozip_status_t cozip_parse_lfh(const uint8_t *data, size_t data_size,
         return set_err(err, COZIP_ERR_INVALID_LFH, "bad ZIP signature");
     }
 
-    /* General-purpose flags */
+    /* General-purpose flags. */
     uint16_t flags = get_u16(data + 6);
-    if ((flags & GP_UTF8) == 0) {
-        return set_err(err, COZIP_ERR_INVALID_LFH,
-                       "UTF-8 flag (bit 11) not set");
-    }
     if (flags & GP_FORBIDDEN_MASK) {
         return set_err(err, COZIP_ERR_INVALID_LFH,
                        "forbidden GP flag set (0x%04X)", flags);
@@ -739,14 +735,27 @@ static cozip_status_t verify_priority_lfh(FILE *fp, const cozip_entry_t *e,
     }
 
     uint16_t flags = get_u16(lfh + 6);
-    if ((flags & GP_UTF8) == 0) {
-        return set_err(err, COZIP_ERR_INVALID_LFH,
-                       "UTF-8 flag not set for '%s'", e->arc_name);
-    }
     if (flags & GP_FORBIDDEN_MASK) {
         return set_err(err, COZIP_ERR_INVALID_LFH,
                        "forbidden GP flag on '%s' (0x%04X)",
                        e->arc_name, flags);
+    }
+    /* Bit 11 (UTF-8) is required only when the filename has bytes
+     * >= 0x80. ASCII-only names are unambiguously valid UTF-8
+     * either way.
+     */
+    bool needs_utf8_flag = false;
+    size_t arc_len = strlen(e->arc_name);
+    for (size_t i = 0; i < arc_len; i++) {
+        if ((unsigned char)e->arc_name[i] >= 0x80) {
+            needs_utf8_flag = true;
+            break;
+        }
+    }
+    if (needs_utf8_flag && (flags & GP_UTF8) == 0) {
+        return set_err(err, COZIP_ERR_INVALID_LFH,
+                       "UTF-8 flag required on '%s' (non-ASCII name)",
+                       e->arc_name);
     }
 
     uint16_t method = get_u16(lfh + 8);

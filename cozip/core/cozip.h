@@ -487,10 +487,17 @@ typedef struct cozip_index {
  * The caller must keep the buffer alive for as long as the
  * index is used.
  *
- * Validates the header magic, the format version, the profile
- * byte, and the geometry of all five payload regions. The names
- * region is bounds-checked against the declared name length
- * sum.
+ * Validates the binary geometry of the payload only. Concretely,
+ * checks the header magic, the format version, the profile byte,
+ * the bounds of all five payload regions, that every name length
+ * is greater than zero, that the sum of name lengths does not
+ * overflow size_t, and that every payload size is greater than
+ * zero.
+ *
+ * Does not check names against the __cozip__ reservation, UTF-8
+ * well-formedness, name uniqueness, or whether payload offsets
+ * fit within the actual archive size. Higher layers, typically
+ * the language binding, own those checks.
  *
  * Returns COZIP_ERR_INVALID_MAGIC, COZIP_ERR_UNSUPPORTED_VERSION,
  * COZIP_ERR_UNKNOWN_PROFILE or COZIP_ERR_TRUNCATED_INDEX.

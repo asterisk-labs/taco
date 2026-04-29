@@ -462,7 +462,16 @@ cozip_status_t cozip_index_parse(const uint8_t *payload, size_t payload_size,
     /* names region, variable length, sized by the sum of name_lens */
     size_t names_total = 0;
     for (uint32_t i = 0; i < n_entries; i++) {
-        names_total += get_u16(payload + name_lens_pos + 2 * i);
+        uint16_t nl = get_u16(payload + name_lens_pos + 2 * i);
+        if (nl == 0) {
+            return set_err(err, COZIP_ERR_TRUNCATED_INDEX,
+                           "empty name length at entry %u", i);
+        }
+        if (names_total > SIZE_MAX - nl) {
+            return set_err(err, COZIP_ERR_TRUNCATED_INDEX,
+                           "name length sum overflows size_t");
+        }
+        names_total += nl;
     }
     if (pos + names_total > payload_size) {
         return set_err(err, COZIP_ERR_TRUNCATED_INDEX,
@@ -492,6 +501,14 @@ cozip_status_t cozip_index_parse(const uint8_t *payload, size_t payload_size,
         return set_err(err, COZIP_ERR_TRUNCATED_INDEX,
                        "size mismatch (parsed %zu, buffer has %zu)",
                        pos, payload_size);
+    }
+
+    /* Every indexed entry must have a non-zero payload size (spec §7.5) */
+    for (uint32_t i = 0; i < n_entries; i++) {
+        if (get_u64(payload + sizes_pos + 8 * i) == 0) {
+            return set_err(err, COZIP_ERR_TRUNCATED_INDEX,
+                           "zero payload size at entry %u", i);
+        }
     }
 
     out->version       = version;

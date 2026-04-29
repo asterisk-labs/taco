@@ -34,7 +34,7 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"
 
       # Platform-specific deps (libzip + ninja).
       - name: Install deps (Linux)
@@ -64,43 +64,9 @@ jobs:
       - name: Install Python build deps
         run: pip install build pytest cffi pyarrow hatchling
 
-      # ── DEBUG (delete once Windows is green) ──
-      # Verify MSVC is actually first on PATH and inspect what vcpkg shipped.
-      - name: Diagnose toolchain (Windows)
-        if: runner.os == 'Windows'
-        shell: bash
-        run: |
-          echo "=== compilers on PATH ==="
-          which cl  2>&1 || echo "cl not found"
-          which cc  2>&1 || echo "cc not found"
-          which gcc 2>&1 || echo "gcc not found"
-          echo
-          echo "=== cl.exe version ==="
-          cl 2>&1 | head -3 || true
-          echo
-          echo "=== vcpkg bin contents ==="
-          ls -la "$VCPKG_INSTALLATION_ROOT/installed/x64-windows/bin/" || echo "vcpkg bin missing"
-          echo
-          echo "=== PATH ==="
-          echo "$PATH" | tr ':' '\n'
-
       # Single command: build C lib → install package → run tests.
       - name: Build + test
         run: make test
-
-      # ── DEBUG (delete once Windows is green) ──
-      # Confirm cozip.dll is linked against MSVC runtime (vcruntime/MSVCP),
-      # NOT MinGW (libgcc_s_seh / libwinpthread), and that bundled DLLs
-      # are present in _lib/.
-      - name: Diagnose built lib (Windows)
-        if: runner.os == 'Windows'
-        shell: bash
-        run: |
-          echo "=== _lib/ contents ==="
-          ls -la python/cozip/_lib/
-          echo
-          echo "=== cozip.dll dependencies ==="
-          dumpbin //dependents python/cozip/_lib/cozip.dll || true
 
       # Build the distributable wheel for this OS.
       - name: Build wheel

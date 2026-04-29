@@ -1,4 +1,4 @@
-name: CI
+name: Build libcozip in manylinux/macos/windows environments
 
 on:
   push:

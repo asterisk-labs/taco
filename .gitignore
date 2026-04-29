@@ -2,3 +2,13 @@
 .DS_Store
 
 spec/main.md
+demo.py
+demo.zip
+.vscode/
+
+.pytest_cache/
+__pycache__/
+*.pyc
+build/
+*.egg-info/
+.DS_Store

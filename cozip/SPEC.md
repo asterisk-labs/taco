@@ -276,7 +276,7 @@ This section is normative for remote cozip readers and for services that claim t
 
 cozip offsets are defined over the exact bytes of the ZIP object. Therefore, remote storage **MUST** expose a byte-exact representation of the archive.
 
-1. A server **MUST NOT** apply transparent HTTP content coding such as gzip or Brotli to the `.cozip` object when serving byte ranges. If `Content-Encoding` is present and changes the representation bytes, cozip offsets are invalid for that response.
+1. A server **MUST NOT** apply transparent HTTP content coding such as gzip or Brotli to the `.zip` object when serving byte ranges. If `Content-Encoding` is present and changes the representation bytes, cozip offsets are invalid for that response.
 2. A reader **SHOULD** request byte ranges using HTTP `Range` over the `bytes` range unit.
 3. Internal cozip ranges are written as half-open intervals `[offset, offset + size)`. HTTP byte ranges use an inclusive final byte position. The conversion is:
 
@@ -414,7 +414,7 @@ The `offset` and `size` values are computed by the writer at archive-creation ti
 
 ### 13.4 File extension
 
-A Flat-profile cozip uses the file extension `.cozip`. The MIME type is `application/zip`.
+A Flat-profile cozip uses the file extension `.zip`. The MIME type is `application/zip`.
 
 ## 14. TACO profile
 
@@ -458,7 +458,7 @@ The semantics of `COLLECTION.json`, the Parquet files under `METADATA/`, the `DA
 
 ### 14.5 File extension
 
-A TACO-profile cozip uses the file extension `.cozip`. The MIME type is `application/zip`.
+A TACO-profile cozip uses the file extension `.zip`. The MIME type is `application/zip`.
 
 ---
 
@@ -466,9 +466,9 @@ A TACO-profile cozip uses the file extension `.cozip`. The MIME type is `applica
 
 ## Appendix A. MIME type and file extension
 
-A cozip archive uses the file extension `.cozip` regardless of profile. The MIME type is `application/zip`, since a cozip is a valid ZIP archive.
+A cozip archive uses the standard ZIP file extension `.zip` and MIME type `application/zip`. cozip is a structural profile of ZIP — analogous to how Cloud-Optimized GeoTIFF uses `.tif` — and is detected by the presence of a `__cozip__` index entry at byte 0, not by extension. 
 
-When serving `.cozip` over HTTP, servers must preserve byte-exact object bytes for range requests. Transparent content encoding is incompatible with cozip byte offsets.
+When serving `.zip` over HTTP, servers must preserve byte-exact object bytes for range requests. Transparent content encoding is incompatible with cozip byte offsets.
 
 ## Appendix B. Version history
 

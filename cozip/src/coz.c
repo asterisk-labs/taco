@@ -1,1 +1,0 @@
-/* coz.c — Cloud-Optimized ZIP core implementation (skeleton) */

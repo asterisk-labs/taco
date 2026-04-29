@@ -1,0 +1,109 @@
+name: cozip CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'cozip/**'
+      - '.github/workflows/cozip-ci.yml'
+  pull_request:
+    paths:
+      - 'cozip/**'
+      - '.github/workflows/cozip-ci.yml'
+  workflow_dispatch:
+
+jobs:
+  # ----------------------------------------------------------------------
+  # Build job: compiles the C library, runs Python tests, packages a
+  # wheel, and uploads BOTH the wheel and the raw shared library.
+  # ----------------------------------------------------------------------
+  build:
+    name: cozip / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    defaults:
+      run:
+        working-directory: cozip
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # Platform-specific deps (libzip + ninja).
+      - name: Install deps (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libzip-dev ninja-build
+
+      - name: Install deps (macOS)
+        if: runner.os == 'macOS'
+        run: brew install libzip ninja
+
+      - name: Install deps (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          vcpkg install libzip:x64-windows
+          choco install ninja -y
+
+      - name: Install Python build deps
+        run: pip install build pytest cffi pyarrow hatchling
+
+      # Single command: build C lib → install package → run tests.
+      - name: Build + test
+        run: make test
+
+      # Build the distributable wheel for this OS.
+      - name: Build wheel
+        run: make wheel
+
+      # ── Artifact 1: the Python wheel (for PyPI / pip install) ──
+      - name: Upload wheel
+        uses: actions/upload-artifact@v4
+        with:
+          name: taco-cozip-wheels-${{ matrix.os }}
+          path: cozip/python/dist/*.whl
+
+      # ── Artifact 2: the raw shared library (for R / Julia / C users) ──
+      # The Makefile already copied the lib into python/cozip/_lib/ as
+      # part of `make test`. We grab whatever's there for this platform.
+      - name: Upload raw lib
+        uses: actions/upload-artifact@v4
+        with:
+          name: taco-cozip-libs-${{ matrix.os }}
+          path: |
+            cozip/python/cozip/_lib/libcozip.dylib
+            cozip/python/cozip/_lib/libcozip.so
+            cozip/python/cozip/_lib/cozip.dll
+          if-no-files-found: ignore
+
+  # ----------------------------------------------------------------------
+  # Sdist job: bundles the source tree (core + python + Makefile + docs).
+  # Runs once on Linux only — source is platform-independent.
+  # ----------------------------------------------------------------------
+  sdist:
+    name: cozip / source bundle
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: cozip
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build source bundle
+        run: make sdist
+
+      # ── Artifact 3: the source tarball ──
+      - name: Upload sdist
+        uses: actions/upload-artifact@v4
+        with:
+          name: taco-cozip-sdist
+          path: cozip/dist/cozip-source-*.tar.gz

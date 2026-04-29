@@ -4,11 +4,9 @@ project(cozip
     DESCRIPTION  "Cloud-Optimized ZIP core"
     LANGUAGES    C)
 
-set(CMAKE_C_STANDARD 11)
-set(CMAKE_C_STANDARD_REQUIRED ON)
-set(CMAKE_C_EXTENSIONS OFF)
+# Settings that are SAFE to apply globally (i.e. that vendored deps
+# can also use without breaking).
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
-set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
 
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
@@ -18,11 +16,19 @@ if(APPLE AND NOT CMAKE_OSX_DEPLOYMENT_TARGET)
     set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "" FORCE)
 endif()
 
-if(MSVC)
-    add_compile_options(/W4 /permissive- /D_CRT_SECURE_NO_WARNINGS)
-else()
-    add_compile_options(-Wall -Wextra -Wpedantic -Wshadow)
-endif()
+# IMPORTANT: do NOT set CMAKE_C_STANDARD / CMAKE_C_EXTENSIONS / warning
+# flags globally. Those propagate to libzip and zlib (brought in via
+# FetchContent), and:
+#
+#   * CMAKE_C_EXTENSIONS OFF forces -std=c11 (strict ISO) instead of
+#     -std=gnu11. Under strict ISO, glibc hides off_t unless _POSIX_C_SOURCE
+#     or similar is defined. libzip's compat.h:146 uses off_t bare and
+#     fails to compile.
+#
+#   * -Wall -Wextra -Wpedantic -Wshadow turn libzip's own warnings into
+#     noise we don't control.
+#
+# These options are applied to the cozip target only, further down.
 
 option(COZIP_INSTALL     "Generate install / export targets" ON)
 option(COZIP_BUILD_TESTS "Build the test suite"              OFF)
@@ -90,7 +96,7 @@ set(ENABLE_OPENSSL        OFF CACHE BOOL "" FORCE)
 set(ENABLE_COMMONCRYPTO   OFF CACHE BOOL "" FORCE)
 set(ENABLE_WINDOWS_CRYPTO OFF CACHE BOOL "" FORCE)
 set(ENABLE_MBEDTLS        OFF CACHE BOOL "" FORCE)
-set(ENABLE_GNUTLS         OFF CACHE BOOL "" FORCE)
+set(ENABLE_GNUTLS        OFF CACHE BOOL "" FORCE)
 set(LIBZIP_DO_INSTALL     OFF CACHE BOOL "" FORCE)
 
 FetchContent_Declare(libzip
@@ -107,6 +113,28 @@ FetchContent_MakeAvailable(libzip)
 add_library(cozip SHARED cozip.c)
 add_library(cozip::cozip ALIAS cozip)
 
+# C standard — applied only to cozip, NOT propagated to vendored deps.
+target_compile_features(cozip PRIVATE c_std_11)
+
+# Strict warnings — only for our own code. libzip and zlib have their
+# own warning hygiene; we don't impose ours on them.
+if(MSVC)
+    target_compile_options(cozip PRIVATE
+        /W4 /permissive- /D_CRT_SECURE_NO_WARNINGS)
+else()
+    target_compile_options(cozip PRIVATE
+        -Wall -Wextra -Wpedantic -Wshadow)
+endif()
+
+# Symbol visibility — hide everything by default; export functions
+# annotated COZIP_API in cozip.h. On Windows the equivalent is
+# WINDOWS_EXPORT_ALL_SYMBOLS (we'll tighten this with a .def or
+# explicit __declspec when the API stabilises).
+set_target_properties(cozip PROPERTIES
+    C_VISIBILITY_PRESET       hidden
+    VISIBILITY_INLINES_HIDDEN ON
+    WINDOWS_EXPORT_ALL_SYMBOLS ON)
+
 target_include_directories(cozip
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
@@ -117,7 +145,7 @@ target_include_directories(cozip
 # so we do not list it here.
 target_link_libraries(cozip PRIVATE zip)
 
-# Common properties.
+# Output naming.
 # PREFIX "" disables the automatic "lib" prefix so the artifact is
 # always cozip.<ext> across platforms (matches what the Makefile and
 # Python loader expect).

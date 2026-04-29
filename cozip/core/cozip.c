@@ -1,11 +1,10 @@
 /*
- * cozip 1.0 core C ABI, implementation.
+ * cozip 1.0 writer C ABI, implementation.
  *
- * This file implements the public API declared in cozip.h. Format
- * rules that live above the wire format (UTF-8 validation,
- * duplicate detection, profile-specific reserved names) are the
- * responsibility of the language bindings; this layer deals with
- * bytes, offsets and memory.
+ * This file implements the public API declared in cozip.h. The C
+ * core only writes archives. Reading and parsing live in the
+ * language bindings, in DuckDB, or in any host that already
+ * understands ZIP byte ranges and Parquet metadata.
  *
  * The implementation is split into the following sections.
  *
@@ -14,12 +13,10 @@
  *   3. Portable 64-bit seek and tell.
  *   4. Little-endian byte readers and writers.
  *   5. Error helpers.
- *   6. Writer-side computation (cozip_plan, payload sizing,
+ *   6. FNV-1a 64 (internal).
+ *   7. Writer-side computation (cozip_plan, payload sizing,
  *      payload serialization, extra field).
- *   7. LFH parsing (cozip_parse_lfh).
- *   8. Index parsing (cozip_index_parse, get, find).
- *   9. FNV-1a 64 hash and integrity verification.
- *  10. Disk I/O (hash patching, archive writing, post-write LFH
+ *   8. Disk I/O (hash patching, archive writing, post-write LFH
  *      validation).
  */
 
@@ -70,10 +67,11 @@
  */
 #define HASH_BUF_SIZE          32768u
 
-/* General-purpose flag bit masks used by cozip_parse_lfh and the
- * post-write LFH validation in cozip_write_archive. Mirrors APPNOTE
- * 6.3.10 section 4.4.4. Bit 11 must be set; bits 0, 3, 6 and 13
- * must be clear.
+/* General-purpose flag bit masks used by validate_index_lfh and
+ * the post-write LFH validation in cozip_write_archive. Mirrors
+ * APPNOTE 6.3.10 section 4.4.4. Bits 0, 3, 6 and 13 must be
+ * clear; bit 11 is informational because all cozip-written names
+ * pass through libzip with ZIP_FL_ENC_UTF_8.
  */
 #define GP_ENCRYPTED           (1u << 0)
 #define GP_DATA_DESCRIPTOR     (1u << 3)
@@ -169,23 +167,35 @@ static cozip_status_t set_err(cozip_error_t *err, cozip_status_t code,
 
 const char *cozip_status_string(cozip_status_t status) {
     switch (status) {
-        case COZIP_OK:                       return "OK";
-        case COZIP_ERR_INVALID_LFH:          return "INVALID_LFH";
-        case COZIP_ERR_INVALID_MAGIC:        return "INVALID_MAGIC";
-        case COZIP_ERR_UNSUPPORTED_VERSION:  return "UNSUPPORTED_VERSION";
-        case COZIP_ERR_UNKNOWN_PROFILE:      return "UNKNOWN_PROFILE";
-        case COZIP_ERR_ARCHIVE_TOO_SMALL:    return "ARCHIVE_TOO_SMALL";
-        case COZIP_ERR_TRUNCATED_INDEX:      return "TRUNCATED_INDEX";
-        case COZIP_ERR_MISSING_ENTRY:        return "MISSING_ENTRY";
-        case COZIP_ERR_INVALID_ARGUMENT:     return "INVALID_ARGUMENT";
-        case COZIP_ERR_BUFFER_TOO_SMALL:     return "BUFFER_TOO_SMALL";
-        case COZIP_ERR_IO:                   return "IO";
+        case COZIP_OK:                    return "OK";
+        case COZIP_ERR_INVALID_LFH:       return "INVALID_LFH";
+        case COZIP_ERR_ARCHIVE_TOO_SMALL: return "ARCHIVE_TOO_SMALL";
+        case COZIP_ERR_INVALID_ARGUMENT:  return "INVALID_ARGUMENT";
+        case COZIP_ERR_BUFFER_TOO_SMALL:  return "BUFFER_TOO_SMALL";
+        case COZIP_ERR_IO:                return "IO";
     }
     return "UNKNOWN";
 }
 
 
-/* ---- 6. Writer-side computation ---- */
+/* ---- 6. FNV-1a 64 (internal) ---- */
+
+/* Seed with COZIP_FNV_OFFSET_BASIS for a fresh hash, or with a
+ * previous return value to continue across non-contiguous chunks.
+ * The hash is order-sensitive; bytes must be presented in
+ * archive-byte order.
+ */
+static uint64_t fnv1a_64(const uint8_t *data, size_t size, uint64_t seed) {
+    uint64_t h = seed;
+    for (size_t i = 0; i < size; i++) {
+        h ^= (uint64_t)data[i];
+        h *= COZIP_FNV_PRIME;
+    }
+    return h;
+}
+
+
+/* ---- 7. Writer-side computation ---- */
 
 /* Byte size of a single LFH for an entry with the given name and
  * payload size. Adds a 20-byte ZIP64 extra when the payload size
@@ -317,321 +327,12 @@ void cozip_build_extra_field(uint8_t out[COZIP_EXTRA_FIELD_SIZE]) {
 }
 
 
-/* ---- 7. LFH parsing ---- */
+/* ---- 8. Disk I/O ---- */
 
-/* Implements the canonical first-LFH validation list from the cozip
- * 1.0 specification, section 8.5 step 1. Every byte read is bounds
- * checked against `data_size`.
- *
- * Layout of the first 51 bytes,
- *
- *    0   PK\x03\x04                    signature
- *    4   version_needed (2)
- *    6   gp flags (2)                  bit 11 set, bits 0/3/6/13 clear
- *    8   method (2)                    must be 0 (STORE)
- *   10   dos time/date (4)
- *   14   crc32 (4)
- *   18   compressed_size (4)           index payload size
- *   22   uncompressed_size (4)         must equal compressed_size
- *   26   filename_len (2)              must be 9
- *   28   extra_len (2)                 must be 12
- *   30   "__cozip__"                   9 bytes
- *   39   extra header_id (2)           must be 0xCA0C
- *   41   extra data_size (2)           must be 8
- *   43   integrity hash (8)            FNV-1a 64
- */
-cozip_status_t cozip_parse_lfh(const uint8_t *data, size_t data_size,
-                               cozip_lfh_info_t *out, cozip_error_t *err) {
-    if (data_size < COZIP_INDEX_OFFSET) {
-        return set_err(err, COZIP_ERR_INVALID_LFH,
-                       "buffer too short (%zu bytes, need %d)",
-                       data_size, COZIP_INDEX_OFFSET);
-    }
-
-    /* Signature */
-    if (data[0] != 'P' || data[1] != 'K' ||
-        data[2] != 0x03 || data[3] != 0x04) {
-        return set_err(err, COZIP_ERR_INVALID_LFH, "bad ZIP signature");
-    }
-
-    /* General-purpose flags. */
-    uint16_t flags = get_u16(data + 6);
-    if (flags & GP_FORBIDDEN_MASK) {
-        return set_err(err, COZIP_ERR_INVALID_LFH,
-                       "forbidden GP flag set (0x%04X)", flags);
-    }
-
-    /* Compression method must be STORE */
-    uint16_t method = get_u16(data + 8);
-    if (method != 0) {
-        return set_err(err, COZIP_ERR_INVALID_LFH,
-                       "non-STORE compression method (%u)", method);
-    }
-
-    /* Sizes must be equal, non-zero, and not the ZIP64 sentinel */
-    uint32_t csz = get_u32(data + 18);
-    uint32_t usz = get_u32(data + 22);
-    if (csz == 0 || csz == ZIP32_SIZE_THRESHOLD || csz != usz) {
-        return set_err(err, COZIP_ERR_INVALID_LFH,
-                       "bad index sizes (compressed=%u, uncompressed=%u)",
-                       csz, usz);
-    }
-
-    /* Filename and extra geometry */
-    uint16_t fnlen = get_u16(data + 26);
-    uint16_t exlen = get_u16(data + 28);
-    if (fnlen != COZIP_INDEX_NAME_LEN) {
-        return set_err(err, COZIP_ERR_INVALID_LFH,
-                       "wrong filename length (%u, want %u)",
-                       fnlen, COZIP_INDEX_NAME_LEN);
-    }
-    if (exlen != COZIP_EXTRA_FIELD_SIZE) {
-        return set_err(err, COZIP_ERR_INVALID_LFH,
-                       "wrong extra field length (%u, want %u)",
-                       exlen, COZIP_EXTRA_FIELD_SIZE);
-    }
-
-    /* Filename literal */
-    if (memcmp(data + 30, COZIP_INDEX_NAME, COZIP_INDEX_NAME_LEN) != 0) {
-        return set_err(err, COZIP_ERR_INVALID_LFH,
-                       "first entry is not __cozip__");
-    }
-
-    /* 0xCA0C extra field shape */
-    uint16_t header_id = get_u16(data + 39);
-    uint16_t ds        = get_u16(data + 41);
-    if (header_id != COZIP_EXTRA_HEADER_ID) {
-        return set_err(err, COZIP_ERR_INVALID_LFH,
-                       "missing 0xCA0C extra (got 0x%04X)", header_id);
-    }
-    if (ds != COZIP_EXTRA_DATA_SIZE) {
-        return set_err(err, COZIP_ERR_INVALID_LFH,
-                       "wrong extra data_size (%u, want %u)",
-                       ds, COZIP_EXTRA_DATA_SIZE);
-    }
-
-    out->index_size = csz;
-    out->hash       = get_u64(data + 43);
-    return COZIP_OK;
-}
-
-
-/* ---- 8. Index parsing ---- */
-
-/* The five regions of the index payload (header, name_lens, names,
- * offsets, sizes) must each fit inside the provided buffer. This
- * function walks them sequentially and validates the bound at every
- * step. The invariant after each block is `pos` points at the start
- * of the next region and `pos <= payload_size`.
- *
- * No data is copied. The resulting cozip_index_t holds pointers
- * into the caller's payload buffer, which must outlive every read.
- */
-cozip_status_t cozip_index_parse(const uint8_t *payload, size_t payload_size,
-                                 cozip_index_t *out, cozip_error_t *err) {
-    if (payload_size < COZIP_INDEX_HEADER_SIZE) {
-        return set_err(err, COZIP_ERR_TRUNCATED_INDEX,
-                       "payload too short (%zu bytes)", payload_size);
-    }
-    if (memcmp(payload, COZIP_MAGIC, COZIP_MAGIC_LEN) != 0) {
-        return set_err(err, COZIP_ERR_INVALID_MAGIC, "bad magic");
-    }
-
-    uint16_t version = get_u16(payload + 4);
-    if (version > COZIP_FORMAT_VERSION) {
-        return set_err(err, COZIP_ERR_UNSUPPORTED_VERSION,
-                       "format version %u not supported", version);
-    }
-    uint8_t profile = payload[6];
-    if (profile != COZIP_PROFILE_NONE && profile != COZIP_PROFILE_FLAT &&
-        profile != COZIP_PROFILE_TACO) {
-        return set_err(err, COZIP_ERR_UNKNOWN_PROFILE,
-                       "profile %u not recognized", profile);
-    }
-    uint32_t n_entries = get_u32(payload + 7);
-
-    /* name_lens region, n_entries x 2 bytes */
-    size_t pos = COZIP_INDEX_HEADER_SIZE;
-    if (pos + (size_t)n_entries * 2 > payload_size) {
-        return set_err(err, COZIP_ERR_TRUNCATED_INDEX,
-                       "name_lens out of bounds");
-    }
-    size_t name_lens_pos = pos;
-    pos += (size_t)n_entries * 2;
-
-    /* names region, variable length, sized by the sum of name_lens */
-    size_t names_total = 0;
-    for (uint32_t i = 0; i < n_entries; i++) {
-        uint16_t nl = get_u16(payload + name_lens_pos + 2 * i);
-        if (nl == 0) {
-            return set_err(err, COZIP_ERR_TRUNCATED_INDEX,
-                           "empty name length at entry %u", i);
-        }
-        if (names_total > SIZE_MAX - nl) {
-            return set_err(err, COZIP_ERR_TRUNCATED_INDEX,
-                           "name length sum overflows size_t");
-        }
-        names_total += nl;
-    }
-    if (pos + names_total > payload_size) {
-        return set_err(err, COZIP_ERR_TRUNCATED_INDEX,
-                       "names out of bounds");
-    }
-    size_t names_pos = pos;
-    pos += names_total;
-
-    /* offsets region, n_entries x 8 bytes */
-    if (pos + (size_t)n_entries * 8 > payload_size) {
-        return set_err(err, COZIP_ERR_TRUNCATED_INDEX,
-                       "offsets out of bounds");
-    }
-    size_t offsets_pos = pos;
-    pos += (size_t)n_entries * 8;
-
-    /* sizes region, n_entries x 8 bytes */
-    if (pos + (size_t)n_entries * 8 > payload_size) {
-        return set_err(err, COZIP_ERR_TRUNCATED_INDEX,
-                       "sizes out of bounds");
-    }
-    size_t sizes_pos = pos;
-    pos += (size_t)n_entries * 8;
-
-    /* The five regions must consume the buffer exactly */
-    if (pos != payload_size) {
-        return set_err(err, COZIP_ERR_TRUNCATED_INDEX,
-                       "size mismatch (parsed %zu, buffer has %zu)",
-                       pos, payload_size);
-    }
-
-    /* Every indexed entry must have a non-zero payload size (spec §7.5) */
-    for (uint32_t i = 0; i < n_entries; i++) {
-        if (get_u64(payload + sizes_pos + 8 * i) == 0) {
-            return set_err(err, COZIP_ERR_TRUNCATED_INDEX,
-                           "zero payload size at entry %u", i);
-        }
-    }
-
-    out->version       = version;
-    out->profile       = (cozip_profile_t)profile;
-    out->n_entries     = n_entries;
-    out->_payload      = payload;
-    out->_payload_size = payload_size;
-    /* Plain byte pointers into the payload. Reads always go through
-     * get_uXX so unaligned hosts and strict-aliasing toolchains stay
-     * safe.
-     */
-    out->_name_lens = payload + name_lens_pos;
-    out->_names     = payload + names_pos;
-    out->_offsets   = payload + offsets_pos;
-    out->_sizes     = payload + sizes_pos;
-    return COZIP_OK;
-}
-
-cozip_status_t cozip_index_get(const cozip_index_t *index, uint32_t i,
-                               cozip_index_entry_t *out, cozip_error_t *err) {
-    if (i >= index->n_entries) {
-        return set_err(err, COZIP_ERR_INVALID_ARGUMENT,
-                       "index %u out of range (%u entries)",
-                       i, index->n_entries);
-    }
-    /* Locating entry i requires summing the first i name lengths */
-    size_t name_byte_offset = 0;
-    for (uint32_t k = 0; k < i; k++) {
-        name_byte_offset += get_u16(index->_name_lens + 2 * k);
-    }
-    uint16_t nl = get_u16(index->_name_lens + 2 * i);
-
-    out->name     = (const char *)(index->_names + name_byte_offset);
-    out->name_len = nl;
-    out->offset   = get_u64(index->_offsets + 8 * i);
-    out->size     = get_u64(index->_sizes + 8 * i);
-    return COZIP_OK;
-}
-
-cozip_status_t cozip_index_find(const cozip_index_t *index, const char *name,
-                                cozip_index_entry_t *out, cozip_error_t *err) {
-    /* Linear scan with an incremental name offset for O(n) total */
-    size_t name_len = strlen(name);
-    size_t name_byte_offset = 0;
-    for (uint32_t i = 0; i < index->n_entries; i++) {
-        uint16_t nl = get_u16(index->_name_lens + 2 * i);
-        if ((size_t)nl == name_len) {
-            const char *candidate =
-                (const char *)(index->_names + name_byte_offset);
-            if (memcmp(candidate, name, name_len) == 0) {
-                out->name     = candidate;
-                out->name_len = nl;
-                out->offset   = get_u64(index->_offsets + 8 * i);
-                out->size     = get_u64(index->_sizes + 8 * i);
-                return COZIP_OK;
-            }
-        }
-        name_byte_offset += nl;
-    }
-    return set_err(err, COZIP_ERR_MISSING_ENTRY,
-                   "entry '%s' not found", name);
-}
-
-
-/* ---- 9. FNV-1a 64 hash and integrity verification ---- */
-
-uint64_t cozip_fnv1a_64(const uint8_t *data, size_t size, uint64_t seed) {
-    uint64_t h = seed;
-    for (size_t i = 0; i < size; i++) {
-        h ^= (uint64_t)data[i];
-        h *= COZIP_FNV_PRIME;
-    }
-    return h;
-}
-
-cozip_status_t cozip_verify_hash(const uint8_t *archive, size_t archive_size,
-                                 uint32_t index_size, uint64_t stored_hash,
-                                 bool *out_valid, cozip_error_t *err) {
-    if (archive_size < COZIP_MIN_ARCHIVE_SIZE) {
-        return set_err(err, COZIP_ERR_ARCHIVE_TOO_SMALL,
-                       "archive too small (%zu bytes, need %d)",
-                       archive_size, COZIP_MIN_ARCHIVE_SIZE);
-    }
-
-    /* Reject corrupted index_size before any read. archive_size is
-     * known to be >= COZIP_MIN_ARCHIVE_SIZE > COZIP_INDEX_OFFSET, so
-     * the subtraction below cannot underflow.
-     */
-    if (index_size == 0 ||
-        (size_t)index_size > archive_size - COZIP_INDEX_OFFSET) {
-        return set_err(err, COZIP_ERR_TRUNCATED_INDEX,
-                       "index extends beyond archive (index_size=%u)",
-                       index_size);
-    }
-
-    uint64_t h = COZIP_FNV_OFFSET_BASIS;
-    h = cozip_fnv1a_64(archive + COZIP_INDEX_OFFSET, index_size, h);
-
-    size_t suffix_start = archive_size - COZIP_HASH_WINDOW_SIZE;
-    size_t index_end    = (size_t)COZIP_INDEX_OFFSET + index_size;
-
-    if (index_end <= suffix_start) {
-        h = cozip_fnv1a_64(archive + suffix_start,
-                           COZIP_HASH_WINDOW_SIZE, h);
-    } else {
-        /* Index region overlaps the trailing window. Hash only the
-         * non-overlapping tail so each byte contributes exactly once.
-         */
-        size_t keep = index_end - suffix_start;
-        h = cozip_fnv1a_64(archive + index_end,
-                           COZIP_HASH_WINDOW_SIZE - keep, h);
-    }
-    *out_valid = (h == stored_hash);
-    return COZIP_OK;
-}
-
-
-/* ---- 10. Disk I/O ---- */
-
-/* Streams `len` bytes starting at archive offset `start` through the
- * FNV-1a 64 hasher, accumulating into *h. Reads in HASH_BUF_SIZE
- * (32 KiB) chunks so the trailing suffix region is read in one
- * fread call.
+/* Streams `len` bytes starting at archive offset `start` through
+ * the FNV-1a 64 hasher, accumulating into *h. Reads in
+ * HASH_BUF_SIZE (32 KiB) chunks so the trailing suffix region is
+ * read in one fread call.
  */
 static cozip_status_t hash_range(FILE *fp, long long start, size_t len,
                                  uint64_t *h, cozip_error_t *err) {
@@ -645,7 +346,7 @@ static cozip_status_t hash_range(FILE *fp, long long start, size_t len,
         if (fread(buf, 1, want, fp) != want) {
             return set_err(err, COZIP_ERR_IO, "read failed");
         }
-        *h = cozip_fnv1a_64(buf, want, *h);
+        *h = fnv1a_64(buf, want, *h);
         len -= want;
     }
     return COZIP_OK;
@@ -719,6 +420,106 @@ cozip_status_t cozip_patch_integrity_hash(const char *archive_path,
     return COZIP_OK;
 }
 
+/* Validates the first 51 bytes of an archive against the cozip
+ * 1.0 specification, section 8.5 step 1, and confirms that the
+ * compressed size in the LFH equals `expected_index_size`.
+ *
+ * Layout of the first 51 bytes,
+ *
+ *    0   PK\x03\x04                    signature
+ *    4   version_needed (2)
+ *    6   gp flags (2)                  bit 11 informational, 0/3/6/13 clear
+ *    8   method (2)                    must be 0 (STORE)
+ *   10   dos time/date (4)
+ *   14   crc32 (4)
+ *   18   compressed_size (4)           must equal expected_index_size
+ *   22   uncompressed_size (4)         must equal compressed_size
+ *   26   filename_len (2)              must be 9
+ *   28   extra_len (2)                 must be 12
+ *   30   "__cozip__"                   9 bytes
+ *   39   extra header_id (2)           must be 0xCA0C
+ *   41   extra data_size (2)           must be 8
+ *   43   integrity hash (8)            FNV-1a 64
+ */
+static cozip_status_t validate_index_lfh(const uint8_t *data,
+                                         uint32_t expected_index_size,
+                                         cozip_error_t *err) {
+    /* Signature */
+    if (data[0] != 'P' || data[1] != 'K' ||
+        data[2] != 0x03 || data[3] != 0x04) {
+        return set_err(err, COZIP_ERR_INVALID_LFH, "bad ZIP signature");
+    }
+
+    /* General-purpose flags. Bit 11 is informational because
+     * "__cozip__" is pure ASCII; the forbidden flags are still
+     * rejected.
+     */
+    uint16_t flags = get_u16(data + 6);
+    if (flags & GP_FORBIDDEN_MASK) {
+        return set_err(err, COZIP_ERR_INVALID_LFH,
+                       "forbidden GP flag set (0x%04X)", flags);
+    }
+
+    /* Compression method must be STORE */
+    uint16_t method = get_u16(data + 8);
+    if (method != 0) {
+        return set_err(err, COZIP_ERR_INVALID_LFH,
+                       "non-STORE compression method (%u)", method);
+    }
+
+    /* Sizes must be equal, non-zero, and not the ZIP64 sentinel */
+    uint32_t csz = get_u32(data + 18);
+    uint32_t usz = get_u32(data + 22);
+    if (csz == 0 || csz == ZIP32_SIZE_THRESHOLD || csz != usz) {
+        return set_err(err, COZIP_ERR_INVALID_LFH,
+                       "bad index sizes (compressed=%u, uncompressed=%u)",
+                       csz, usz);
+    }
+
+    /* Filename and extra geometry */
+    uint16_t fnlen = get_u16(data + 26);
+    uint16_t exlen = get_u16(data + 28);
+    if (fnlen != COZIP_INDEX_NAME_LEN) {
+        return set_err(err, COZIP_ERR_INVALID_LFH,
+                       "wrong filename length (%u, want %u)",
+                       fnlen, COZIP_INDEX_NAME_LEN);
+    }
+    if (exlen != COZIP_EXTRA_FIELD_SIZE) {
+        return set_err(err, COZIP_ERR_INVALID_LFH,
+                       "wrong extra field length (%u, want %u)",
+                       exlen, COZIP_EXTRA_FIELD_SIZE);
+    }
+
+    /* Filename literal */
+    if (memcmp(data + 30, COZIP_INDEX_NAME, COZIP_INDEX_NAME_LEN) != 0) {
+        return set_err(err, COZIP_ERR_INVALID_LFH,
+                       "first entry is not __cozip__");
+    }
+
+    /* 0xCA0C extra field shape */
+    uint16_t header_id = get_u16(data + 39);
+    uint16_t ds        = get_u16(data + 41);
+    if (header_id != COZIP_EXTRA_HEADER_ID) {
+        return set_err(err, COZIP_ERR_INVALID_LFH,
+                       "missing 0xCA0C extra (got 0x%04X)", header_id);
+    }
+    if (ds != COZIP_EXTRA_DATA_SIZE) {
+        return set_err(err, COZIP_ERR_INVALID_LFH,
+                       "wrong extra data_size (%u, want %u)",
+                       ds, COZIP_EXTRA_DATA_SIZE);
+    }
+
+    /* Cross-check the written index size against the planned size */
+    if (csz != expected_index_size) {
+        return set_err(err, COZIP_ERR_INVALID_LFH,
+                       "written index size differs from planned size "
+                       "(got %u, want %u)",
+                       csz, expected_index_size);
+    }
+
+    return COZIP_OK;
+}
+
 /* Reads the fixed-size LFH head of one priority entry as written by
  * libzip and validates it against the offsets cozip_plan computed.
  * Confirms ZIP signature, GP flags, STORE method, payload size,
@@ -726,8 +527,8 @@ cozip_status_t cozip_patch_integrity_hash(const char *archive_path,
  * offset matches `e->payload_offset`.
  *
  * Only the first 30 bytes of the LFH are read. The filename body
- * itself is not re-validated, which is fine because the cozip
- * binding already verified names before cozip_plan ran.
+ * itself is not re-validated, which is fine because the binding
+ * already verified names before cozip_plan ran.
  */
 static cozip_status_t verify_priority_lfh(FILE *fp, const cozip_entry_t *e,
                                           cozip_error_t *err) {
@@ -756,7 +557,8 @@ static cozip_status_t verify_priority_lfh(FILE *fp, const cozip_entry_t *e,
     }
     /* Bit 11 (UTF-8) is required only when the filename has bytes
      * >= 0x80. ASCII-only names are unambiguously valid UTF-8
-     * either way.
+     * either way, and several libzip builds omit the flag for
+     * them, so a strict check would reject correct archives.
      */
     bool needs_utf8_flag = false;
     size_t arc_len = strlen(e->arc_name);
@@ -782,7 +584,7 @@ static cozip_status_t verify_priority_lfh(FILE *fp, const cozip_entry_t *e,
     uint16_t fnlen = get_u16(lfh + 26);
     uint16_t exlen = get_u16(lfh + 28);
 
-    size_t expected_fnlen = strlen(e->arc_name);
+    size_t expected_fnlen = arc_len;
     if ((size_t)fnlen != expected_fnlen) {
         return set_err(err, COZIP_ERR_INVALID_LFH,
                        "filename length mismatch on '%s' "
@@ -847,6 +649,14 @@ cozip_status_t cozip_write_archive(const char *out_path,
                                    const uint8_t *index_payload,
                                    size_t index_payload_size,
                                    cozip_error_t *err) {
+    /* Pre-flight checks on the index payload size */
+    if (index_payload_size == 0 ||
+        index_payload_size >= ZIP32_SIZE_THRESHOLD) {
+        return set_err(err, COZIP_ERR_INVALID_ARGUMENT,
+                       "index_payload_size out of range (%zu)",
+                       index_payload_size);
+    }
+
     /* Pre-flight checks on entry sources */
     for (size_t i = 0; i < n; i++) {
         const cozip_entry_t *e = &entries[i];
@@ -962,9 +772,9 @@ cozip_status_t cozip_write_archive(const char *out_path,
 
     /* Phase 4, post-write validation. Re-open the archive read-only
      * and verify (a) the __cozip__ LFH conforms to spec section 8.5
-     * step 1, (b) the written index payload size matches what was
-     * passed in, and (c) every priority entry's LFH places its
-     * payload exactly at the offset cozip_plan computed.
+     * step 1 and its written size equals what we passed in, and (b)
+     * every priority entry's LFH places its payload exactly at the
+     * offset cozip_plan computed.
      */
     FILE *fp = fopen(out_path, "rb");
     if (!fp) {
@@ -977,18 +787,11 @@ cozip_status_t cozip_write_archive(const char *out_path,
         return set_err(err, COZIP_ERR_IO, "post-write short read");
     }
 
-    cozip_lfh_info_t info;
-    cozip_status_t s = cozip_parse_lfh(lfh, sizeof(lfh), &info, err);
+    cozip_status_t s = validate_index_lfh(lfh, (uint32_t)index_payload_size,
+                                          err);
     if (s != COZIP_OK) {
         fclose(fp);
         return s;
-    }
-    if ((size_t)info.index_size != index_payload_size) {
-        fclose(fp);
-        return set_err(err, COZIP_ERR_INVALID_LFH,
-                       "written index size differs from planned size "
-                       "(got %u, want %zu)",
-                       info.index_size, index_payload_size);
     }
 
     for (size_t i = 0; i < n; i++) {

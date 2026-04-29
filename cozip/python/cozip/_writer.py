@@ -15,7 +15,13 @@ from typing import Any
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from ._core import CozipError, ffi, lib
+from ._core import (
+    COZIP_PROFILE_FLAT,
+    COZIP_SOURCE_PATH,
+    CozipError,
+    ffi,
+    lib,
+)
 
 # Names the writer reserves for itself; users cannot use them.
 _RESERVED_NAMES = frozenset({"__cozip__", "__metadata__"})
@@ -209,7 +215,7 @@ def create(
         entries[i].arc_name      = name_c
         entries[i].payload_size  = path.stat().st_size
         entries[i].in_index      = bool(in_idx[i])
-        entries[i].source.kind   = 1  # COZIP_SOURCE_PATH
+        entries[i].source.kind   = COZIP_SOURCE_PATH
         entries[i].source.u.path = path_c
 
     # __metadata__ entry: real size and source path are unknown until
@@ -222,7 +228,7 @@ def create(
     entries[meta_idx].arc_name      = meta_name_c
     entries[meta_idx].payload_size  = 0
     entries[meta_idx].in_index      = True
-    entries[meta_idx].source.kind   = 1  # COZIP_SOURCE_PATH
+    entries[meta_idx].source.kind   = COZIP_SOURCE_PATH
     entries[meta_idx].source.u.path = ffi.NULL
 
     err = ffi.new("cozip_error_t*")
@@ -264,11 +270,11 @@ def create(
         payload = ffi.new(f"uint8_t[{idx_size[0]}]")
         _check(
             lib.cozip_build_index_payload(
-                entries, n_total, 1, payload, idx_size[0], err
+                entries, n_total, COZIP_PROFILE_FLAT, payload, idx_size[0], err
             ),
             err,
         )
-
+        
         # 6. Write the archive (libzip-backed).
         out_path_b = out_path.encode("utf-8")
         _check(

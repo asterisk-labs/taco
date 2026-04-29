@@ -1,5 +1,5 @@
 /*
- * cozip 1.0 core C ABI
+ * cozip 1.0 writer C ABI
  *
  * Cloud-Optimized ZIP. The first archive entry is a binary index
  * placed at byte 0 that lets a reader locate any priority file in
@@ -42,8 +42,8 @@ extern "C" {
  * version recorded in the index payload header and is independent
  * of the library version.
  */
-#define COZIP_VERSION         "2026.04.28"
-#define COZIP_VERSION_NUMBER  20260428
+#define COZIP_VERSION         "2026.04.29"
+#define COZIP_VERSION_NUMBER  20260429
 #define COZIP_FORMAT_VERSION  1
 
 
@@ -75,8 +75,9 @@ extern "C" {
 
 /* Index payload magic.
  *
- * The four ASCII bytes at offset 0 of the index payload that
- * cozip_index_parse uses to recognize a cozip index.
+ * The four ASCII bytes at offset 0 of the index payload, written
+ * by cozip_build_index_payload and used by readers to recognize
+ * a cozip index.
  */
 #define COZIP_MAGIC      "CZIP"
 #define COZIP_MAGIC_LEN  4
@@ -111,8 +112,9 @@ extern "C" {
 /* FNV-1a 64 constants.
  *
  * Offset basis and prime as published by Fowler, Noll and Vo.
- * Used by cozip_fnv1a_64 to build the integrity hash of an
- * archive.
+ * Used internally by cozip_patch_integrity_hash. Exposed so a
+ * non-C reader (binding, DuckDB extension, validator) can
+ * reproduce the integrity hash without copying magic numbers.
  */
 #define COZIP_FNV_OFFSET_BASIS  UINT64_C(0xCBF29CE484222325)
 #define COZIP_FNV_PRIME         UINT64_C(0x100000001B3)
@@ -129,28 +131,16 @@ extern "C" {
  * Every public function returns one of these. COZIP_OK (0) is
  * success.
  *
- * Codes 1..99 are format errors raised when an archive or buffer
- * does not match the cozip specification (a malformed Local File
- * Header, an unknown profile byte, a truncated index payload).
- *
- * Codes 100 and above are runtime errors raised by the call
- * itself (an out-of-range entry index, an undersized output
- * buffer, an inconsistent argument, a failed read or write).
  */
 typedef enum cozip_status {
     COZIP_OK = 0,
 
-    COZIP_ERR_INVALID_LFH         = 1,
-    COZIP_ERR_INVALID_MAGIC       = 2,
-    COZIP_ERR_UNSUPPORTED_VERSION = 3,
-    COZIP_ERR_UNKNOWN_PROFILE     = 4,
-    COZIP_ERR_ARCHIVE_TOO_SMALL   = 5,
-    COZIP_ERR_TRUNCATED_INDEX     = 6,
-    COZIP_ERR_MISSING_ENTRY       = 7,
+    COZIP_ERR_INVALID_LFH       = 1,
+    COZIP_ERR_ARCHIVE_TOO_SMALL = 2,
 
-    COZIP_ERR_INVALID_ARGUMENT    = 100,
-    COZIP_ERR_BUFFER_TOO_SMALL    = 101,
-    COZIP_ERR_IO                  = 102
+    COZIP_ERR_INVALID_ARGUMENT  = 100,
+    COZIP_ERR_BUFFER_TOO_SMALL  = 101,
+    COZIP_ERR_IO                = 102
 } cozip_status_t;
 
 /* A status code paired with a human-readable description.
@@ -199,7 +189,6 @@ typedef enum cozip_profile {
 
 
 /* Where cozip_write_archive should pull an entry's payload from.
- * Used at write time only. Readers ignore this field.
  *
  * COZIP_SOURCE_NONE is the default zeroed value. Passing it to
  * the writer is rejected with COZIP_ERR_INVALID_ARGUMENT.
@@ -356,14 +345,15 @@ void cozip_build_extra_field(uint8_t out[COZIP_EXTRA_FIELD_SIZE]);
  * buffer size disagrees with `payload_size`. Both surface as
  * COZIP_ERR_INVALID_ARGUMENT.
  *
- * Phase 4 re-parses the first 51 bytes through cozip_parse_lfh,
- * checks that the written index size equals
- * `index_payload_size`, and reads the fixed LFH head of every
- * priority entry to confirm signature, GP flags, STORE method,
- * sizes, filename and extra lengths, and that the resulting
- * payload offset matches the value cozip_plan computed. If
- * anything disagrees, returns COZIP_ERR_INVALID_LFH and the
- * archive must be considered invalid.
+ * Phase 4 re-validates the first 51 bytes (the __cozip__ Local
+ * File Header) against the spec, checks that the written index
+ * size equals `index_payload_size`, and reads the fixed LFH
+ * head of every priority entry to confirm signature, GP flags,
+ * STORE method, sizes, filename and extra lengths, and that the
+ * resulting payload offset matches the value cozip_plan
+ * computed. If anything disagrees, returns
+ * COZIP_ERR_INVALID_LFH and the archive must be considered
+ * invalid.
  *
  * `index_payload` and `index_payload_size` describe the index
  * payload bytes as produced by cozip_build_index_payload. The
@@ -398,171 +388,6 @@ cozip_status_t cozip_write_archive(const char *out_path,
 cozip_status_t cozip_patch_integrity_hash(const char *archive_path,
                                           size_t index_payload_size,
                                           cozip_error_t *err);
-
-
-/* Result of parsing the first 51 bytes of a cozip archive.
- *
- * `index_size` is the value of the LFH compressed_size field
- * for the index entry, which equals the byte length of the
- * index payload. `hash` is the 8-byte FNV-1a 64 value carried
- * in the 0xCA0C extra field at archive bytes 43..50.
- */
-typedef struct cozip_lfh_info {
-    uint32_t index_size;
-    uint64_t hash;
-} cozip_lfh_info_t;
-
-/* Validates the first 51 bytes of an archive against the cozip
- * 1.0 specification, section 8.5 step 1, and extracts the index
- * size and stored integrity hash.
- *
- * `data_size` must be at least COZIP_INDEX_OFFSET. Anything
- * beyond byte 51 is ignored.
- *
- * Confirms the ZIP local file header signature, the GP flag
- * bits (bits 0/3/6/13 clear; bit 11 is not enforced since
- * the __cozip__ filename is pure ASCII), STORE compression
- * method, non-zero matching compressed and uncompressed sizes
- * that are not the ZIP64 sentinel, filename length 9, extra
- * length 12, the literal "__cozip__" filename and the 0xCA0C
- * extra field shape (header_id and data_size).
- *
- * Does not validate the index payload itself; that is the job
- * of cozip_index_parse.
- *
- * Returns COZIP_ERR_INVALID_LFH if any check fails.
- */
-cozip_status_t cozip_parse_lfh(const uint8_t *data, size_t data_size,
-                               cozip_lfh_info_t *out, cozip_error_t *err);
-
-
-/* One entry in a parsed cozip index.
- *
- * `name` is a non-owning pointer into the index payload buffer
- * passed to cozip_index_parse. It is NOT null-terminated; use
- * `name_len` for its length. `offset` and `size` are the
- * entry's payload offset and byte length, both measured against
- * byte 0 of the archive.
- */
-typedef struct cozip_index_entry {
-    const char *name;
-    uint16_t    name_len;
-    uint64_t    offset;
-    uint64_t    size;
-} cozip_index_entry_t;
-
-/* A parsed cozip index, holding non-owning views into the
- * payload buffer passed to cozip_index_parse.
- *
- * The payload buffer must outlive every read of this struct.
- * As soon as the buffer is freed or reused, every pointer in
- * this struct dangles.
- *
- * `version`, `profile` and `n_entries` come straight from the
- * 11-byte payload header. The remaining underscore-prefixed
- * fields are private and used by cozip_index_get and
- * cozip_index_find. Do not read them directly; use the
- * accessors.
- */
-typedef struct cozip_index {
-    uint16_t        version;
-    cozip_profile_t profile;
-    uint32_t        n_entries;
-
-    const uint8_t *_payload;
-    size_t         _payload_size;
-    const uint8_t *_name_lens;
-    const uint8_t *_names;
-    const uint8_t *_offsets;
-    const uint8_t *_sizes;
-} cozip_index_t;
-
-/* Parses the index payload into a non-owning view.
- *
- * `payload` must point to the index payload bytes, starting at
- * the 4-byte "CZIP" magic. `payload_size` must equal the index
- * size reported by cozip_parse_lfh.
- *
- * The resulting cozip_index_t holds pointers into `payload`.
- * The caller must keep the buffer alive for as long as the
- * index is used.
- *
- * Validates the binary geometry of the payload only. Concretely,
- * checks the header magic, the format version, the profile byte,
- * the bounds of all five payload regions, that every name length
- * is greater than zero, that the sum of name lengths does not
- * overflow size_t, and that every payload size is greater than
- * zero.
- *
- * Does not check names against the __cozip__ reservation, UTF-8
- * well-formedness, name uniqueness, or whether payload offsets
- * fit within the actual archive size. Higher layers, typically
- * the language binding, own those checks.
- *
- * Returns COZIP_ERR_INVALID_MAGIC, COZIP_ERR_UNSUPPORTED_VERSION,
- * COZIP_ERR_UNKNOWN_PROFILE or COZIP_ERR_TRUNCATED_INDEX.
- */
-cozip_status_t cozip_index_parse(const uint8_t *payload, size_t payload_size,
-                                 cozip_index_t *out, cozip_error_t *err);
-
-/* Reads the i-th entry of a parsed index.
- *
- * The names region is variable-length, so locating entry `i`
- * requires summing the first `i` name lengths. Each call is
- * therefore O(i). For full iteration, walking i = 0..n_entries-1
- * with a running name offset is faster than calling
- * cozip_index_get in a loop, which would be O(n^2) total.
- *
- * Returns COZIP_ERR_INVALID_ARGUMENT if `i` is out of range.
- */
-cozip_status_t cozip_index_get(const cozip_index_t *index, uint32_t i,
-                               cozip_index_entry_t *out, cozip_error_t *err);
-
-/* Looks up an entry by exact name match.
- *
- * Linear scan with an incremental name offset, O(n_entries)
- * total. Names are compared as byte strings; no normalization
- * is applied.
- *
- * Returns COZIP_ERR_MISSING_ENTRY if no entry has the given
- * name.
- */
-cozip_status_t cozip_index_find(const cozip_index_t *index, const char *name,
-                                cozip_index_entry_t *out, cozip_error_t *err);
-
-
-/* FNV-1a 64.
- *
- * Pass COZIP_FNV_OFFSET_BASIS as `seed` to start a fresh hash.
- * Pass the previous return value to continue across
- * non-contiguous chunks. The hash is order-sensitive; bytes
- * must be presented in archive-byte order.
- */
-uint64_t cozip_fnv1a_64(const uint8_t *data, size_t size, uint64_t seed);
-
-/* Recomputes the integrity hash over an in-memory archive and
- * compares it against `stored_hash`.
- *
- * The hash input is the index region (bytes COZIP_INDEX_OFFSET
- * to COZIP_INDEX_OFFSET + index_size) concatenated with the
- * trailing COZIP_HASH_WINDOW_SIZE bytes. Overlapping bytes
- * between the two regions are hashed exactly once.
- *
- * `archive` must hold the entire archive in memory and
- * `archive_size` must be at least COZIP_MIN_ARCHIVE_SIZE.
- * `index_size` is bounds-checked against the archive before any
- * read; an `index_size` of zero, or one that would extend past
- * the end of the archive, is rejected.
- *
- * On success, *out_valid is true if the recomputed hash matches
- * `stored_hash` and false otherwise. Returns
- * COZIP_ERR_ARCHIVE_TOO_SMALL if `archive_size` is below the
- * minimum, or COZIP_ERR_TRUNCATED_INDEX if `index_size` is out
- * of range.
- */
-cozip_status_t cozip_verify_hash(const uint8_t *archive, size_t archive_size,
-                                 uint32_t index_size, uint64_t stored_hash,
-                                 bool *out_valid, cozip_error_t *err);
 
 #ifdef __cplusplus
 }

@@ -1,6 +1,6 @@
 # Cloud-Optimized ZIP Format Specification
 
-**Version** 1.0-draft.4  
+**Version** 1.0-draft.5  
 **Binary format version** 1  
 **Status** Draft  
 **Date** 2026-04-28  

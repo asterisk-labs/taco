@@ -6,6 +6,25 @@ from pathlib import Path
 
 import cffi
 
+# Status codes. Must match cozip.h.
+COZIP_OK                    = 0
+COZIP_ERR_INVALID_LFH       = 1
+COZIP_ERR_ARCHIVE_TOO_SMALL = 2
+COZIP_ERR_INVALID_ARGUMENT  = 100
+COZIP_ERR_BUFFER_TOO_SMALL  = 101
+COZIP_ERR_IO                = 102
+
+# Profile selector for cozip_build_index_payload.
+COZIP_PROFILE_NONE = 0
+COZIP_PROFILE_FLAT = 1
+COZIP_PROFILE_TACO = 2
+
+# Source kind for cozip_entry_t.source.kind.
+COZIP_SOURCE_NONE   = 0
+COZIP_SOURCE_PATH   = 1
+COZIP_SOURCE_BUFFER = 2
+
+
 ffi = cffi.FFI()
 ffi.cdef("""
 typedef struct { int code; char message[192]; } cozip_error_t;
@@ -26,6 +45,8 @@ typedef struct {
     uint64_t lfh_offset, lfh_size, payload_offset;
 } cozip_entry_t;
 
+const char* cozip_status_string(int status);
+
 int cozip_plan(cozip_entry_t*, size_t, cozip_error_t*);
 int cozip_index_payload_size(const cozip_entry_t*, size_t,
                              size_t*, cozip_error_t*);
@@ -40,8 +61,8 @@ int cozip_patch_integrity_hash(const char*, size_t, cozip_error_t*);
 def _lib_filename() -> str:
     """Returns the shared library filename for the current platform.
 
-    No 'lib' prefix anywhere — the CMakeLists sets PREFIX "" so the
-    artifact name is identical across Linux/macOS/Windows.
+    No 'lib' prefix anywhere because the CMakeLists sets PREFIX ""
+    so the artifact name is identical across Linux/macOS/Windows.
     """
     if sys.platform == "darwin":
         return "cozip.dylib"
@@ -61,13 +82,13 @@ def _resolve_lib_path() -> str:
             raise ImportError(f"cozip: COZIP_LIB_PATH={env!r} does not exist")
         return env
 
-    # 2. Canonical path: next to this file, under _lib/.
+    # 2. Canonical path, next to this file, under _lib/.
     here = Path(__file__).resolve().parent
     canonical = here / "_lib" / name
     if canonical.exists():
         return str(canonical)
 
-    # 3. Fallback: any neighboring build/ dir (dev mode without reinstall).
+    # 3. Fallback to any neighboring build/ dir (dev mode without reinstall).
     repo = here.parent.parent
     for build_dir in (repo / "python" / "build", repo / "build"):
         if build_dir.is_dir():
@@ -88,13 +109,16 @@ lib = ffi.dlopen(_resolve_lib_path())
 class CozipError(RuntimeError):
     """Raised when libcozip returns a non-zero status."""
 
-    def __init__(self, code: int, message: str):
-        super().__init__(f"[code {code}] {message}")
+    def __init__(self, code: int, name: str, message: str):
+        super().__init__(f"[{name}] {message}")
         self.code = code
+        self.name = name
         self.message = message
 
     @classmethod
     def from_struct(cls, err) -> "CozipError":
         """Builds the exception from a cozip_error_t struct."""
+        code = int(err.code)
         msg = ffi.string(err.message).decode("utf-8", errors="replace")
-        return cls(int(err.code), msg)
+        name = ffi.string(lib.cozip_status_string(code)).decode("ascii")
+        return cls(code, name, msg)

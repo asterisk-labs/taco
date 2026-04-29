@@ -420,7 +420,8 @@ typedef struct cozip_lfh_info {
  * beyond byte 51 is ignored.
  *
  * Confirms the ZIP local file header signature, the GP flag
- * bits (bit 11 set, bits 0/3/6/13 clear), STORE compression
+ * bits (bits 0/3/6/13 clear; bit 11 is not enforced since
+ * the __cozip__ filename is pure ASCII), STORE compression
  * method, non-zero matching compressed and uncompressed sizes
  * that are not the ZIP64 sentinel, filename length 9, extra
  * length 12, the literal "__cozip__" filename and the 0xCA0C

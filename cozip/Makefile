@@ -29,6 +29,11 @@ ifeq ($(UNAME_S),Linux)
 endif
 ifeq ($(OS),Windows_NT)
     LIB_NAME := cozip.dll
+    # vcpkg ships libzip on Windows but CMake doesn't auto-discover it.
+    # Route through the vcpkg toolchain file (works in GH Actions and
+    # locally if VCPKG_INSTALLATION_ROOT is set).
+    VCPKG_ROOT ?= $(VCPKG_INSTALLATION_ROOT)
+    CMAKE_EXTRA := -DCMAKE_TOOLCHAIN_FILE=$(VCPKG_ROOT)/scripts/buildsystems/vcpkg.cmake
 endif
 
 .PHONY: lib python test wheel sdist clean
@@ -36,7 +41,7 @@ endif
 # 1. Build libcozip with CMake + Ninja, then copy the artifact into the
 #    Python package's _lib/ folder under the unversioned name.
 lib:
-	cmake -B $(BUILD_DIR) -S $(CORE_DIR) -G Ninja
+	cmake -B $(BUILD_DIR) -S $(CORE_DIR) -G Ninja $(CMAKE_EXTRA)
 	cmake --build $(BUILD_DIR)
 	mkdir -p $(PY_LIB_DIR)
 	cp $(BUILD_DIR)/$(LIB_NAME) $(PY_LIB_DIR)/$(LIB_NAME)

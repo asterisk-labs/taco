@@ -23,7 +23,7 @@ else()
     add_compile_options(-Wall -Wextra -Wpedantic -Wshadow)
 endif()
 
-find_package(libzip 1.10 REQUIRED)
+find_package(libzip 1.7 REQUIRED)
 
 add_library(cozip SHARED cozip.c)
 add_library(cozip::cozip ALIAS cozip)

@@ -20,12 +20,14 @@ DIST_DIR   := dist
 VERSION := $(shell grep -E '^version' $(PY_DIR)/pyproject.toml | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
 
 # Detect the platform suffix.
+# CMakeLists sets PREFIX "" so the artifact is always cozip.<ext> with
+# no "lib" prefix, regardless of compiler.
 UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Darwin)
-    LIB_NAME := libcozip.dylib
+    LIB_NAME := cozip.dylib
 endif
 ifeq ($(UNAME_S),Linux)
-    LIB_NAME := libcozip.so
+    LIB_NAME := cozip.so
 endif
 ifeq ($(OS),Windows_NT)
     LIB_NAME := cozip.dll
@@ -60,16 +62,12 @@ wheel: lib
 	cd $(PY_DIR) && python -m build --wheel
 
 # 5. Source bundle: tarball of core + python + Makefile + docs.
-#    Not a PEP 517 sdist (would require deeper hatchling config).
-#    For now this is a "developer source archive" — extract and run
-#    `make wheel` to rebuild from scratch.
 sdist:
 	mkdir -p $(DIST_DIR)
 	rm -rf build/sdist
 	mkdir -p build/sdist/cozip-$(VERSION)
 	cp -r $(CORE_DIR) $(PY_DIR) Makefile build/sdist/cozip-$(VERSION)/
 	-cp README.md LICENSE SPEC.md build/sdist/cozip-$(VERSION)/ 2>/dev/null
-	# Strip generated stuff before tarballing
 	rm -rf build/sdist/cozip-$(VERSION)/$(PY_DIR)/cozip/_lib/*.dylib
 	rm -rf build/sdist/cozip-$(VERSION)/$(PY_DIR)/cozip/_lib/*.so
 	rm -rf build/sdist/cozip-$(VERSION)/$(PY_DIR)/cozip/_lib/*.dll
@@ -81,23 +79,14 @@ sdist:
 	cd build/sdist && tar czf ../../$(DIST_DIR)/cozip-source-$(VERSION).tar.gz cozip-$(VERSION)
 	@echo "Created: $(DIST_DIR)/cozip-source-$(VERSION).tar.gz"
 
-# 6. Nuke everything stale, including leftovers from the old
-#    scikit-build-core setup.
+# 6. Nuke everything stale.
 clean:
-	# Build outputs
 	rm -rf build/ $(DIST_DIR)/
 	rm -rf $(PY_LIB_DIR)/*.dylib $(PY_LIB_DIR)/*.so $(PY_LIB_DIR)/*.dll
-	# Python wheel/sdist outputs
+	rm -rf $(PY_LIB_DIR)/libcozip.dylib $(PY_LIB_DIR)/libcozip.so $(PY_LIB_DIR)/libcozip.dll
 	rm -rf $(PY_DIR)/dist $(PY_DIR)/build
 	rm -rf $(PY_DIR)/*.egg-info
 	rm -rf $(PY_DIR)/cozip.egg-info $(PY_DIR)/cozip/cozip.egg-info
-	# Old scikit-build-core leftovers (if any)
-	rm -rf $(PY_DIR)/_skbuild
-	rm -rf $(PY_DIR)/CMakeFiles $(PY_DIR)/CMakeCache.txt
-	rm -rf $(PY_DIR)/cmake_install.cmake $(PY_DIR)/build.ninja
-	rm -rf $(PY_DIR)/.ninja_deps $(PY_DIR)/.ninja_log
-	rm -rf $(PY_DIR)/core_build
-	# Caches
 	rm -rf $(PY_DIR)/.pytest_cache
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 	find . -type f -name "*.pyc" -delete 2>/dev/null || true

@@ -38,12 +38,16 @@ int cozip_patch_integrity_hash(const char*, size_t, cozip_error_t*);
 
 
 def _lib_filename() -> str:
-    """Returns the shared library filename for the current platform."""
+    """Returns the shared library filename for the current platform.
+
+    No 'lib' prefix anywhere — the CMakeLists sets PREFIX "" so the
+    artifact name is identical across Linux/macOS/Windows.
+    """
     if sys.platform == "darwin":
-        return "libcozip.dylib"
+        return "cozip.dylib"
     if sys.platform == "win32":
-        return "libcozip.dll"
-    return "libcozip.so"  # linux + bsd
+        return "cozip.dll"
+    return "cozip.so"  # linux + bsd
 
 
 def _resolve_lib_path() -> str:

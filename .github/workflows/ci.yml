@@ -39,7 +39,7 @@ jobs:
       # Platform-specific deps (libzip + ninja).
       - name: Install deps (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libzip-dev libzip-tools ninja-build
+        run: sudo apt-get update && sudo apt-get install -y libzip-dev zipcmp zipmerge ziptool ninja-build
 
       - name: Install deps (macOS)
         if: runner.os == 'macOS'
@@ -51,6 +51,11 @@ jobs:
         run: |
           vcpkg install libzip:x64-windows
           choco install ninja -y
+
+      - name: Add vcpkg bin to PATH (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: echo "$VCPKG_INSTALLATION_ROOT/installed/x64-windows/bin" >> $GITHUB_PATH
 
       - name: Install Python build deps
         run: pip install build pytest cffi pyarrow hatchling

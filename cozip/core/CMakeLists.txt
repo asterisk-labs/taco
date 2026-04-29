@@ -13,6 +13,7 @@ set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
 endif()
+
 if(APPLE AND NOT CMAKE_OSX_DEPLOYMENT_TARGET)
     set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "" FORCE)
 endif()
@@ -23,6 +24,14 @@ else()
     add_compile_options(-Wall -Wextra -Wpedantic -Wshadow)
 endif()
 
+# Off when included via add_subdirectory from python/ (the wheel doesn't
+# need CMake config files). On for standalone builds.
+option(COZIP_INSTALL "Generate install / export targets" ON)
+
+# libzip is installed by the CI runner / package manager:
+#   Linux    apt install libzip-dev libzip-tools
+#   macOS    brew install libzip
+#   Windows  vcpkg install libzip      (with VCPKG toolchain)
 find_package(libzip 1.7 REQUIRED)
 
 add_library(cozip SHARED cozip.c)
@@ -32,20 +41,45 @@ target_include_directories(cozip
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
         $<INSTALL_INTERFACE:include>)
+
 target_link_libraries(cozip PRIVATE libzip::zip)
 
-# Flat output name on the Python side will be handled by the Makefile
-# (it copies and renames the artifact). Keep VERSION/SOVERSION here for
-# proper standalone installs.
+# PREFIX "" disables the automatic "lib" prefix that CMake adds on
+# MinGW/GCC builds for Windows. Without it the artifact is libcozip.dll
+# instead of cozip.dll, and the Makefile cp step fails.
 set_target_properties(cozip PROPERTIES
     VERSION       ${PROJECT_VERSION}
     SOVERSION     ${PROJECT_VERSION_MAJOR}
     PUBLIC_HEADER cozip.h
-    OUTPUT_NAME   cozip)
+    OUTPUT_NAME   cozip
+    PREFIX        "")
 
-include(GNUInstallDirs)
-install(TARGETS cozip
-    LIBRARY       DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    ARCHIVE       DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    RUNTIME       DESTINATION ${CMAKE_INSTALL_BINDIR}
-    PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+if(COZIP_INSTALL)
+    include(GNUInstallDirs)
+    include(CMakePackageConfigHelpers)
+
+    install(TARGETS cozip
+        EXPORT        cozipTargets
+        LIBRARY       DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        ARCHIVE       DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        RUNTIME       DESTINATION ${CMAKE_INSTALL_BINDIR}
+        PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+
+    install(EXPORT cozipTargets
+        FILE        cozipTargets.cmake
+        NAMESPACE   cozip::
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/cozip)
+
+    write_basic_package_version_file(
+        "${CMAKE_CURRENT_BINARY_DIR}/cozipConfigVersion.cmake"
+        VERSION       ${PROJECT_VERSION}
+        COMPATIBILITY SameMajorVersion)
+
+    file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/cozipConfig.cmake"
+"include(\"\${CMAKE_CURRENT_LIST_DIR}/cozipTargets.cmake\")\n")
+
+    install(FILES
+        "${CMAKE_CURRENT_BINARY_DIR}/cozipConfig.cmake"
+        "${CMAKE_CURRENT_BINARY_DIR}/cozipConfigVersion.cmake"
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/cozip)
+endif()

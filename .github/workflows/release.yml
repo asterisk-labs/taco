@@ -537,16 +537,6 @@ jobs:
       - uses: pypa/gh-action-pypi-publish@release/v1
 
   # ============================================================
-  # 6. R binding publish — TODO
-  # ============================================================
-  # publish-r:
-  #   needs: [detect-changes, build-lib, reuse-lib]
-  #   if: |
-  #     always() &&
-  #     (needs.build-lib.result == 'success' || needs.reuse-lib.result == 'success')
-  #   ...
-
-  # ============================================================
   # 7. Julia binding publish — TODO
   # ============================================================
   # publish-julia:

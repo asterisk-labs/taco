@@ -3,7 +3,7 @@ name: Build libcozip in manylinux/macos/windows environments
 on:
   push:
     #branches: [main]
-    tags: ['v*']
+    #tags: ['v*']
   pull_request:
     #branches: [main]
 

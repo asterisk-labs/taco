@@ -17,16 +17,20 @@ if(APPLE AND NOT CMAKE_OSX_DEPLOYMENT_TARGET)
 endif()
 
 # IMPORTANT: do NOT set CMAKE_C_STANDARD / CMAKE_C_EXTENSIONS / warning
-# flags globally. Those propagate to libzip and zlib (brought in via
-# FetchContent), and:
+# flags / visibility presets globally. Those propagate to libzip and
+# zlib (brought in via FetchContent), and:
 #
 #   * CMAKE_C_EXTENSIONS OFF forces -std=c11 (strict ISO) instead of
-#     -std=gnu11. Under strict ISO, glibc hides off_t unless _POSIX_C_SOURCE
-#     or similar is defined. libzip's compat.h:146 uses off_t bare and
-#     fails to compile.
+#     -std=gnu11. Under strict ISO, glibc hides off_t unless
+#     _POSIX_C_SOURCE or similar is defined. libzip's compat.h:146
+#     uses off_t bare and fails to compile.
 #
-#   * -Wall -Wextra -Wpedantic -Wshadow turn libzip's own warnings into
-#     noise we don't control.
+#   * -Wall -Wextra -Wpedantic -Wshadow turn libzip's own warnings
+#     into noise we don't control.
+#
+#   * C_VISIBILITY_PRESET=hidden hides every symbol from dlsym, which
+#     would also affect how libzip is linked into us (already
+#     internal, but still propagating it globally is wrong-shaped).
 #
 # These options are applied to the cozip target only, further down.
 
@@ -96,7 +100,7 @@ set(ENABLE_OPENSSL        OFF CACHE BOOL "" FORCE)
 set(ENABLE_COMMONCRYPTO   OFF CACHE BOOL "" FORCE)
 set(ENABLE_WINDOWS_CRYPTO OFF CACHE BOOL "" FORCE)
 set(ENABLE_MBEDTLS        OFF CACHE BOOL "" FORCE)
-set(ENABLE_GNUTLS        OFF CACHE BOOL "" FORCE)
+set(ENABLE_GNUTLS         OFF CACHE BOOL "" FORCE)
 set(LIBZIP_DO_INSTALL     OFF CACHE BOOL "" FORCE)
 
 FetchContent_Declare(libzip
@@ -113,7 +117,14 @@ FetchContent_MakeAvailable(libzip)
 add_library(cozip SHARED cozip.c)
 add_library(cozip::cozip ALIAS cozip)
 
+# COZIP_BUILDING toggles cozip.h's COZIP_API macro from "import" to
+# "export". Set as PRIVATE so it only applies to the cozip target,
+# not to anyone consuming cozip via target_link_libraries.
+target_compile_definitions(cozip PRIVATE COZIP_BUILDING)
+
 # C standard — applied only to cozip, NOT propagated to vendored deps.
+# c_std_11 is "want C11 if available, fall back to highest", which is
+# what we need without breaking libzip's off_t expectations.
 target_compile_features(cozip PRIVATE c_std_11)
 
 # Strict warnings — only for our own code. libzip and zlib have their
@@ -126,14 +137,24 @@ else()
         -Wall -Wextra -Wpedantic -Wshadow)
 endif()
 
-# Symbol visibility — hide everything by default; export functions
-# annotated COZIP_API in cozip.h. On Windows the equivalent is
-# WINDOWS_EXPORT_ALL_SYMBOLS (we'll tighten this with a .def or
-# explicit __declspec when the API stabilises).
+# Symbol visibility.
+#
+# C_VISIBILITY_PRESET=hidden hides every symbol by default; cozip.h's
+# COZIP_API macro re-exports the public API surface explicitly via
+# __attribute__((visibility("default"))) on Unix and __declspec(dllexport)
+# on Windows.
+#
+# WINDOWS_EXPORT_ALL_SYMBOLS is OFF on purpose: with the COZIP_API
+# annotations in place, we control exports manually. Leaving it ON
+# would also export symbols from libzip and zlib (statically linked
+# into us), polluting the ABI surface — the bug we're fixing.
+#
+# Result on every platform: the .so/.dylib/.dll exposes exactly the
+# 7 cozip_* functions and nothing else.
 set_target_properties(cozip PROPERTIES
-    C_VISIBILITY_PRESET       hidden
-    VISIBILITY_INLINES_HIDDEN ON
-    WINDOWS_EXPORT_ALL_SYMBOLS ON)
+    C_VISIBILITY_PRESET        hidden
+    VISIBILITY_INLINES_HIDDEN  ON
+    WINDOWS_EXPORT_ALL_SYMBOLS OFF)
 
 target_include_directories(cozip
     PUBLIC

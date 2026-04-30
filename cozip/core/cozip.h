@@ -34,6 +34,26 @@ extern "C" {
 #endif
 
 
+/* Symbol visibility.
+ *
+ * COZIP_API marks every function that is part of the public ABI.
+ */
+#if defined(_WIN32) || defined(__CYGWIN__)
+  #ifdef COZIP_BUILDING
+    #define COZIP_API __declspec(dllexport)
+  #else
+    #define COZIP_API __declspec(dllimport)
+  #endif
+  #define COZIP_LOCAL
+#elif defined(__GNUC__) || defined(__clang__)
+  #define COZIP_API   __attribute__((visibility("default")))
+  #define COZIP_LOCAL __attribute__((visibility("hidden")))
+#else
+  #define COZIP_API
+  #define COZIP_LOCAL
+#endif
+
+
 /* Versioning.
  *
  * COZIP_VERSION is the human-readable release date of this build.
@@ -158,7 +178,7 @@ typedef struct cozip_error {
  * example "INVALID_LFH" for COZIP_ERR_INVALID_LFH. The pointer
  * has static storage and is never NULL.
  */
-const char *cozip_status_string(cozip_status_t status);
+COZIP_API const char *cozip_status_string(cozip_status_t status);
 
 
 /* Profile selector for cozip_build_index_payload.
@@ -276,8 +296,8 @@ typedef struct cozip_entry {
  * Pure arithmetic. No I/O, no allocation, no validation. Always
  * returns COZIP_OK.
  */
-cozip_status_t cozip_plan(cozip_entry_t *entries, size_t n,
-                          cozip_error_t *err);
+COZIP_API cozip_status_t cozip_plan(cozip_entry_t *entries, size_t n,
+                                    cozip_error_t *err);
 
 /* Reports the exact byte size of the index payload that
  * cozip_build_index_payload will produce for the same arguments.
@@ -293,9 +313,10 @@ cozip_status_t cozip_plan(cozip_entry_t *entries, size_t n,
  * entry is always ZIP32 by spec section 5.2.1, so the index
  * payload itself cannot use ZIP64.
  */
-cozip_status_t cozip_index_payload_size(const cozip_entry_t *entries, size_t n,
-                                        size_t *out_size,
-                                        cozip_error_t *err);
+COZIP_API cozip_status_t cozip_index_payload_size(const cozip_entry_t *entries,
+                                                  size_t n,
+                                                  size_t *out_size,
+                                                  cozip_error_t *err);
 
 /* Serializes the index payload into `out`.
  *
@@ -315,10 +336,12 @@ cozip_status_t cozip_index_payload_size(const cozip_entry_t *entries, size_t n,
  * limit). Returns COZIP_ERR_BUFFER_TOO_SMALL if `out_size` is
  * below the required size.
  */
-cozip_status_t cozip_build_index_payload(const cozip_entry_t *entries, size_t n,
-                                         cozip_profile_t profile,
-                                         uint8_t *out, size_t out_size,
-                                         cozip_error_t *err);
+COZIP_API cozip_status_t cozip_build_index_payload(const cozip_entry_t *entries,
+                                                   size_t n,
+                                                   cozip_profile_t profile,
+                                                   uint8_t *out,
+                                                   size_t out_size,
+                                                   cozip_error_t *err);
 
 /* Writes the 12 bytes of the 0xCA0C extra field with the
  * integrity hash zeroed.
@@ -327,7 +350,7 @@ cozip_status_t cozip_build_index_payload(const cozip_entry_t *entries, size_t n,
  * hash. The hash is filled in by cozip_patch_integrity_hash
  * after the archive is fully written.
  */
-void cozip_build_extra_field(uint8_t out[COZIP_EXTRA_FIELD_SIZE]);
+COZIP_API void cozip_build_extra_field(uint8_t out[COZIP_EXTRA_FIELD_SIZE]);
 
 
 /* Writes the planned archive to `out_path` via libzip.
@@ -362,11 +385,12 @@ void cozip_build_extra_field(uint8_t out[COZIP_EXTRA_FIELD_SIZE]);
  * The integrity hash is left zero. Call
  * cozip_patch_integrity_hash next to compute and patch it.
  */
-cozip_status_t cozip_write_archive(const char *out_path,
-                                   const cozip_entry_t *entries, size_t n,
-                                   const uint8_t *index_payload,
-                                   size_t index_payload_size,
-                                   cozip_error_t *err);
+COZIP_API cozip_status_t cozip_write_archive(const char *out_path,
+                                             const cozip_entry_t *entries,
+                                             size_t n,
+                                             const uint8_t *index_payload,
+                                             size_t index_payload_size,
+                                             cozip_error_t *err);
 
 /* Computes the FNV-1a 64 hash of an archive and patches it into
  * bytes 43..50 of the file.
@@ -385,9 +409,9 @@ cozip_status_t cozip_write_archive(const char *out_path,
  * `index_payload_size` is zero or larger than the archive can
  * carry, and COZIP_ERR_IO on any read, write or seek failure.
  */
-cozip_status_t cozip_patch_integrity_hash(const char *archive_path,
-                                          size_t index_payload_size,
-                                          cozip_error_t *err);
+COZIP_API cozip_status_t cozip_patch_integrity_hash(const char *archive_path,
+                                                    size_t index_payload_size,
+                                                    cozip_error_t *err);
 
 #ifdef __cplusplus
 }

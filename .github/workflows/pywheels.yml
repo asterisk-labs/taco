@@ -1,4 +1,4 @@
-name: Wheels
+name: Python Wheels (manylinux, macOS, Windows)
 
 # Builds Python wheels by:
 #   1. Building libcozip via CMake (same as ci.yml).
@@ -13,13 +13,13 @@ name: Wheels
 
 on:
   push:
-    branches: [main]
     tags: ['v*']
+    branches: [main]
   workflow_dispatch:
   pull_request:
     paths:
       - 'cozip/python/**'
-      - '.github/workflows/wheels.yml'
+      - '.github/workflows/pywheels.yml'
 
 jobs:
   build-wheels:
@@ -168,10 +168,12 @@ jobs:
       # Sanity check: the bundled native lib must actually be in the
       # wheel. Without this, hatchling's `artifacts` glob silently
       # skipping would produce a broken wheel that fails on import.
-      - name: Inspect wheel
+      - name: Inspect wheel (Unix)
+        if: runner.os != 'Windows'
         run: |
           python -m pip install --upgrade wheel
-          python -m wheel unpack wheelhouse/*.whl --dest wheel_check
+          WHEEL=$(ls wheelhouse/*.whl | head -1)
+          python -m wheel unpack "$WHEEL" --dest wheel_check
           ls -laR wheel_check
           python -c "
           import glob, sys
@@ -181,22 +183,38 @@ jobs:
           print('OK: bundled lib =', libs[0])
           "
 
+      - name: Inspect wheel (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          python -m pip install --upgrade wheel
+          $wheel = (Get-ChildItem wheelhouse\*.whl | Select-Object -First 1).FullName
+          python -m wheel unpack $wheel --dest wheel_check
+          Get-ChildItem -Recurse wheel_check
+          python -c "import glob, sys; libs = glob.glob('wheel_check/cozip-*/cozip/_lib/cozip.*'); sys.exit(0 if libs else (print('FAIL: no native lib in wheel') or 1)); print('OK:', libs[0])"
+
       # ── Smoke test: install + import + version ─────────────────────────
 
       # End-to-end check that the wheel actually works on this runner:
       # install it, import cozip, confirm cffi can dlopen the bundled
       # library, and that the version matches pyproject.toml.
-      - name: Install wheel and import
+      - name: Install wheel and import (Unix)
+        if: runner.os != 'Windows'
         run: |
           python -m pip install wheelhouse/*.whl
           python -c "
           import cozip
           print('cozip', cozip.__version__)
           print('lib loaded:', cozip.lib)
-          # touch a real symbol to confirm dlopen actually resolved
           msg = cozip.ffi.string(cozip.lib.cozip_status_string(0)).decode()
           print('status(0) =', msg)
           "
+
+      - name: Install wheel and import (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          $wheel = (Get-ChildItem wheelhouse\*.whl | Select-Object -First 1).FullName
+          python -m pip install $wheel
+          python -c "import cozip; print('cozip', cozip.__version__); print('lib loaded:', cozip.lib); msg = cozip.ffi.string(cozip.lib.cozip_status_string(0)).decode(); print('status(0) =', msg)"
 
       # ── Upload ─────────────────────────────────────────────────────────
 

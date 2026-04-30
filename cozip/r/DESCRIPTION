@@ -27,7 +27,7 @@ Imports:
 Suggests:
     testthat (>= 3.0.0),
     withr
-SystemRequirements: libzip (>= 1.7): libzip-dev (deb), libzip-devel (rpm), libzip (brew).
+SystemRequirements: libzip (>= 1.5): libzip-dev (deb), libzip-devel (rpm), libzip (brew).
 Config/testthat/edition: 3
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.3

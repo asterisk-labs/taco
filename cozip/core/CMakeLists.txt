@@ -1,6 +1,20 @@
 cmake_minimum_required(VERSION 3.21)
+
+# ----------------------------------------------------------------------
+# Single source of truth for the version.
+#
+# cozip/VERSION lives one level up from this CMakeLists. ALL bindings
+# (this C library, the Python wheel, future R/Julia packages) read the
+# exact same file so they cannot drift apart.
+#
+# CalVer of the form YYYY.M.D parses fine into CMake's MAJOR.MINOR.PATCH.
+# ----------------------------------------------------------------------
+
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/../VERSION" COZIP_VERSION_RAW)
+string(STRIP "${COZIP_VERSION_RAW}" COZIP_VERSION)
+
 project(cozip
-    VERSION      1.0.0
+    VERSION      ${COZIP_VERSION}
     DESCRIPTION  "Cloud-Optimized ZIP core"
     LANGUAGES    C)
 
@@ -36,6 +50,23 @@ endif()
 
 option(COZIP_INSTALL     "Generate install / export targets" ON)
 option(COZIP_BUILD_TESTS "Build the test suite"              OFF)
+
+
+# ----------------------------------------------------------------------
+# Generate version.h from version.h.in
+#
+# version.h is committed-via-template. CMake fills in the @PROJECT_*@
+# placeholders with the values it parsed from cozip/VERSION above.
+# The output sits in the binary dir so source tree stays clean.
+#
+# Consumers include it as `#include "version.h"` (the BINARY_DIR is
+# added to PUBLIC include paths below for BUILD_INTERFACE).
+# ----------------------------------------------------------------------
+
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/version.h.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/version.h"
+    @ONLY)
 
 
 # ----------------------------------------------------------------------
@@ -150,15 +181,20 @@ endif()
 # into us), polluting the ABI surface — the bug we're fixing.
 #
 # Result on every platform: the .so/.dylib/.dll exposes exactly the
-# 7 cozip_* functions and nothing else.
+# 8 cozip_* functions (the original 7 + cozip_version_string).
 set_target_properties(cozip PROPERTIES
     C_VISIBILITY_PRESET        hidden
     VISIBILITY_INLINES_HIDDEN  ON
     WINDOWS_EXPORT_ALL_SYMBOLS OFF)
 
+# Public include tree:
+#   - SOURCE_DIR for cozip.h (and version.h.in's source twin if anyone
+#     ever adds one to git, but today version.h is generate-only).
+#   - BINARY_DIR for the generated version.h.
 target_include_directories(cozip
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>
         $<INSTALL_INTERFACE:include>)
 
 # libzip 1.11.x exposes its bare static target as `zip`. The
@@ -181,6 +217,10 @@ set_target_properties(cozip PROPERTIES
 # CMAKE_OSX_ARCHITECTURES="arm64;x86_64" it triggers symlink and lipo
 # merge edge cases. Apple dylibs already encode VERSION in the
 # install_name, so we just skip SOVERSION on Apple.
+#
+# NOTE: with CalVer, PROJECT_VERSION_MAJOR is the year (e.g. 2026), so
+# every January the SOVERSION bumps. That is the correct behavior for
+# "the ABI may break at any release" but worth knowing.
 if(NOT APPLE)
     set_target_properties(cozip PROPERTIES
         SOVERSION ${PROJECT_VERSION_MAJOR})
@@ -208,6 +248,12 @@ if(COZIP_INSTALL)
         ARCHIVE       DESTINATION ${CMAKE_INSTALL_LIBDIR}
         RUNTIME       DESTINATION ${CMAKE_INSTALL_BINDIR}
         PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+
+    # version.h is generated, so it cannot be a PUBLIC_HEADER attached
+    # to the target (PUBLIC_HEADER files must exist at configure time).
+    # Install it explicitly alongside cozip.h.
+    install(FILES "${CMAKE_CURRENT_BINARY_DIR}/version.h"
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 
     install(EXPORT cozipTargets
         FILE        cozipTargets.cmake

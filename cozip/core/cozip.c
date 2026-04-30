@@ -45,6 +45,7 @@
 #endif
 
 #include "cozip.h"
+#include "version.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -101,6 +102,11 @@ _Static_assert(HASH_BUF_SIZE >= COZIP_HASH_WINDOW_SIZE,
 #  define cozip_ftell64(fp)      ((long long)ftello(fp))
 #endif
 
+/* ---- 3. Version string ---- */
+
+COZIP_API const char* cozip_version_string(void) {
+    return COZIP_VERSION_STRING;
+}
 
 /* ---- 4. Little-endian byte readers and writers ---- */
 

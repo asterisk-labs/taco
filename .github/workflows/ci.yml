@@ -1,0 +1,415 @@
+name: CI
+
+# Validation only — runs on PRs and pushes to main.
+# No publishing happens here. See release.yml for tag-driven releases.
+#
+# Path-based gating per binding:
+#   - cozip/core/**     → build-lib runs
+#   - cozip/python/**   → build-wheels runs (also needs build-lib)
+#   - cozip/r/**        → build-r runs       (TODO when R binding lands)
+#   - cozip/julia/**    → build-julia runs   (TODO when Julia binding lands)
+#   - cozip/VERSION     → counts as a change in every binding
+#
+# A docs-only PR (only README/LICENSE etc.) triggers nothing.
+
+on:
+  pull_request:
+    paths:
+      - 'cozip/**'
+      - '.github/workflows/**'
+  push:
+    branches: [main]
+    paths:
+      - 'cozip/**'
+      - '.github/workflows/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # ============================================================
+  # 0. Detect which bindings changed (vs PR base or push parent)
+  # ============================================================
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      core:   ${{ steps.filter.outputs.core }}
+      python: ${{ steps.filter.outputs.python }}
+      r:      ${{ steps.filter.outputs.r }}
+      julia:  ${{ steps.filter.outputs.julia }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            core:
+              - 'cozip/core/**'
+              - 'cozip/VERSION'
+              - '.github/workflows/ci.yml'
+            python:
+              - 'cozip/python/**'
+              - 'cozip/VERSION'
+              - '.github/workflows/ci.yml'
+            r:
+              - 'cozip/r/**'
+              - 'cozip/VERSION'
+            julia:
+              - 'cozip/julia/**'
+              - 'cozip/VERSION'
+
+  # ============================================================
+  # 1. Build libcozip (matrix × 4 platforms)
+  # Runs whenever core OR python changed (python wheels need a
+  # fresh libcozip to embed).
+  # ============================================================
+  build-lib:
+    name: Build libcozip — ${{ matrix.name }}
+    needs: changes
+    # ONLY when C source changes. Python/R/Julia jobs that need a
+    # libcozip download it from the latest release artifact instead.
+    if: needs.changes.outputs.core == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            runner: ubuntu-24.04
+            container: quay.io/pypa/manylinux_2_28_x86_64
+            lib_ext: so
+            shell: bash
+          - name: linux-aarch64
+            runner: ubuntu-24.04-arm
+            container: quay.io/pypa/manylinux_2_28_aarch64
+            lib_ext: so
+            shell: bash
+          - name: macos-universal
+            runner: macos-14
+            container: ''
+            lib_ext: dylib
+            shell: bash
+            cmake_extra: >-
+              "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64"
+              -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+          - name: windows-x86_64
+            runner: windows-2022
+            container: ''
+            lib_ext: dll
+            shell: pwsh
+    runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.container }}
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - if: startsWith(matrix.name, 'linux')
+        run: yum install -y ninja-build
+      - if: runner.os == 'macOS'
+        run: brew install ninja
+      - if: runner.os == 'Windows'
+        run: choco install ninja -y
+      - if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Configure
+        run: >
+          cmake -B build -S cozip/core -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_INSTALL_PREFIX=install
+          -DCMAKE_INSTALL_LIBDIR=lib
+          -DBUILD_SHARED_LIBS=ON
+          ${{ matrix.cmake_extra }}
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Install
+        run: cmake --install build --config Release
+
+      - if: matrix.name == 'macos-universal'
+        name: Verify macOS universal
+        run: |
+          DYLIB=install/lib/cozip.dylib
+          ARCHS=$(lipo -archs "$DYLIB")
+          echo "$ARCHS" | grep -qw x86_64 || { echo "Missing x86_64"; exit 1; }
+          echo "$ARCHS" | grep -qw arm64  || { echo "Missing arm64";  exit 1; }
+
+      # Stage canonical artifact layout: cozip.<ext> + headers + license.
+      - name: Stage artifact (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p staged
+          cp install/lib/cozip.${{ matrix.lib_ext }} staged/
+          cp install/include/cozip.h                 staged/
+          cp install/include/version.h               staged/
+          cp cozip/LICENSE                            staged/
+          cp cozip/README.md                          staged/
+          ls -la staged/
+
+      - name: Stage artifact (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          New-Item -ItemType Directory -Force -Path staged | Out-Null
+          Copy-Item install\bin\cozip.dll        staged\
+          Copy-Item install\include\cozip.h      staged\
+          Copy-Item install\include\version.h    staged\
+          Copy-Item cozip\LICENSE                staged\
+          Copy-Item cozip\README.md              staged\
+          Get-ChildItem staged\
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: libcozip-${{ matrix.name }}
+          path: staged/
+          if-no-files-found: error
+          retention-days: 7
+
+  # ============================================================
+  # 1b. Reuse libcozip from the latest published release
+  # (when core unchanged but a binding needs the binary)
+  # ============================================================
+  reuse-lib:
+    name: Reuse libcozip — ${{ matrix.name }}
+    needs: changes
+    if: |
+      needs.changes.outputs.core == 'false' &&
+      (needs.changes.outputs.python == 'true' ||
+       needs.changes.outputs.r == 'true' ||
+       needs.changes.outputs.julia == 'true')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            archive_ext: tar.gz
+            lib_ext: so
+            lib_subdir: lib
+          - name: linux-aarch64
+            archive_ext: tar.gz
+            lib_ext: so
+            lib_subdir: lib
+          - name: macos-universal
+            archive_ext: tar.gz
+            lib_ext: dylib
+            lib_subdir: lib
+          - name: windows-x86_64
+            archive_ext: zip
+            lib_ext: dll
+            lib_subdir: bin
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download libcozip from latest release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p download
+          # Get latest release tag (excluding drafts/prereleases).
+          LATEST=$(gh release list --limit 50 --json tagName,isDraft,isPrerelease \
+            --jq '[.[] | select(.isDraft==false and .isPrerelease==false)][0].tagName')
+          if [ -z "$LATEST" ]; then
+            echo "::error::No published release found. Run a tag release first."
+            exit 1
+          fi
+          echo "Using libcozip from $LATEST"
+          gh release download "$LATEST" \
+            --pattern "libcozip-*-${{ matrix.name }}.${{ matrix.archive_ext }}" \
+            --dir download/
+
+      - name: Extract and re-stage
+        run: |
+          mkdir -p staged extract
+          if [ "${{ matrix.archive_ext }}" = "tar.gz" ]; then
+            tar -xzf download/libcozip-*.tar.gz -C extract/
+          else
+            sudo apt-get install -y unzip
+            unzip -q download/libcozip-*.zip -d extract/
+          fi
+          ROOT=$(find extract -maxdepth 1 -mindepth 1 -type d | head -1)
+          cp "$ROOT/${{ matrix.lib_subdir }}/cozip.${{ matrix.lib_ext }}" staged/
+          cp "$ROOT/include/cozip.h"   staged/
+          cp "$ROOT/include/version.h" staged/
+          cp cozip/LICENSE   staged/
+          cp cozip/README.md staged/
+          ls -la staged/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: libcozip-${{ matrix.name }}
+          path: staged/
+          if-no-files-found: error
+          retention-days: 7
+
+  # ============================================================
+  # 2. Build & smoke-test Python wheels
+  # ============================================================
+  build-wheels:
+    name: Wheel — ${{ matrix.name }}
+    needs: [changes, build-lib, reuse-lib]
+    if: |
+      always() &&
+      (needs.build-lib.result == 'success' || needs.reuse-lib.result == 'success') &&
+      (needs.changes.outputs.python == 'true' || needs.changes.outputs.core == 'true')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            runner: ubuntu-24.04
+            container: quay.io/pypa/manylinux_2_28_x86_64
+            lib_ext: so
+            shell: bash
+            manylinux_plat: manylinux_2_28_x86_64
+          - name: linux-aarch64
+            runner: ubuntu-24.04-arm
+            container: quay.io/pypa/manylinux_2_28_aarch64
+            lib_ext: so
+            shell: bash
+            manylinux_plat: manylinux_2_28_aarch64
+          - name: macos-universal
+            runner: macos-14
+            container: ''
+            lib_ext: dylib
+            shell: bash
+          - name: windows-x86_64
+            runner: windows-2022
+            container: ''
+            lib_ext: dll
+            shell: pwsh
+    runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.container }}
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python (manylinux)
+        if: startsWith(matrix.name, 'linux')
+        run: |
+          ln -sf /opt/python/cp312-cp312/bin/python3 /usr/local/bin/python
+          ln -sf /opt/python/cp312-cp312/bin/pip     /usr/local/bin/pip
+
+      - name: Set up Python (macOS / Windows)
+        if: runner.os != 'Linux'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - run: python -m pip install --upgrade pip build hatchling cffi wheel
+
+      - if: startsWith(matrix.name, 'linux')
+        run: python -m pip install auditwheel
+      - if: runner.os == 'macOS'
+        run: python -m pip install delocate
+
+      - name: Download libcozip artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: libcozip-${{ matrix.name }}
+          path: libcozip-bin/
+
+      - name: Bundle native lib (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p cozip/python/cozip/_lib
+          cp libcozip-bin/cozip.${{ matrix.lib_ext }} cozip/python/cozip/_lib/
+
+      - name: Bundle native lib (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          New-Item -ItemType Directory -Force -Path cozip\python\cozip\_lib | Out-Null
+          Copy-Item libcozip-bin\cozip.dll cozip\python\cozip\_lib\
+
+      - name: Build wheel (raw)
+        working-directory: cozip/python
+        run: python -m build --wheel --outdir ../../wheelhouse-raw
+
+      - name: Repair (Linux)
+        if: startsWith(matrix.name, 'linux')
+        run: |
+          mkdir -p wheelhouse-repaired wheelhouse
+          for whl in wheelhouse-raw/*.whl; do
+            auditwheel repair "$whl" --plat ${{ matrix.manylinux_plat }} -w wheelhouse-repaired
+          done
+          for whl in wheelhouse-repaired/*.whl; do
+            python -m wheel tags --python-tag py3 --abi-tag none --remove "$whl"
+          done
+          mv wheelhouse-repaired/*.whl wheelhouse/
+
+      - name: Repair (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p wheelhouse-delocated wheelhouse
+          for whl in wheelhouse-raw/*.whl; do
+            delocate-wheel -v --require-archs x86_64,arm64 -w wheelhouse-delocated "$whl"
+          done
+          for whl in wheelhouse-delocated/*.whl; do
+            python -m wheel tags \
+              --platform-tag macosx_11_0_universal2 \
+              --python-tag py3 \
+              --abi-tag none \
+              --remove \
+              "$whl"
+          done
+          mv wheelhouse-delocated/*.whl wheelhouse/
+
+      - name: Repair (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          New-Item -ItemType Directory -Force -Path wheelhouse-raw2 | Out-Null
+          New-Item -ItemType Directory -Force -Path wheelhouse | Out-Null
+          Copy-Item wheelhouse-raw\*.whl wheelhouse-raw2\
+          Get-ChildItem wheelhouse-raw2\*.whl | ForEach-Object {
+            python -m wheel tags --python-tag py3 --abi-tag none --remove $_.FullName
+          }
+          Move-Item wheelhouse-raw2\*.whl wheelhouse\
+
+      - name: Smoke test (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          python -m pip install wheelhouse/*.whl
+          python -c "
+          import cozip
+          print('cozip', cozip.__version__, '(libcozip', cozip.__version_c__, ')')
+          assert cozip.lib.cozip_status_string(0)
+          "
+
+      - name: Smoke test (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          $wheel = (Get-ChildItem wheelhouse\*.whl | Select-Object -First 1).FullName
+          python -m pip install $wheel
+          python -c "import cozip; print('cozip', cozip.__version__, '(libcozip', cozip.__version_c__, ')')"
+
+  # ============================================================
+  # 3. R binding — TODO
+  # ============================================================
+  # build-r:
+  #   needs: [changes, build-lib]
+  #   if: |
+  #     always() &&
+  #     needs.build-lib.result == 'success' &&
+  #     (needs.changes.outputs.r == 'true' || needs.changes.outputs.core == 'true')
+  #   ...
+
+  # ============================================================
+  # 4. Julia binding — TODO
+  # ============================================================
+  # build-julia:
+  #   needs: [changes, build-lib]
+  #   if: |
+  #     always() &&
+  #     needs.build-lib.result == 'success' &&
+  #     (needs.changes.outputs.julia == 'true' || needs.changes.outputs.core == 'true')
+  #   ...

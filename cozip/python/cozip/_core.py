@@ -46,6 +46,7 @@ typedef struct {
 } cozip_entry_t;
 
 const char* cozip_status_string(int status);
+const char* cozip_version_string(void);
 
 int cozip_plan(cozip_entry_t*, size_t, cozip_error_t*);
 int cozip_index_payload_size(const cozip_entry_t*, size_t,

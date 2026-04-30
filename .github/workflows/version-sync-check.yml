@@ -1,0 +1,87 @@
+name: Version sync check
+
+# Verifies that cozip/VERSION agrees with the version embedded in every
+# binding's metadata file. Fails the build if any are out of sync, with
+# instructions on how to fix it.
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - cozip/VERSION
+      - cozip/r/DESCRIPTION
+      - cozip/python/pyproject.toml
+      - .github/workflows/version-sync-check.yml
+  pull_request:
+    paths:
+      - cozip/VERSION
+      - cozip/r/DESCRIPTION
+      - cozip/python/pyproject.toml
+
+jobs:
+  check:
+    name: cozip/VERSION matches all bindings
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compare versions
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          truth=$(tr -d '[:space:]' < cozip/VERSION)
+          echo "cozip/VERSION:        $truth"
+
+          fail=0
+
+          # ---- R DESCRIPTION ----
+
+          if [[ -f cozip/r/DESCRIPTION ]]; then
+              r_ver=$(grep -E '^Version:' cozip/r/DESCRIPTION \
+                  | sed -E 's/^Version:[[:space:]]*//' \
+                  | tr -d '[:space:]')
+              echo "cozip/r/DESCRIPTION:  $r_ver"
+              if [[ "$r_ver" != "$truth" ]]; then
+                  echo "::error file=cozip/r/DESCRIPTION::Version mismatch (DESCRIPTION=$r_ver, VERSION=$truth)"
+                  fail=1
+              fi
+          fi
+
+          # ---- Python pyproject.toml ----
+          #
+          # Skip cleanly if the project uses PEP 621 dynamic versioning
+          # (i.e. `dynamic = [..., "version", ...]` under [project]).
+          # In that mode the version is resolved at build time from
+          # cozip/VERSION directly, so there is nothing to compare here.
+
+          if [[ -f cozip/python/pyproject.toml ]]; then
+              if grep -qE '^[[:space:]]*dynamic[[:space:]]*=.*"version"' cozip/python/pyproject.toml; then
+                  echo "cozip/python/pyproject.toml: dynamic version (skipped)"
+              else
+                  # `|| true` so a missing version line doesn't crash pipefail.
+                  py_ver=$(grep -E '^version[[:space:]]*=' cozip/python/pyproject.toml \
+                      | head -1 \
+                      | sed -E 's/^version[[:space:]]*=[[:space:]]*"([^"]*)".*/\1/' \
+                      || true)
+                  if [[ -z "$py_ver" ]]; then
+                      echo "cozip/python/pyproject.toml: no [project].version found (skipped)"
+                  else
+                      echo "cozip/python/pyproject.toml: $py_ver"
+                      if [[ "$py_ver" != "$truth" ]]; then
+                          echo "::error file=cozip/python/pyproject.toml::Version mismatch (pyproject=$py_ver, VERSION=$truth)"
+                          fail=1
+                      fi
+                  fi
+              fi
+          fi
+
+          # ---- Verdict ----
+
+          if [[ $fail -ne 0 ]]; then
+              echo ""
+              echo "Run 'tools/sync_version.sh' locally and commit the result."
+              exit 1
+          fi
+
+          echo "All bindings match cozip/VERSION ($truth)."

@@ -1,0 +1,33 @@
+Package: cozip
+Type: Package
+Title: Cloud-Optimized ZIP — Open a ZIP Like a Table
+Version: 1.0.0
+Date: 2026-04-29
+Authors@R: c(
+    person("Cesar", "Aybar", email = "cesar@asterisk.coop", role = c("aut", "cre")),
+    person("Roy", "Yali", email = "ryali93@gmail.com", role = "aut"),
+    person("Julio", "Contreras", email = "julio.contreras@uv.es", role = "aut"))
+Description: R bindings to libcozip, the reference writer for the
+    Cloud-Optimized ZIP (cozip) format. A cozip archive is a regular
+    ZIP whose first entry is a binary index placed at byte 0,
+    allowing readers to locate any priority file in a single HTTP
+    range request without scanning the Central Directory. This
+    package exposes a high-level 'create()' for the FLAT profile
+    (parquet manifest) and low-level '.Call' shims to the C ABI for
+    custom profiles.
+License: MIT + file LICENSE
+URL: https://asterisk.coop/taco/cozip, https://github.com/asterisk-labs/taco
+BugReports: https://github.com/asterisk-labs/taco/issues
+Encoding: UTF-8
+Language: en-US
+Depends:
+    R (>= 4.1)
+Imports:
+    arrow (>= 14.0.0)
+Suggests:
+    testthat (>= 3.0.0),
+    withr
+SystemRequirements: libzip (>= 1.7), C99 compiler
+Config/testthat/edition: 3
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.3

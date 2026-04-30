@@ -14,3 +14,9 @@ build/
 .DS_Store
 
 *.dylib
+
+cozip/python/cozip/VERSION
+
+cozip/r/src/cozip.so
+
+*.o

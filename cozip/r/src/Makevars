@@ -1,0 +1,37 @@
+# Build flags for the cozip R package.
+#
+# libcozip is compiled directly from vendored sources symlinked into
+# src/ (cozip.c, cozip.h → ../../core/). version.h is generated at
+# build time by tools/gen-version.sh from cozip/VERSION (CalVer
+# YYYY.M.D), the single source of truth shared with every other
+# cozip binding.
+#
+# We do NOT link against an external libcozip; only against libzip,
+# declared as a SystemRequirement in DESCRIPTION.
+#
+# -DCOZIP_BUILDING flips cozip.h's COZIP_API macro to dllexport on
+# Windows. On Linux/macOS the macro expands to a default-visibility
+# attribute and the flag is a no-op.
+#
+# To build against libzip in a non-standard prefix, edit
+# ~/.R/Makevars (do not modify this file):
+#
+#     PKG_CPPFLAGS += -I/path/to/libzip/include
+#     PKG_LIBS     += -L/path/to/libzip/lib
+
+PKG_CPPFLAGS = -DCOZIP_BUILDING `pkg-config --cflags libzip 2>/dev/null`
+PKG_LIBS     = `pkg-config --libs libzip 2>/dev/null || echo -lzip`
+
+# Generate version.h before any .o is compiled. cozip.c #includes
+# it directly, so this rule must produce the file before make picks
+# up the default %.o : %.c rule.
+all: $(SHLIB)
+
+$(SHLIB): version.h
+
+version.h:
+	sh ../tools/gen-version.sh ../../VERSION version.h
+
+cozip.o: version.h
+
+.PHONY: all

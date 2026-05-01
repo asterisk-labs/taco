@@ -304,7 +304,7 @@ jobs:
           python -m pip install wheelhouse/*.whl
           python -c "
           import cozip
-          print('cozip', cozip.__version__, '(libcozip', cozip.__version_c__, ')')
+          print('cozip', cozip.__version__)
           assert cozip.lib.cozip_status_string(0)
           "
 
@@ -313,7 +313,7 @@ jobs:
         run: |
           $wheel = (Get-ChildItem wheelhouse\*.whl | Select-Object -First 1).FullName
           python -m pip install $wheel
-          python -c "import cozip; print('cozip', cozip.__version__, '(libcozip', cozip.__version_c__, ')')"
+          python -c "import cozip; print('cozip', cozip.__version__)"
 
       - uses: actions/upload-artifact@v4
         with:

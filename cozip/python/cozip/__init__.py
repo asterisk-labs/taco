@@ -4,6 +4,7 @@ from importlib.metadata import PackageNotFoundError, version
 
 from ._core import CozipError, ffi, lib
 from ._writer import create
+from ._reader import read
 
 try:
     __version__ = version("cozip")

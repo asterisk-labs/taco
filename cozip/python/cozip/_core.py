@@ -60,46 +60,35 @@ int cozip_patch_integrity_hash(const char*, size_t, cozip_error_t*);
 
 
 def _lib_filename() -> str:
-    """Returns the shared library filename for the current platform.
+    """Shared library filename for the current platform.
 
-    No 'lib' prefix anywhere because the CMakeLists sets PREFIX ""
-    so the artifact name is identical across Linux/macOS/Windows.
+    No 'lib' prefix because CMakeLists sets PREFIX "" — artifact name
+    is identical across Linux/macOS/Windows.
     """
     if sys.platform == "darwin":
         return "cozip.dylib"
     if sys.platform == "win32":
         return "cozip.dll"
-    return "cozip.so"  # linux + bsd
+    return "cozip.so"
 
 
 def _resolve_lib_path() -> str:
-    """Searches for the shared library in several candidate locations."""
+    """Find the shared library: env override, then bundled location."""
     name = _lib_filename()
 
-    # 1. Env var override (for debug / development).
     env = os.environ.get("COZIP_LIB_PATH")
     if env:
         if not Path(env).exists():
             raise ImportError(f"cozip: COZIP_LIB_PATH={env!r} does not exist")
         return env
 
-    # 2. Canonical path, next to this file, under _lib/.
-    here = Path(__file__).resolve().parent
-    canonical = here / "_lib" / name
+    canonical = Path(__file__).resolve().parent / "_lib" / name
     if canonical.exists():
         return str(canonical)
 
-    # 3. Fallback to any neighboring build/ dir (dev mode without reinstall).
-    repo = here.parent.parent
-    for build_dir in (repo / "python" / "build", repo / "build"):
-        if build_dir.is_dir():
-            for found in build_dir.rglob(name):
-                return str(found)
-
     raise ImportError(
-        f"cozip: native library {name!r} not found.\n"
-        f"  Tried: {canonical}\n"
-        f"  Fix: run `pip install -e python/` from the repo root, "
+        f"cozip: native library {name!r} not found at {canonical}.\n"
+        f"  Fix: run `make py-install` from the cozip/ directory, "
         f"or set COZIP_LIB_PATH=/abs/path/to/{name}"
     )
 

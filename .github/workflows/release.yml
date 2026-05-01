@@ -1,100 +1,63 @@
 name: Release
 
-# Triggered ONLY by version tags vX.Y.Z. Builds, validates, and publishes
-# every binding (libcozip C library, Python wheels, R, Julia) coordinated
-# under the same VERSION.
+# Coordinated release: libcozip + Python wheel + sdist all go out under
+# the same tag. R/Julia bindings live downstream — r-universe builds the
+# R package on its own poll cycle, Julia is TODO.
 #
-# Optimization: if a binding's source tree didn't change since the
-# previous tag, its artifact is reused from the previous GitHub Release
-# instead of rebuilt from scratch. Saves ~12 min per release for the
-# common case of "Python-only patch".
+# Pre-commit handles version sync across cozip/VERSION and the binding
+# manifests. The validate job below double-checks the tag matches
+# VERSION on disk in case someone --no-verifies past the hook.
 #
-# Required PyPI Trusted Publisher config:
-#   Repository owner: asterisk-labs
-#   Repository name:  taco
-#   Workflow file:    release.yml
-#   Environment:      pypi
+# Tests don't live here. When R/Python/Julia get real test suites those
+# go in a separate test.yml triggered on PR — don't fold them back in.
+#
+# PyPI Trusted Publisher config (must match exactly):
+#   owner: asterisk-labs   repo: taco
+#   workflow: release.yml  environment: pypi
 
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:  # for re-running without a fresh tag (debug only)
 
 permissions:
   contents: read
 
+
 jobs:
-  # ============================================================
-  # 0. Validate tag and detect what changed since previous tag
-  # ============================================================
-  detect-changes:
-    name: Detect changes since previous tag
+  # Fail fast on the cheap stuff before spinning up 4 build matrices.
+  validate:
+    name: Validate tag
     runs-on: ubuntu-latest
     outputs:
-      version:        ${{ steps.info.outputs.version }}
-      prev_tag:       ${{ steps.info.outputs.prev_tag }}
-      core_changed:   ${{ steps.info.outputs.core_changed }}
-      python_changed: ${{ steps.info.outputs.python_changed }}
-      r_changed:      ${{ steps.info.outputs.r_changed }}
-      julia_changed:  ${{ steps.info.outputs.julia_changed }}
+      version: ${{ steps.v.outputs.version }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0  # full history, needed for diff between tags
 
-      - name: Validate tag matches cozip/VERSION
+      - id: v
+        name: Tag must equal cozip/VERSION
         run: |
           VERSION_FILE=$(tr -d '[:space:]' < cozip/VERSION)
-          TAG_VERSION="${GITHUB_REF#refs/tags/v}"
-          if [ "$VERSION_FILE" != "$TAG_VERSION" ]; then
-            echo "::error::Tag v$TAG_VERSION does not match cozip/VERSION ($VERSION_FILE)"
-            exit 1
-          fi
-          echo "Tag and VERSION agree: $TAG_VERSION"
-
-      - id: info
-        name: Compute version and per-binding diff vs previous tag
-        run: |
-          VERSION="${GITHUB_REF#refs/tags/v}"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-
-          # The previous tag is the most recent annotated/lightweight tag
-          # before HEAD. If nothing prior exists (first release), treat
-          # everything as changed.
-          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
-          echo "prev_tag=$PREV_TAG" >> "$GITHUB_OUTPUT"
-          echo "Previous tag: ${PREV_TAG:-<none>}"
-
-          if [ -z "$PREV_TAG" ]; then
-            echo "First release — all bindings count as changed."
-            for b in core python r julia; do
-              echo "${b}_changed=true" >> "$GITHUB_OUTPUT"
-            done
-            exit 0
-          fi
-
-          changed() {
-            git diff --name-only "$PREV_TAG" HEAD -- "$1" | head -1
-          }
-
-          for entry in "core:cozip/core/" "python:cozip/python/" "r:cozip/r/" "julia:cozip/julia/"; do
-            name="${entry%%:*}"
-            path="${entry##*:}"
-            if [ -n "$(changed "$path")" ]; then
-              echo "${name}_changed=true" >> "$GITHUB_OUTPUT"
-              echo "  $name: CHANGED (will rebuild)"
-            else
-              echo "${name}_changed=false" >> "$GITHUB_OUTPUT"
-              echo "  $name: unchanged"
+          # workflow_dispatch has no tag — just trust VERSION in that case.
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            TAG_VERSION="${GITHUB_REF#refs/tags/v}"
+            if [ "$VERSION_FILE" != "$TAG_VERSION" ]; then
+              echo "::error::Tag v$TAG_VERSION does not match cozip/VERSION ($VERSION_FILE)"
+              exit 1
             fi
-          done
+            echo "version=$TAG_VERSION" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=$VERSION_FILE" >> "$GITHUB_OUTPUT"
+          fi
 
-  # ============================================================
-  # 1a. Build libcozip from source (when core changed)
-  # ============================================================
+
+  # Build libcozip from source on every release. We used to skip this
+  # when cozip/core/ hadn't changed (downloading the previous release's
+  # binary instead) but the bookkeeping wasn't worth the ~5 min saved
+  # on releases that happen once every few weeks.
   build-lib:
-    name: Build libcozip — ${{ matrix.name }}
-    needs: detect-changes
-    if: needs.detect-changes.outputs.core_changed == 'true'
+    name: libcozip — ${{ matrix.name }}
+    needs: validate
     strategy:
       fail-fast: false
       matrix:
@@ -114,6 +77,8 @@ jobs:
             container: ''
             lib_ext: dylib
             shell: bash
+            # Universal2 = arm64 + x86_64 in one fat dylib. 11.0 is
+            # the floor for Apple Silicon.
             cmake_extra: >-
               "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64"
               -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
@@ -130,12 +95,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # manylinux containers ship with gcc/cmake but no ninja. Other
+      # platforms need it from the package manager.
       - if: startsWith(matrix.name, 'linux')
         run: yum install -y ninja-build
       - if: runner.os == 'macOS'
         run: brew install ninja
       - if: runner.os == 'Windows'
         run: choco install ninja -y
+
+      # Sets up cl.exe + nmake on PATH for cmake to find.
       - if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
         with:
@@ -153,18 +122,20 @@ jobs:
       - run: cmake --build build --config Release --parallel
       - run: cmake --install build --config Release
 
+      # Ad-hoc signature + sanity check that lipo actually fused both
+      # arches. Without the signature, Sequoia+ rejects the dylib in
+      # some sandboxed contexts (Python in a notarized app etc).
       - if: matrix.name == 'macos-universal'
-        name: Ad-hoc sign
-        run: codesign --force --sign - install/lib/cozip.dylib
-
-      - if: matrix.name == 'macos-universal'
-        name: Verify universal
+        name: Sign and verify universal dylib
         run: |
           DYLIB=install/lib/cozip.dylib
+          codesign --force --sign - "$DYLIB"
           ARCHS=$(lipo -archs "$DYLIB")
           echo "$ARCHS" | grep -qw x86_64 || { echo "Missing x86_64"; exit 1; }
           echo "$ARCHS" | grep -qw arm64  || { echo "Missing arm64";  exit 1; }
 
+      # Stage the lib + headers + license into a flat dir for upload.
+      # Layout matches what gh-release expects when re-packing later.
       - name: Stage artifact (Unix)
         if: runner.os != 'Windows'
         run: |
@@ -172,8 +143,8 @@ jobs:
           cp install/lib/cozip.${{ matrix.lib_ext }} staged/
           cp install/include/cozip.h                 staged/
           cp install/include/version.h               staged/
-          cp cozip/LICENSE                            staged/
-          cp cozip/README.md                          staged/
+          cp cozip/LICENSE   staged/
+          cp cozip/README.md staged/
 
       - name: Stage artifact (Windows)
         if: runner.os == 'Windows'
@@ -191,88 +162,12 @@ jobs:
           path: staged/
           if-no-files-found: error
 
-  # ============================================================
-  # 1b. Reuse libcozip from previous release (when core unchanged)
-  # ============================================================
-  reuse-lib:
-    name: Reuse libcozip from ${{ needs.detect-changes.outputs.prev_tag }} — ${{ matrix.name }}
-    needs: detect-changes
-    if: needs.detect-changes.outputs.core_changed == 'false'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read  # to read previous releases
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: linux-x86_64
-            archive_ext: tar.gz
-            lib_ext: so
-            lib_subdir: lib
-          - name: linux-aarch64
-            archive_ext: tar.gz
-            lib_ext: so
-            lib_subdir: lib
-          - name: macos-universal
-            archive_ext: tar.gz
-            lib_ext: dylib
-            lib_subdir: lib
-          - name: windows-x86_64
-            archive_ext: zip
-            lib_ext: dll
-            lib_subdir: bin
-    steps:
-      - uses: actions/checkout@v4
 
-      - name: Download libcozip from previous release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PREV_TAG: ${{ needs.detect-changes.outputs.prev_tag }}
-        run: |
-          mkdir -p download
-          gh release download "$PREV_TAG" \
-            --pattern "libcozip-*-${{ matrix.name }}.${{ matrix.archive_ext }}" \
-            --dir download/
-          ls -la download/
-
-      - name: Extract and re-stage
-        run: |
-          mkdir -p staged extract
-          if [ "${{ matrix.archive_ext }}" = "tar.gz" ]; then
-            tar -xzf download/libcozip-*.tar.gz -C extract/
-          else
-            sudo apt-get install -y unzip
-            unzip -q download/libcozip-*.zip -d extract/
-          fi
-          # Tarballs wrap content in libcozip-VERSION-PLAT/include + lib (or bin).
-          ROOT=$(find extract -maxdepth 1 -mindepth 1 -type d | head -1)
-          cp "$ROOT/${{ matrix.lib_subdir }}/cozip.${{ matrix.lib_ext }}" staged/
-          cp "$ROOT/include/cozip.h"   staged/
-          cp "$ROOT/include/version.h" staged/
-          # LICENSE and README come from the current checkout (in case
-          # they changed between tags but core didn't).
-          cp cozip/LICENSE   staged/
-          cp cozip/README.md staged/
-          ls -la staged/
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: libcozip-${{ matrix.name }}
-          path: staged/
-          if-no-files-found: error
-
-  # ============================================================
-  # 2. Build Python wheels (consumes libcozip-{plat} artifact
-  #    produced by either build-lib OR reuse-lib)
-  # ============================================================
+  # Bundle libcozip into the Python wheel, repair so it ships
+  # self-contained, smoke-test, upload.
   build-wheels:
     name: Wheel — ${{ matrix.name }}
-    needs: [detect-changes, build-lib, reuse-lib]
-    # Always run on tag — Python is part of the coordinated release.
-    # Succeeds if the libcozip artifact exists (regardless of source).
-    if: |
-      always() &&
-      (needs.build-lib.result == 'success' || needs.reuse-lib.result == 'success')
+    needs: build-lib
     strategy:
       fail-fast: false
       matrix:
@@ -307,6 +202,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The manylinux container has multiple Pythons under /opt/python.
+      # We only need one to drive the build (the wheel is py3-none, see
+      # the retag step below) so just symlink cp312 to /usr/local/bin.
       - name: Set up Python (manylinux)
         if: startsWith(matrix.name, 'linux')
         run: |
@@ -321,17 +219,20 @@ jobs:
 
       - run: python -m pip install --upgrade pip build hatchling cffi wheel
 
+      # Repair tools per-platform. Windows doesn't need one — the DLL
+      # just sits next to the .pyd and Windows finds it.
       - if: startsWith(matrix.name, 'linux')
         run: python -m pip install auditwheel
       - if: runner.os == 'macOS'
         run: python -m pip install delocate
 
-      - name: Download libcozip artifact
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           name: libcozip-${{ matrix.name }}
           path: libcozip-bin/
 
+      # Drop the lib into cozip/_lib/ where _core.py looks for it
+      # at import time. See _resolve_lib_path() in cozip/_core.py.
       - name: Bundle native lib (Unix)
         if: runner.os != 'Windows'
         run: |
@@ -344,11 +245,18 @@ jobs:
           New-Item -ItemType Directory -Force -Path cozip\python\cozip\_lib | Out-Null
           Copy-Item libcozip-bin\cozip.dll cozip\python\cozip\_lib\
 
-      - name: Build wheel (raw)
+      - name: Build wheel
         working-directory: cozip/python
         run: python -m build --wheel --outdir ../../wheelhouse-raw
 
-      - name: Repair (Linux — auditwheel + py3-none retag)
+      # Repair = rewrite the runtime loader path so the wheel works on
+      # systems without our build env. Different surgery per platform:
+      #   Linux  -> auditwheel (ELF rpath + glibc tag baking)
+      #   macOS  -> delocate   (Mach-O install_name)
+      # Then we retag to py3-none-<plat> so a single wheel covers every
+      # CPython version. Safe because we go through cffi/dlopen — no
+      # CPython ABI dependency.
+      - name: Repair (Linux)
         if: startsWith(matrix.name, 'linux')
         run: |
           mkdir -p wheelhouse-repaired wheelhouse
@@ -360,7 +268,7 @@ jobs:
           done
           mv wheelhouse-repaired/*.whl wheelhouse/
 
-      - name: Repair (macOS — delocate + universal2 + py3-none)
+      - name: Repair (macOS)
         if: runner.os == 'macOS'
         run: |
           mkdir -p wheelhouse-delocated wheelhouse
@@ -370,14 +278,12 @@ jobs:
           for whl in wheelhouse-delocated/*.whl; do
             python -m wheel tags \
               --platform-tag macosx_11_0_universal2 \
-              --python-tag py3 \
-              --abi-tag none \
-              --remove \
-              "$whl"
+              --python-tag py3 --abi-tag none --remove "$whl"
           done
           mv wheelhouse-delocated/*.whl wheelhouse/
 
-      - name: Repair (Windows — py3-none retag only)
+      # Windows: just retag, no surgery needed.
+      - name: Repair (Windows)
         if: runner.os == 'Windows'
         run: |
           New-Item -ItemType Directory -Force -Path wheelhouse-raw2 | Out-Null
@@ -388,6 +294,10 @@ jobs:
           }
           Move-Item wheelhouse-raw2\*.whl wheelhouse\
 
+      # Smoke test on the same runner that built the wheel. This catches
+      # most "lib didn't bundle correctly" failures before PyPI sees them.
+      # The cozip_status_string assertion exercises the cffi binding,
+      # not just the Python import.
       - name: Smoke test (Unix)
         if: runner.os != 'Windows'
         run: |
@@ -411,12 +321,11 @@ jobs:
           path: wheelhouse/*.whl
           if-no-files-found: error
 
-  # ============================================================
-  # 3. Build sdist (cheap, runs always)
-  # ============================================================
+
+  # sdist is cheap, runs in parallel with everything else.
   build-sdist:
     name: sdist
-    needs: detect-changes
+    needs: validate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -433,34 +342,31 @@ jobs:
           path: sdist-out/*.tar.gz
           if-no-files-found: error
 
-  # ============================================================
-  # 4. GitHub Release — re-pack libcozip as tarballs/zips with
-  #    the new version name. ALWAYS runs on tags so users always
-  #    find binaries under the current version, even if the bytes
-  #    came from reuse-lib.
-  # ============================================================
+
+  # Re-pack each libcozip-<plat> artifact into a versioned tarball/zip
+  # so people can grab e.g. libcozip-2026.4.29-linux-x86_64.tar.gz
+  # straight from the Releases page. Skipped on workflow_dispatch
+  # because that path is for debugging — we don't want accidental
+  # release publishes.
   gh-release:
     name: GitHub Release
-    needs: [detect-changes, build-lib, reuse-lib]
-    if: |
-      always() &&
-      (needs.build-lib.result == 'success' || needs.reuse-lib.result == 'success')
+    needs: [validate, build-lib]
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download all libcozip artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           pattern: libcozip-*
           path: artifacts/
 
-      - name: Re-pack into versioned tarballs/zips
+      - name: Re-pack into versioned archives
         run: |
           set -euo pipefail
-          VERSION="${{ needs.detect-changes.outputs.version }}"
+          VERSION="${{ needs.validate.outputs.version }}"
           mkdir -p release-files staging
 
           for plat_dir in artifacts/libcozip-*; do
@@ -469,6 +375,9 @@ jobs:
             stage="staging/${pkg}"
             mkdir -p "$stage/include"
 
+            # Convention: shared lib goes in lib/ on Unix and bin/ on
+            # Windows, matching what their respective package managers
+            # and toolchains expect (pkg-config, MSVC, etc).
             case "$plat" in
               windows-x86_64)
                 mkdir -p "$stage/bin"
@@ -483,10 +392,10 @@ jobs:
                 cp "$plat_dir/cozip.so" "$stage/lib/"
                 ;;
             esac
-            cp "$plat_dir/cozip.h"     "$stage/include/"
-            cp "$plat_dir/version.h"   "$stage/include/"
-            cp "$plat_dir/LICENSE"     "$stage/"
-            cp "$plat_dir/README.md"   "$stage/"
+            cp "$plat_dir/cozip.h"   "$stage/include/"
+            cp "$plat_dir/version.h" "$stage/include/"
+            cp "$plat_dir/LICENSE"   "$stage/"
+            cp "$plat_dir/README.md" "$stage/"
 
             (cd staging && \
               if [ "$plat" = "windows-x86_64" ]; then
@@ -495,8 +404,9 @@ jobs:
                 tar czf "../release-files/${pkg}.tar.gz" "$pkg"
               fi)
           done
-          ls -la release-files/
 
+      # Anything with a hyphen in the version (2026.5.1-rc1 etc) is
+      # treated as a prerelease.
       - uses: softprops/action-gh-release@v2
         with:
           files: release-files/*
@@ -504,44 +414,28 @@ jobs:
           draft: false
           prerelease: ${{ contains(github.ref, '-') }}
 
-  # ============================================================
-  # 5. Publish to PyPI (Trusted Publishing)
-  # ============================================================
+
+  # Trusted Publishing → no API token needed, just OIDC. The 'pypi'
+  # environment is configured on PyPI to accept this exact workflow.
   publish-pypi:
     name: Publish to PyPI
     needs: [build-wheels, build-sdist]
-    if: |
-      always() &&
-      needs.build-wheels.result == 'success' &&
-      needs.build-sdist.result == 'success'
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
       id-token: write
     steps:
-      - name: Download all wheels and sdist
-        uses: actions/download-artifact@v4
+      # Pull every wheel-* artifact into a single dist/ directory.
+      # merge-multiple flattens them in place.
+      - uses: actions/download-artifact@v4
         with:
           path: dist
           pattern: 'wheel-*'
           merge-multiple: true
-
-      - name: Download sdist
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           name: sdist
           path: dist
-
       - run: ls -la dist/
-
       - uses: pypa/gh-action-pypi-publish@release/v1
-
-  # ============================================================
-  # 7. Julia binding publish — TODO
-  # ============================================================
-  # publish-julia:
-  #   needs: [detect-changes, build-lib, reuse-lib]
-  #   if: |
-  #     always() &&
-  #     (needs.build-lib.result == 'success' || needs.reuse-lib.result == 'success')
-  #   ...

@@ -1,32 +1,28 @@
-# cozip — top-level Makefile.
+# cozip — top-level Makefile (lives at cozip/Makefile).
 #
 # Targets:
-#   make lib       — build libcozip (via plain CMake + Ninja)
-#   make python    — build lib + install Python package in editable mode
-#   make test      — build + install + run pytest
-#   make wheel     — build a distributable wheel into python/dist/
-#   make sdist     — bundle source code (core + python + Makefile) into dist/
-#   make clean     — remove all build artifacts
-#
-# libzip and zlib are vendored by CMake's FetchContent at configure
-# time, so the user does not need to install them on Linux, macOS or
-# Windows. The first build downloads ~10 MB of source and adds about
-# a minute of compile time. Subsequent builds reuse the cache.
-#
-# The Python side does NOT invoke CMake. This Makefile is the only
-# place where the two systems meet.
+#   make lib            build libcozip standalone (CMake + Ninja)
+#   make sync-version   write VERSION into r/DESCRIPTION
+#   make sync-c         copy core/cozip.{c,h} into r/src/
+#   make sync           sync-version + sync-c
+#   make sync-check     fail if anything is out of sync (no writes)
+#   make py-install     editable install of python package
+#   make py-test        run python tests
+#   make py-wheel       build python wheel
+#   make r-install      R CMD INSTALL r/
+#   make r-build        R CMD build r/ (produces .tar.gz)
+#   make r-check        R CMD check on the built tarball
+#   make clean          nuke build artifacts
+
+VERSION    := $(shell tr -d '[:space:]' < VERSION)
 
 CORE_DIR   := core
-BUILD_DIR  := build/lib
 PY_DIR     := python
+R_DIR      := r
+BUILD_DIR  := build/lib
 PY_LIB_DIR := $(PY_DIR)/cozip/_lib
 DIST_DIR   := dist
 
-VERSION := $(shell grep -E '^version' $(PY_DIR)/pyproject.toml | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
-
-# Detect the platform suffix.
-# CMakeLists sets PREFIX "" so the artifact is always cozip.<ext> with
-# no "lib" prefix, regardless of compiler.
 UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Darwin)
     LIB_NAME := cozip.dylib
@@ -38,55 +34,107 @@ ifeq ($(OS),Windows_NT)
     LIB_NAME := cozip.dll
 endif
 
-.PHONY: lib python test wheel sdist clean
+.PHONY: all lib sync sync-version sync-c sync-check \
+        py-install py-test py-wheel \
+        r-install r-build r-check \
+        clean help
 
-# 1. Build libcozip with CMake + Ninja, then copy the artifact into the
-#    Python package's _lib/ folder under the unversioned name.
+# Default target: full pre-push validation. Run this before commits
+# to catch anything r-universe / CI would catch.
+all: sync lib py-install r-build
+	@echo ""
+	@echo "✓ all green — sync, lib, python install, R build all passed"
+	@echo "  cozip $(VERSION)"
+
+help:
+	@echo "cozip $(VERSION)"
+	@echo ""
+	@echo "Pipelines:"
+	@echo "  all                full validation (sync + lib + python + R build)"
+	@echo ""
+	@echo "Sync:"
+	@echo "  sync               sync-version + sync-c"
+	@echo "  sync-version       VERSION → DESCRIPTION"
+	@echo "  sync-c             core/cozip.{c,h} → r/src/"
+	@echo "  sync-check         fail if out of sync (no writes)"
+	@echo ""
+	@echo "C library:"
+	@echo "  lib                build libcozip + copy into python/_lib/"
+	@echo ""
+	@echo "Python:"
+	@echo "  py-install         editable install"
+	@echo "  py-test            run pytest"
+	@echo "  py-wheel           build wheel"
+	@echo ""
+	@echo "R:"
+	@echo "  r-install          R CMD INSTALL r/"
+	@echo "  r-build            R CMD build r/ (produces dist/.tar.gz)"
+	@echo "  r-check            R CMD check on the built tarball"
+	@echo ""
+	@echo "  clean              nuke build artifacts"
+
+# --- C library ---
+
 lib:
 	cmake -B $(BUILD_DIR) -S $(CORE_DIR) -G Ninja
 	cmake --build $(BUILD_DIR)
 	mkdir -p $(PY_LIB_DIR)
 	cp $(BUILD_DIR)/$(LIB_NAME) $(PY_LIB_DIR)/$(LIB_NAME)
 
-# 2. Editable install of the Python package. No CMake involved here —
-#    hatchling just packages cozip/ as it sits on disk.
-python: lib
+# --- Sync ---
+
+sync: sync-version sync-c
+
+sync-version:
+	@sed -i.bak -E 's/^Version:.*/Version: $(VERSION)/' $(R_DIR)/DESCRIPTION
+	@rm -f $(R_DIR)/DESCRIPTION.bak
+	@echo "DESCRIPTION → Version: $(VERSION)"
+
+sync-c:
+	@cp $(CORE_DIR)/cozip.c $(R_DIR)/src/cozip.c
+	@cp $(CORE_DIR)/cozip.h $(R_DIR)/src/cozip.h
+	@echo "core/cozip.{c,h} → r/src/"
+
+sync-check:
+	@VFILE=$$(grep -E '^Version:' $(R_DIR)/DESCRIPTION | sed 's/Version:[[:space:]]*//'); \
+	 if [ "$$VFILE" != "$(VERSION)" ]; then \
+	   echo "VERSION=$(VERSION) but DESCRIPTION=$$VFILE — run 'make sync-version'"; \
+	   exit 1; \
+	 fi
+	@diff -q $(CORE_DIR)/cozip.c $(R_DIR)/src/cozip.c >/dev/null || \
+	  { echo "core/cozip.c differs from r/src/cozip.c — run 'make sync-c'"; exit 1; }
+	@diff -q $(CORE_DIR)/cozip.h $(R_DIR)/src/cozip.h >/dev/null || \
+	  { echo "core/cozip.h differs from r/src/cozip.h — run 'make sync-c'"; exit 1; }
+	@echo "sync OK"
+
+# --- Python ---
+
+py-install: lib
 	pip install -e $(PY_DIR)
 
-# 3. Test.
-test: python
+py-test: py-install
 	cd $(PY_DIR) && pytest tests/ -v
 
-# 4. Build a distributable wheel. Run on each platform in CI.
-wheel: lib
+py-wheel: lib
 	cd $(PY_DIR) && python -m build --wheel
 
-# 5. Source bundle: tarball of core + python + Makefile + docs.
-sdist:
-	mkdir -p $(DIST_DIR)
-	rm -rf build/sdist
-	mkdir -p build/sdist/cozip-$(VERSION)
-	cp -r $(CORE_DIR) $(PY_DIR) Makefile build/sdist/cozip-$(VERSION)/
-	-cp README.md LICENSE SPEC.md build/sdist/cozip-$(VERSION)/ 2>/dev/null
-	rm -rf build/sdist/cozip-$(VERSION)/$(PY_DIR)/cozip/_lib/*.dylib
-	rm -rf build/sdist/cozip-$(VERSION)/$(PY_DIR)/cozip/_lib/*.so
-	rm -rf build/sdist/cozip-$(VERSION)/$(PY_DIR)/cozip/_lib/*.dll
-	rm -rf build/sdist/cozip-$(VERSION)/$(PY_DIR)/build
-	rm -rf build/sdist/cozip-$(VERSION)/$(PY_DIR)/dist
-	find build/sdist/cozip-$(VERSION) -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
-	find build/sdist/cozip-$(VERSION) -type d -name .pytest_cache -exec rm -rf {} + 2>/dev/null || true
-	find build/sdist/cozip-$(VERSION) -type d -name "*.egg-info" -exec rm -rf {} + 2>/dev/null || true
-	cd build/sdist && tar czf ../../$(DIST_DIR)/cozip-source-$(VERSION).tar.gz cozip-$(VERSION)
-	@echo "Created: $(DIST_DIR)/cozip-source-$(VERSION).tar.gz"
+# --- R ---
 
-# 6. Nuke everything stale.
+r-install: sync-check
+	R CMD INSTALL $(R_DIR)
+
+r-build: sync-check
+	mkdir -p $(DIST_DIR)
+	cd $(DIST_DIR) && R CMD build ../$(R_DIR)
+
+r-check: r-build
+	cd $(DIST_DIR) && R CMD check cozip_$(VERSION).tar.gz
+
+# --- Clean ---
+
 clean:
 	rm -rf build/ $(DIST_DIR)/
-	rm -rf $(PY_LIB_DIR)/*.dylib $(PY_LIB_DIR)/*.so $(PY_LIB_DIR)/*.dll
-	rm -rf $(PY_LIB_DIR)/libcozip.dylib $(PY_LIB_DIR)/libcozip.so $(PY_LIB_DIR)/libcozip.dll
-	rm -rf $(PY_DIR)/dist $(PY_DIR)/build
-	rm -rf $(PY_DIR)/*.egg-info
-	rm -rf $(PY_DIR)/cozip.egg-info $(PY_DIR)/cozip/cozip.egg-info
-	rm -rf $(PY_DIR)/.pytest_cache
+	rm -f $(PY_LIB_DIR)/*.dylib $(PY_LIB_DIR)/*.so $(PY_LIB_DIR)/*.dll
+	rm -f $(R_DIR)/src/version.h $(R_DIR)/src/*.o $(R_DIR)/src/*.so
+	rm -rf $(PY_DIR)/dist $(PY_DIR)/build $(PY_DIR)/*.egg-info
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
-	find . -type f -name "*.pyc" -delete 2>/dev/null || true

@@ -13,7 +13,7 @@
  *       archive, patch FNV-1a 64 integrity hash.
  *
  * The .Call surface is profile-agnostic. Profile-specific logic
- * (FLAT's __metadata__.parquet, TACO's COLLECTION.json + METADATA/*)
+ * (FLAT's __metadata__.parquet, TACO's COLLECTION.json + METADATA/)
  * lives in R/cozip.R.
  *
  * Memory: cozip_entry_t arrays and intermediate buffers are

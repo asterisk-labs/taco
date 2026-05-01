@@ -1,0 +1,21 @@
+# Pre-commit hooks for cozip.
+#
+# Install once per clone:
+#   pip install pre-commit
+#   pre-commit install
+#
+# Run manually against everything:
+#   pre-commit run --all-files
+
+repos:
+  - repo: local
+    hooks:
+      # Fails the commit if cozip/VERSION, cozip/r/DESCRIPTION,
+      # and cozip/r/src/cozip.{c,h} are not all in sync. The fix
+      # is `make -C cozip sync` followed by re-staging.
+      - id: cozip-sync-check
+        name: cozip sync (VERSION ↔ DESCRIPTION, core ↔ r/src)
+        entry: make -C cozip sync-check
+        language: system
+        pass_filenames: false
+        files: ^cozip/(VERSION|core/cozip\.[ch]|r/src/cozip\.[ch]|r/DESCRIPTION)$

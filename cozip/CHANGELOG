@@ -7,6 +7,70 @@ a single source of truth at `cozip/VERSION`.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning is [CalVer](https://calver.org/) `YYYY.M.D`.
 
+## [2026.5.1] — 2026-05-01
+
+### Added
+
+- R binding (`cozip/r/`) with FLAT-profile `create()` and low-level
+  `.Call` shims to `cozip_plan` and `cozip_finalize`. Vendored copies
+  of `cozip.{c,h}` in `r/src/` are kept in sync with `core/` by
+  pre-commit, not symlinks (CRAN/Windows refuse symlinks).
+- `Makevars` generates `r/src/version.h` at compile time from
+  `$(PACKAGE_VERSION)` (which R extracts from `DESCRIPTION`). Header
+  never lives in git.
+- `.pre-commit-config.yaml` runs `make sync-check` whenever `VERSION`,
+  `r/DESCRIPTION`, or `core`/`r/src` source files change. Fail-mode,
+  no auto-fix — divergence must be resolved consciously by running
+  `make sync`.
+- `cozip/Makefile` gets `sync-version`, `sync-c`, `sync-check`, plus
+  an `all` target that runs `sync + lib + py-install + r-build` for
+  full pre-push validation.
+- R binding is auto-built by r-universe from the `cozip/r` subdirectory
+  via `packages.json`; cross-platform binaries (Linux + macOS + Windows)
+  available at `https://asterisk-labs.r-universe.dev`.
+
+### Changed
+
+- `core/version.h.in` simplified to emit only `COZIP_VERSION_STRING`.
+  `MAJOR`/`MINOR`/`PATCH` integer macros removed — nothing in the
+  codebase consumed them.
+- Python `cozip.__version_c__` removed from the public API. With
+  coordinated releases it always equals `__version__`; keeping both
+  was misleading. `__version__` remains.
+- Python `__all__` now includes `read` (was missing while `create`
+  was present — inconsistent).
+- Python `_resolve_lib_path()` no longer recursively scans `build/`
+  directories as a fallback. Could silently load stale `.so` files
+  from previous builds; `make py-install` now reliably populates
+  `_lib/` so the canonical path is enough.
+- `cozip/Makefile` reads version from `cozip/VERSION` directly.
+  Previous version parsed `pyproject.toml`, which now uses dynamic
+  version, so the regex returned empty and `make sdist` produced
+  `cozip-source-.tar.gz`.
+- CI architecture collapsed: `ci.yml` deleted, single `release.yml`
+  triggered only by version tags. Removed `reuse-lib` (downloading
+  libcozip from previous releases when `core/` was unchanged) — the
+  bookkeeping wasn't worth ~5 min saved on releases that happen
+  every few weeks.
+
+### Removed
+
+- `tools/sync_version.sh` — replaced by `make sync-version`.
+- `tools/gen-version.sh` — replaced by inline generation in
+  `Makevars`.
+- Symlinks from `r/src/cozip.{c,h}` to `core/` — CRAN rejects them
+  and they break Windows builds. Replaced with physical copies kept
+  in sync by pre-commit.
+- `r/src/version.h` from git — generated at compile time, ignored.
+- `R CMD check` job from CI — r-universe runs the canonical
+  cross-platform check on every push.
+
+### Fixed
+
+- `Makevars` now correctly orders the build: `version.h` is generated
+  before any `.c` is compiled, and both `cozip.o` and `cozip_glue.o`
+  are listed in `OBJECTS` so neither is silently skipped.
+
 ## [2026.4.30] — 2026-04-30
 
 ### Added
@@ -88,5 +152,6 @@ Versioning is [CalVer](https://calver.org/) `YYYY.M.D`.
 - GitHub Release with `libcozip-<version>-<platform>.{tar.gz,zip}`
   archives for C-standalone consumers.
 
+[2026.5.1]: https://github.com/asterisk-labs/taco/compare/v2026.4.30...v2026.5.1
 [2026.4.30]: https://github.com/asterisk-labs/taco/compare/v2026.4.29...v2026.4.30
 [2026.4.29]: https://github.com/asterisk-labs/taco/releases/tag/v2026.4.29

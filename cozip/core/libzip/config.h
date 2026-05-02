@@ -11,10 +11,11 @@
  * Layout:
  *   1. Common (every platform, no #ifdef guard).
  *   2. POSIX (Linux, macOS, MinGW; explicitly NOT MSVC).
- *   3. Windows MSVC cluster — _underscore variants, Annex K, etc.
- *   3b. Windows-common — declarations true for both MSVC and MinGW.
- *   4. macOS / BSD extras — arc4random, clonefile, getprogname, fts.
- *   5. Tunables — package metadata, sizeof checks, FDOPEN toggle.
+ *   3. Unix only (Linux, macOS, BSD; NOT MinGW, NOT MSVC).
+ *   4. Windows MSVC cluster — _underscore variants, Annex K.
+ *   5. Windows-common — declarations true for both MSVC and MinGW.
+ *   6. macOS / BSD extras — arc4random, clonefile, getprogname, fts.
+ *   7. Tunables — package metadata, sizeof checks, FDOPEN toggle.
  *
  * libzip itself does not depend on the actual values of PACKAGE or
  * VERSION, so we hardcode them to identify the vendored copy.
@@ -28,7 +29,7 @@
 #endif
 
 
-/* ---- 1. Common POSIX (Linux, macOS, WASM/Emscripten) ---- */
+/* ---- 1. Common (every platform) ---- */
 
 #define HAVE_FILENO
 #define HAVE_SETMODE
@@ -39,26 +40,6 @@
 #define HAVE_STDBOOL_H
 #define ENABLE_FDOPEN
 
-/* POSIX-only — guarded to skip MSVC, which lacks these.
- * MinGW provides POSIX semantics and is treated as POSIX here.
- *
- * libzip's compat.h uses each HAVE_* macro as a "capability" flag:
- * declaring HAVE_X tells compat.h that X is callable. If MSVC doesn't
- * have X but config.h advertises HAVE_X, compat.h skips the fallback
- * alias and the source files break with "undeclared identifier".
- *
- * Headers (<unistd.h>, <strings.h>) likewise must not be advertised
- * on MSVC because compat.h / zlib's zconf.h #include them blindly. */
-#if !defined(_WIN32) || defined(__MINGW32__) || defined(__MINGW64__)
-#define HAVE_FCHMOD       /* POSIX file permission API */
-#define HAVE_FSEEKO       /* 64-bit fseek; MSVC has _fseeki64 instead */
-#define HAVE_FTELLO       /* 64-bit ftell; MSVC has _ftelli64 instead */
-#define HAVE_LOCALTIME_R  /* MSVC has localtime_s (different signature) */
-#define HAVE_STRCASECMP   /* MSVC has _stricmp instead */
-#define HAVE_STRINGS_H    /* POSIX <strings.h>, distinct from <string.h> */
-#define HAVE_UNISTD_H     /* POSIX <unistd.h>, leaks into zlib's zconf.h */
-#endif
-
 /* Sizes: 64-bit on every platform we target (no 32-bit Windows,
  * no 32-bit ARM). If 32-bit support is ever required, gate these
  * with #if SIZEOF_VOID_P == 8. */
@@ -66,7 +47,33 @@
 #define SIZEOF_SIZE_T 8
 
 
-/* ---- 2. Windows MSVC ---- */
+/* ---- 2. POSIX (Linux, macOS, MinGW; explicitly NOT MSVC) ---- */
+
+/* MinGW is treated as POSIX here because it ships <unistd.h>,
+ * <strings.h>, and the corresponding APIs (fseeko, ftello, fchmod,
+ * strcasecmp). MSVC has none of these. */
+#if !defined(_WIN32) || defined(__MINGW32__) || defined(__MINGW64__)
+#define HAVE_FCHMOD       /* POSIX file permission API */
+#define HAVE_FSEEKO       /* 64-bit fseek; MSVC has _fseeki64 instead */
+#define HAVE_FTELLO       /* 64-bit ftell; MSVC has _ftelli64 instead */
+#define HAVE_STRCASECMP   /* MSVC has _stricmp instead */
+#define HAVE_STRINGS_H    /* POSIX <strings.h>, distinct from <string.h> */
+#define HAVE_UNISTD_H     /* POSIX <unistd.h>, leaks into zlib's zconf.h */
+#endif
+
+
+/* ---- 3. Unix-only (Linux, macOS, BSD; NOT Windows of any kind) ---- */
+
+/* localtime_r is the thread-safe POSIX variant. MinGW does NOT
+ * implement it — it's the one POSIX function that's missing on
+ * Windows-with-GCC. Both MSVC and MinGW use localtime_s instead,
+ * declared in the Windows-common block below. */
+#if !defined(_WIN32)
+#define HAVE_LOCALTIME_R
+#endif
+
+
+/* ---- 4. Windows MSVC ---- */
 
 #if defined(_WIN32) && !defined(__MINGW32__) && !defined(__MINGW64__)
 
@@ -86,12 +93,6 @@
 #define HAVE__STRTOI64
 #define HAVE__STRTOUI64
 #define HAVE__UNLINK
-
-/* MSVC time API. localtime_s on MSVC has signature
- * (struct tm *result, const time_t *t) and returns errno_t.
- * compat.h's HAVE_LOCALTIME_S branch handles the swapped argument
- * order on Windows. */
-#define HAVE_LOCALTIME_S
 
 /* C11 Annex K bounds-checking interfaces. MSVC declares these in
  * <string.h> / <corecrt_memcpy_s.h>. They MUST be advertised here
@@ -115,7 +116,15 @@
 #endif /* _WIN32 && !MINGW */
 
 
-/* ---- 2b. Windows-common (both MSVC and MinGW) ---- */
+/* ---- 5. Windows-common (both MSVC and MinGW) ---- */
+
+#if defined(_WIN32)
+
+/* localtime_s is the Windows thread-safe localtime. Available on
+ * both MSVC and MinGW-w64. compat.h's HAVE_LOCALTIME_S branch
+ * handles the swapped argument order on Windows
+ * (struct tm *result, const time_t *t) returning errno_t. */
+#define HAVE_LOCALTIME_S
 
 /* _snwprintf_s exists in MSVCRT and is exported by both MSVC and
  * MinGW-w64 via <wchar.h>. Advertising it here keeps libzip's
@@ -127,12 +136,12 @@
  * and breaks with C2059 syntax errors. GCC/MinGW under -std=gnu2x
  * rejects the same macro at parse time. The real CRT function
  * works correctly on both compilers. */
-#if defined(_WIN32)
 #define HAVE__SNWPRINTF_S
-#endif
+
+#endif /* _WIN32 */
 
 
-/* ---- 3. Apple/BSD extras ---- */
+/* ---- 6. Apple/BSD extras ---- */
 
 #if defined(__APPLE__)
 #define HAVE_ARC4RANDOM     /* BSD-style RNG, present on Darwin */
@@ -143,7 +152,7 @@
 #endif
 
 
-/* ---- 4. Identification ---- */
+/* ---- 7. Identification ---- */
 
 #define PACKAGE "cozip-vendored-libzip"
 #define VERSION "1.11.4"

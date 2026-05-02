@@ -1,15 +1,16 @@
 name: Release
 
 # Coordinated release: libcozip + Python wheel + sdist all go out under
-# the same tag. R/Julia bindings live downstream — r-universe builds the
-# R package on its own poll cycle, Julia is TODO.
+# the same tag. R/Julia bindings live downstream — r-universe builds
+# the R package on its own poll cycle, Julia is TODO.
 #
-# Pre-commit handles version sync across cozip/VERSION and the binding
-# manifests. The validate job below double-checks the tag matches
-# VERSION on disk in case someone --no-verifies past the hook.
+# libcozip is standalone: libzip and zlib sources live committed under
+# cozip/core/{libzip,zlib}/ and compile in-tree. Builds have zero
+# network dependency. Bumping libzip or zlib is a manual repo edit.
 #
-# Tests don't live here. When R/Python/Julia get real test suites those
-# go in a separate test.yml triggered on PR — don't fold them back in.
+# Pre-commit syncs cozip/VERSION across binding manifests and mirrors
+# core/{libzip,zlib}/ into r/src/{libzip,zlib}/. The validate job below
+# checks the tag matches VERSION on disk.
 #
 # PyPI Trusted Publisher config (must match exactly):
 #   owner: asterisk-labs   repo: taco
@@ -18,14 +19,13 @@ name: Release
 on:
   push:
     tags: ['v*']
-  workflow_dispatch:  # for re-running without a fresh tag (debug only)
+  workflow_dispatch:  # debug only
 
 permissions:
   contents: read
 
 
 jobs:
-  # Fail fast on the cheap stuff before spinning up 4 build matrices.
   validate:
     name: Validate tag
     runs-on: ubuntu-latest
@@ -38,7 +38,6 @@ jobs:
         name: Tag must equal cozip/VERSION
         run: |
           VERSION_FILE=$(tr -d '[:space:]' < cozip/VERSION)
-          # workflow_dispatch has no tag — just trust VERSION in that case.
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             TAG_VERSION="${GITHUB_REF#refs/tags/v}"
             if [ "$VERSION_FILE" != "$TAG_VERSION" ]; then
@@ -51,10 +50,6 @@ jobs:
           fi
 
 
-  # Build libcozip from source on every release. We used to skip this
-  # when cozip/core/ hadn't changed (downloading the previous release's
-  # binary instead) but the bookkeeping wasn't worth the ~5 min saved
-  # on releases that happen once every few weeks.
   build-lib:
     name: libcozip — ${{ matrix.name }}
     needs: validate
@@ -77,8 +72,7 @@ jobs:
             container: ''
             lib_ext: dylib
             shell: bash
-            # Universal2 = arm64 + x86_64 in one fat dylib. 11.0 is
-            # the floor for Apple Silicon.
+            # arm64 + x86_64 fat dylib. 11.0 is the floor for Apple Silicon.
             cmake_extra: >-
               "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64"
               -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
@@ -95,8 +89,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # manylinux containers ship with gcc/cmake but no ninja. Other
-      # platforms need it from the package manager.
+      # manylinux ships gcc/cmake but not ninja. Other platforms get it
+      # from their package manager.
       - if: startsWith(matrix.name, 'linux')
         run: yum install -y ninja-build
       - if: runner.os == 'macOS'
@@ -104,13 +98,16 @@ jobs:
       - if: runner.os == 'Windows'
         run: choco install ninja -y
 
-      # Sets up cl.exe + nmake on PATH for cmake to find.
+      # cl.exe + nmake on PATH for cmake.
       - if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
 
       - name: Configure
+        # BUILD_SHARED_LIBS=ON applies only to cozip. Vendored libzip
+        # and zlib are STATIC explicitly in their own CMakeLists and
+        # are absorbed into cozip with hidden visibility.
         run: >
           cmake -B build -S cozip/core -G Ninja
           -DCMAKE_BUILD_TYPE=Release
@@ -122,9 +119,8 @@ jobs:
       - run: cmake --build build --config Release --parallel
       - run: cmake --install build --config Release
 
-      # Ad-hoc signature + sanity check that lipo actually fused both
-      # arches. Without the signature, Sequoia+ rejects the dylib in
-      # some sandboxed contexts (Python in a notarized app etc).
+      # Ad-hoc signature so Sequoia+ accepts the dylib in sandboxed
+      # contexts. Verify lipo actually fused both arches.
       - if: matrix.name == 'macos-universal'
         name: Sign and verify universal dylib
         run: |
@@ -134,8 +130,23 @@ jobs:
           echo "$ARCHS" | grep -qw x86_64 || { echo "Missing x86_64"; exit 1; }
           echo "$ARCHS" | grep -qw arm64  || { echo "Missing arm64";  exit 1; }
 
-      # Stage the lib + headers + license into a flat dir for upload.
-      # Layout matches what gh-release expects when re-packing later.
+      # Verify the dylib doesn't leak libzip or zlib symbols. cozip
+      # exposes 8 cozip_* functions and nothing else. If this fails,
+      # the static link absorbed the deps but didn't hide their
+      # symbols — likely C_VISIBILITY_PRESET regressed.
+      - if: runner.os != 'Windows'
+        name: Verify symbol isolation
+        run: |
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            EXPORTED=$(nm -gU install/lib/cozip.dylib | grep ' T ' | awk '{print $3}' | grep -v '^__cozip_' | wc -l)
+          else
+            EXPORTED=$(nm -D --defined-only install/lib/cozip.so | grep ' T ' | awk '{print $3}' | grep -v '^cozip_' | wc -l)
+          fi
+          if [ "$EXPORTED" -gt 0 ]; then
+            echo "::error::cozip leaks $EXPORTED non-cozip symbols"
+            exit 1
+          fi
+
       - name: Stage artifact (Unix)
         if: runner.os != 'Windows'
         run: |
@@ -163,8 +174,6 @@ jobs:
           if-no-files-found: error
 
 
-  # Bundle libcozip into the Python wheel, repair so it ships
-  # self-contained, smoke-test, upload.
   build-wheels:
     name: Wheel — ${{ matrix.name }}
     needs: build-lib
@@ -202,9 +211,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # The manylinux container has multiple Pythons under /opt/python.
-      # We only need one to drive the build (the wheel is py3-none, see
-      # the retag step below) so just symlink cp312 to /usr/local/bin.
+      # manylinux has multiple Pythons under /opt/python. We only need
+      # one to drive the build (wheel is py3-none, retagged below).
       - name: Set up Python (manylinux)
         if: startsWith(matrix.name, 'linux')
         run: |
@@ -219,8 +227,7 @@ jobs:
 
       - run: python -m pip install --upgrade pip build hatchling cffi wheel
 
-      # Repair tools per-platform. Windows doesn't need one — the DLL
-      # just sits next to the .pyd and Windows finds it.
+      # Repair tools per-platform. Windows DLLs sit next to the .pyd.
       - if: startsWith(matrix.name, 'linux')
         run: python -m pip install auditwheel
       - if: runner.os == 'macOS'
@@ -231,8 +238,8 @@ jobs:
           name: libcozip-${{ matrix.name }}
           path: libcozip-bin/
 
-      # Drop the lib into cozip/_lib/ where _core.py looks for it
-      # at import time. See _resolve_lib_path() in cozip/_core.py.
+      # Drop the lib into cozip/_lib/ where _core.py finds it at import
+      # time. See _resolve_lib_path() in cozip/_core.py.
       - name: Bundle native lib (Unix)
         if: runner.os != 'Windows'
         run: |
@@ -250,12 +257,11 @@ jobs:
         run: python -m build --wheel --outdir ../../wheelhouse-raw
 
       # Repair = rewrite the runtime loader path so the wheel works on
-      # systems without our build env. Different surgery per platform:
+      # systems without our build env.
       #   Linux  -> auditwheel (ELF rpath + glibc tag baking)
       #   macOS  -> delocate   (Mach-O install_name)
-      # Then we retag to py3-none-<plat> so a single wheel covers every
-      # CPython version. Safe because we go through cffi/dlopen — no
-      # CPython ABI dependency.
+      # Then retag to py3-none-<plat>: one wheel covers every CPython
+      # because we go through cffi/dlopen, no CPython ABI dependency.
       - name: Repair (Linux)
         if: startsWith(matrix.name, 'linux')
         run: |
@@ -282,7 +288,6 @@ jobs:
           done
           mv wheelhouse-delocated/*.whl wheelhouse/
 
-      # Windows: just retag, no surgery needed.
       - name: Repair (Windows)
         if: runner.os == 'Windows'
         run: |
@@ -294,10 +299,8 @@ jobs:
           }
           Move-Item wheelhouse-raw2\*.whl wheelhouse\
 
-      # Smoke test on the same runner that built the wheel. This catches
-      # most "lib didn't bundle correctly" failures before PyPI sees them.
-      # The cozip_status_string assertion exercises the cffi binding,
-      # not just the Python import.
+      # Smoke test: install the wheel and exercise the cffi binding.
+      # Catches "lib didn't bundle correctly" before PyPI sees it.
       - name: Smoke test (Unix)
         if: runner.os != 'Windows'
         run: |
@@ -322,7 +325,6 @@ jobs:
           if-no-files-found: error
 
 
-  # sdist is cheap, runs in parallel with everything else.
   build-sdist:
     name: sdist
     needs: validate
@@ -343,11 +345,6 @@ jobs:
           if-no-files-found: error
 
 
-  # Re-pack each libcozip-<plat> artifact into a versioned tarball/zip
-  # so people can grab e.g. libcozip-2026.4.29-linux-x86_64.tar.gz
-  # straight from the Releases page. Skipped on workflow_dispatch
-  # because that path is for debugging — we don't want accidental
-  # release publishes.
   gh-release:
     name: GitHub Release
     needs: [validate, build-lib]
@@ -363,6 +360,8 @@ jobs:
           pattern: libcozip-*
           path: artifacts/
 
+      # Re-pack each libcozip-<plat> artifact into a versioned archive.
+      # Convention: shared lib in lib/ on Unix, bin/ on Windows.
       - name: Re-pack into versioned archives
         run: |
           set -euo pipefail
@@ -375,9 +374,6 @@ jobs:
             stage="staging/${pkg}"
             mkdir -p "$stage/include"
 
-            # Convention: shared lib goes in lib/ on Unix and bin/ on
-            # Windows, matching what their respective package managers
-            # and toolchains expect (pkg-config, MSVC, etc).
             case "$plat" in
               windows-x86_64)
                 mkdir -p "$stage/bin"
@@ -405,8 +401,7 @@ jobs:
               fi)
           done
 
-      # Anything with a hyphen in the version (2026.5.1-rc1 etc) is
-      # treated as a prerelease.
+      # Anything with a hyphen in the version (2026.5.1-rc1 etc) is a prerelease.
       - uses: softprops/action-gh-release@v2
         with:
           files: release-files/*
@@ -415,8 +410,8 @@ jobs:
           prerelease: ${{ contains(github.ref, '-') }}
 
 
-  # Trusted Publishing → no API token needed, just OIDC. The 'pypi'
-  # environment is configured on PyPI to accept this exact workflow.
+  # Trusted Publishing: no API token, just OIDC. The 'pypi' environment
+  # is configured on PyPI to accept this exact workflow.
   publish-pypi:
     name: Publish to PyPI
     needs: [build-wheels, build-sdist]
@@ -426,8 +421,6 @@ jobs:
     permissions:
       id-token: write
     steps:
-      # Pull every wheel-* artifact into a single dist/ directory.
-      # merge-multiple flattens them in place.
       - uses: actions/download-artifact@v4
         with:
           path: dist

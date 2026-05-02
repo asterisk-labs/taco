@@ -7,6 +7,50 @@ a single source of truth at `cozip/VERSION`.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning is [CalVer](https://calver.org/) `YYYY.M.D`.
 
+## [2026.5.2] — 2026-05-02
+
+### Added
+
+- `core/libzip/` and `core/zlib/` — vendored upstream sources
+  (libzip 1.11.4, zlib 1.3.1) with hand-written cross-platform
+  `config.h` and minimal per-library `CMakeLists.txt`. No more
+  `FetchContent`, no network during build.
+- `cozip_version_string()` declaration in `core/cozip.h` (the
+  function was implemented but never declared, breaking strict
+  consumers).
+- `make wasm` target — builds `cozip.{js,wasm}` via Emscripten into
+  `javascript/wasm/`. Confirms portability to browser/Node/webR
+  runtimes; outputs are gitignored, regenerated on demand.
+- `cozip/javascript/` placeholder directory with a README documenting
+  the JS-binding pathway. No public API yet — that work is deferred
+  until a concrete use case appears.
+
+### Changed
+
+- `core/CMakeLists.txt` rewritten — uses `add_subdirectory(zlib)` and
+  `add_subdirectory(libzip)` against the vendored sources. Visibility
+  rules tightened so the final `cozip.dylib`/`.so`/`.dll` exports
+  exactly the 8 public `cozip_*` functions and nothing else.
+- `Makefile`: `BUILD_DIR` moved from `build/lib/` to `core/build/`,
+  matching the principle that the C build artifacts belong inside
+  `core/`.
+- `release.yml` rewritten without FetchContent assumptions, ~3 min
+  faster per platform. Added a symbol-isolation check that fails the
+  build if any non-`cozip_*` symbol leaks into the shared library.
+
+### Removed
+
+- `core/cozip.c`: dead helper `get_u64()` (never called by any code
+  path; would have been needed only if the writer parsed ZIP64 LFH
+  extras, which it doesn't).
+
+### Fixed
+
+- Final `.dylib`/`.so` no longer re-exports libzip and zlib symbols.
+  The previous build leaked hundreds of `_zip_*`, `_inflate_*`, and
+  `__tr_*` symbols into the cozip ABI, risking clashes with consumers
+  that linked a different libzip through another path.
+
 ## [2026.5.1] — 2026-05-01
 
 ### Added

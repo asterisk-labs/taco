@@ -13,13 +13,19 @@
 #   make r-build        R CMD build r/ (produces .tar.gz)
 #   make r-check        R CMD check on the built tarball
 #   make clean          nuke build artifacts
+#
+# Layout:
+#   core/build/    C library build directory (CMake + Ninja, vendored
+#                  libzip and zlib compiled here).
+#   python/build/  Python wheel build (managed by python -m build).
+#   dist/          Final R tarballs.
 
 VERSION    := $(shell tr -d '[:space:]' < VERSION)
 
 CORE_DIR   := core
 PY_DIR     := python
 R_DIR      := r
-BUILD_DIR  := build/lib
+BUILD_DIR  := $(CORE_DIR)/build
 PY_LIB_DIR := $(PY_DIR)/cozip/_lib
 DIST_DIR   := dist
 
@@ -34,7 +40,7 @@ ifeq ($(OS),Windows_NT)
     LIB_NAME := cozip.dll
 endif
 
-.PHONY: all lib sync sync-version sync-c sync-check \
+.PHONY: all lib wasm sync sync-version sync-c sync-check \
         py-install py-test py-wheel \
         r-install r-build r-check r-clean \
         clean help
@@ -60,6 +66,7 @@ help:
 	@echo ""
 	@echo "C library:"
 	@echo "  lib                build libcozip + copy into python/_lib/"
+	@echo "  wasm               build cozip.wasm + cozip.js into javascript/wasm/"
 	@echo ""
 	@echo "Python:"
 	@echo "  py-install         editable install"
@@ -80,6 +87,43 @@ lib:
 	cmake --build $(BUILD_DIR)
 	mkdir -p $(PY_LIB_DIR)
 	cp $(BUILD_DIR)/$(LIB_NAME) $(PY_LIB_DIR)/$(LIB_NAME)
+
+# --- WASM ---
+#
+# Builds cozip + libzip + zlib to a single WebAssembly module that
+# can be loaded from Node.js or the browser. Outputs go to
+# javascript/wasm/, not committed to the repo (regenerated on demand).
+#
+# Requires Emscripten 3.x+ (brew install emscripten on macOS).
+# The exported function list must match cozip.h's public API surface.
+
+WASM_BUILD_DIR := $(CORE_DIR)/build-wasm
+JS_WASM_DIR    := javascript/wasm
+
+wasm:
+	emcmake cmake -B $(WASM_BUILD_DIR) -S $(CORE_DIR) -G Ninja \
+		-DCMAKE_BUILD_TYPE=Release \
+		-DBUILD_SHARED_LIBS=OFF
+	cmake --build $(WASM_BUILD_DIR)
+	mkdir -p $(JS_WASM_DIR)
+	emcc \
+		-I $(CORE_DIR) -I $(WASM_BUILD_DIR) \
+		$(WASM_BUILD_DIR)/cozip.a \
+		$(WASM_BUILD_DIR)/libzip/libzip.a \
+		$(WASM_BUILD_DIR)/zlib/libzlibstatic.a \
+		--no-entry \
+		-sEXPORTED_FUNCTIONS='["_cozip_version_string","_cozip_status_string","_cozip_plan","_cozip_index_payload_size","_cozip_build_index_payload","_cozip_build_extra_field","_cozip_write_archive","_cozip_patch_integrity_hash","_malloc","_free"]' \
+		-sEXPORTED_RUNTIME_METHODS='["UTF8ToString","stringToUTF8","HEAPU8","HEAP32"]' \
+		-sMODULARIZE \
+		-sEXPORT_ES6=0 \
+		-sEXPORT_NAME=createCozipModule \
+		-sALLOW_MEMORY_GROWTH=1 \
+		-o $(JS_WASM_DIR)/cozip.js \
+		-O2
+	@echo ""
+	@echo "✓ WASM build complete:"
+	@echo "  $(JS_WASM_DIR)/cozip.js   (loader)"
+	@echo "  $(JS_WASM_DIR)/cozip.wasm (binary)"
 
 # --- Sync ---
 
@@ -114,9 +158,15 @@ py-install: lib
 	pip install -e $(PY_DIR)
 
 py-test: py-install
+	@python -c 'import pytest' 2>/dev/null || \
+	  { echo "ERROR: pytest not installed in this env."; \
+	    echo "  fix: pip install pytest"; exit 1; }
 	cd $(PY_DIR) && pytest tests/ -v
 
 py-wheel: lib
+	@python -c 'import build' 2>/dev/null || \
+	  { echo "ERROR: 'build' not installed in this env."; \
+	    echo "  fix: pip install build"; exit 1; }
 	cd $(PY_DIR) && python -m build --wheel
 
 # --- R ---
@@ -144,7 +194,8 @@ r-check: r-build
 # --- Clean ---
 
 clean:
-	rm -rf build/ $(DIST_DIR)/
+	rm -rf $(CORE_DIR)/build/ $(CORE_DIR)/build-wasm/ $(DIST_DIR)/
+	rm -rf $(JS_WASM_DIR)/
 	rm -f $(PY_LIB_DIR)/*.dylib $(PY_LIB_DIR)/*.so $(PY_LIB_DIR)/*.dll
 	rm -f $(R_DIR)/src/version.h
 	rm -f $(R_DIR)/src/*.o $(R_DIR)/src/*.so $(R_DIR)/src/*.dylib $(R_DIR)/src/*.dll

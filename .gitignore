@@ -16,9 +16,9 @@ build/
 *.dylib
 
 cozip/python/cozip/VERSION
-
 cozip/r/src/cozip.so
 
 *.o
 
 cozip/dist/
+cozip/bootstrap_vendor.sh

@@ -181,6 +181,14 @@ typedef struct cozip_error {
 COZIP_API const char *cozip_status_string(cozip_status_t status);
 
 
+/* Returns the cozip library version as a static string in CalVer
+ * form (e.g. "2026.5.1.3"). Useful for bindings that want to
+ * confirm at runtime which build of libcozip they loaded.
+ *
+ * The pointer has static storage and is never NULL.
+ */
+COZIP_API const char *cozip_version_string(void);
+
 /* Profile selector for cozip_build_index_payload.
  *
  * The chosen profile value is written into the third byte of the

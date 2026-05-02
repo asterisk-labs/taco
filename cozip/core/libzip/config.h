@@ -100,12 +100,17 @@
  * and clash with the CRT's own function declarations, producing
  * `error C2059: syntax error: '('` deep inside corecrt headers.
  *
+ * NOTE: strerrorlen_s is intentionally NOT advertised. It is
+ * optional in Annex K and MSVC does not implement it. Letting
+ * compat.h see HAVE_STRERROR_S without HAVE_STRERRORLEN_S triggers
+ * a fallback macro `#define strerrorlen_s(errnum) 8192` which is
+ * the correct behavior on MSVC.
+ *
  * On non-MSVC platforms (glibc, macOS, MinGW) these symbols are
  * absent from the CRT and compat.h's macro fallbacks are correct. */
 #define HAVE_MEMCPY_S
 #define HAVE_STRNCPY_S
 #define HAVE_STRERROR_S
-#define HAVE_STRERRORLEN_S
 
 #endif /* _WIN32 && !MINGW */
 

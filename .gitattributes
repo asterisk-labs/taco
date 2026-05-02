@@ -1,0 +1,23 @@
+# Linguist overrides for the GitHub repo summary.
+#
+# `linguist-vendored`  — third-party code we ship but do not author.
+#                        Excluded from the language breakdown.
+# `linguist-generated` — code we produce with a build step.
+#                        Hidden from diffs by default.
+#
+# See: https://github.com/github-linguist/linguist/blob/main/docs/overrides.md
+
+# ---- Vendored: libzip 1.11.4 (BSD-3-Clause) ----
+cozip/core/libzip/**    linguist-vendored
+cozip/r/src/libzip/**   linguist-vendored
+
+# ---- Vendored: zlib 1.3.1 (zlib license) ----
+cozip/core/zlib/**      linguist-vendored
+cozip/r/src/zlib/**     linguist-vendored
+
+# ---- Generated: WebAssembly artifacts ----
+cozip/javascript/wasm/** linguist-generated
+
+# ---- Generated: build artifacts (defensive; usually .gitignored) ----
+**/build/**             linguist-generated
+**/dist/**              linguist-generated

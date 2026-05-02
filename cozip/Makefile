@@ -3,7 +3,7 @@
 # Targets:
 #   make lib            build libcozip standalone (CMake + Ninja)
 #   make sync-version   write VERSION into r/DESCRIPTION
-#   make sync-c         copy core/cozip.{c,h} into r/src/
+#   make sync-c         copy core/cozip.{c,h} + libzip/ + zlib/ into r/src/
 #   make sync           sync-version + sync-c
 #   make sync-check     fail if anything is out of sync (no writes)
 #   make py-install     editable install of python package
@@ -54,6 +54,7 @@ all: sync lib py-install r-build
 
 help:
 	@echo "cozip $(VERSION)"
+	@echo "  Vendored: libzip 1.11.4, zlib 1.3.1"
 	@echo ""
 	@echo "Pipelines:"
 	@echo "  all                full validation (sync + lib + python + R build)"
@@ -61,7 +62,7 @@ help:
 	@echo "Sync:"
 	@echo "  sync               sync-version + sync-c"
 	@echo "  sync-version       VERSION → DESCRIPTION"
-	@echo "  sync-c             core/cozip.{c,h} → r/src/"
+	@echo "  sync-c             core/cozip.{c,h} + libzip/ + zlib/ → r/src/"
 	@echo "  sync-check         fail if out of sync (no writes)"
 	@echo ""
 	@echo "C library:"
@@ -134,11 +135,16 @@ sync-version:
 	@rm -f $(R_DIR)/DESCRIPTION.bak
 	@echo "DESCRIPTION → Version: $(VERSION)"
 
+# Mirror core/cozip.{c,h} plus the vendored libzip/ and zlib/ trees
+# into r/src/. rsync --delete keeps the destinations as exact mirrors:
+# files removed upstream in core/ are also removed in r/src/.
 sync-c:
 	@rm -f $(R_DIR)/src/cozip.c $(R_DIR)/src/cozip.h
 	@cp $(CORE_DIR)/cozip.c $(R_DIR)/src/cozip.c
 	@cp $(CORE_DIR)/cozip.h $(R_DIR)/src/cozip.h
-	@echo "core/cozip.{c,h} → r/src/"
+	@rsync -a --delete $(CORE_DIR)/libzip/ $(R_DIR)/src/libzip/
+	@rsync -a --delete $(CORE_DIR)/zlib/   $(R_DIR)/src/zlib/
+	@echo "core/cozip.{c,h} + libzip/ + zlib/ → r/src/"
 
 sync-check:
 	@VFILE=$$(grep -E '^Version:' $(R_DIR)/DESCRIPTION | sed 's/Version:[[:space:]]*//'); \
@@ -150,6 +156,10 @@ sync-check:
 	  { echo "core/cozip.c differs from r/src/cozip.c — run 'make sync-c'"; exit 1; }
 	@diff -q $(CORE_DIR)/cozip.h $(R_DIR)/src/cozip.h >/dev/null || \
 	  { echo "core/cozip.h differs from r/src/cozip.h — run 'make sync-c'"; exit 1; }
+	@diff -r -q $(CORE_DIR)/libzip $(R_DIR)/src/libzip >/dev/null || \
+	  { echo "core/libzip/ differs from r/src/libzip/ — run 'make sync-c'"; exit 1; }
+	@diff -r -q $(CORE_DIR)/zlib $(R_DIR)/src/zlib >/dev/null || \
+	  { echo "core/zlib/ differs from r/src/zlib/ — run 'make sync-c'"; exit 1; }
 	@echo "sync OK"
 
 # --- Python ---
@@ -176,10 +186,13 @@ py-wheel: lib
 # timestamps, not binary format, so a stale Mach-O .so will silently
 # survive an attempted Linux build and fail at load time with
 # "invalid ELF header".
+#
+# `find ... -name '*.o' -delete` covers .o files in r/src/ and the
+# vendored subtrees r/src/libzip/ and r/src/zlib/.
 r-clean:
 	rm -f $(R_DIR)/src/version.h
-	rm -f $(R_DIR)/src/*.o $(R_DIR)/src/*.so
-	rm -f $(R_DIR)/src/*.dylib $(R_DIR)/src/*.dll
+	rm -f $(R_DIR)/src/*.so $(R_DIR)/src/*.dylib $(R_DIR)/src/*.dll
+	@find $(R_DIR)/src -name '*.o' -delete
 
 r-install: sync-check r-clean
 	R CMD INSTALL $(R_DIR)
@@ -198,7 +211,8 @@ clean:
 	rm -rf $(JS_WASM_DIR)/
 	rm -f $(PY_LIB_DIR)/*.dylib $(PY_LIB_DIR)/*.so $(PY_LIB_DIR)/*.dll
 	rm -f $(R_DIR)/src/version.h
-	rm -f $(R_DIR)/src/*.o $(R_DIR)/src/*.so $(R_DIR)/src/*.dylib $(R_DIR)/src/*.dll
+	rm -f $(R_DIR)/src/*.so $(R_DIR)/src/*.dylib $(R_DIR)/src/*.dll
+	@find $(R_DIR)/src -name '*.o' -delete
 	rm -f $(R_DIR)/src/.DS_Store
 	rm -rf $(PY_DIR)/dist $(PY_DIR)/build $(PY_DIR)/*.egg-info
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true

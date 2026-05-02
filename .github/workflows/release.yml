@@ -134,18 +134,28 @@ jobs:
       # exposes 8 cozip_* functions and nothing else. If this fails,
       # the static link absorbed the deps but didn't hide their
       # symbols — likely C_VISIBILITY_PRESET regressed.
+      #
+      # Implementation detail: we use awk (not `nm | grep -v | wc -l`)
+      # because pipefail propagates grep's exit-1-on-no-match, which
+      # falsely failed the step when there were zero leaks. awk emits
+      # the offending symbol names directly so a real failure prints
+      # what leaked.
       - if: runner.os != 'Windows'
         name: Verify symbol isolation
         run: |
           if [ "${{ runner.os }}" = "macOS" ]; then
-            EXPORTED=$(nm -gU install/lib/cozip.dylib | grep ' T ' | awk '{print $3}' | grep -v '^__cozip_' | wc -l)
+            # Mach-O prefixes C symbols with a single underscore.
+            LEAKS=$(nm -gU install/lib/cozip.dylib | awk '$2 == "T" && $3 !~ /^_cozip_/ {print $3}')
           else
-            EXPORTED=$(nm -D --defined-only install/lib/cozip.so | grep ' T ' | awk '{print $3}' | grep -v '^cozip_' | wc -l)
+            # ELF on Linux has no symbol prefix.
+            LEAKS=$(nm -D --defined-only install/lib/cozip.so | awk '$2 == "T" && $3 !~ /^cozip_/ {print $3}')
           fi
-          if [ "$EXPORTED" -gt 0 ]; then
-            echo "::error::cozip leaks $EXPORTED non-cozip symbols"
+          if [ -n "$LEAKS" ]; then
+            echo "::error::cozip leaks non-cozip symbols:"
+            echo "$LEAKS"
             exit 1
           fi
+          echo "✓ symbol isolation OK"
 
       - name: Stage artifact (Unix)
         if: runner.os != 'Windows'

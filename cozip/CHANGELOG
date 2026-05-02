@@ -7,6 +7,8 @@ a single source of truth at `cozip/VERSION`.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning is [CalVer](https://calver.org/) `YYYY.M.D`.
 
+
+
 ## [2026.5.2] — 2026-05-02
 
 ### Added
@@ -24,6 +26,16 @@ Versioning is [CalVer](https://calver.org/) `YYYY.M.D`.
 - `cozip/javascript/` placeholder directory with a README documenting
   the JS-binding pathway. No public API yet — that work is deferred
   until a concrete use case appears.
+- `r/src/libzip/` and `r/src/zlib/` — vendored mirrors of the
+  upstream sources, kept in sync with `core/` by `make sync-c`.
+  The R package now compiles from source on Linux, macOS, Windows
+  (Rtools45), and WebAssembly (webR), with no external libraries
+  required at install time.
+- `r/LICENSE.note` — BSD-3-Clause (libzip) + zlib license attribution
+  for the vendored third-party code.
+- `.gitattributes` at the repo root marks the four vendored trees as
+  `linguist-vendored` so they don't dominate the GitHub language
+  breakdown.
 
 ### Changed
 
@@ -37,12 +49,28 @@ Versioning is [CalVer](https://calver.org/) `YYYY.M.D`.
 - `release.yml` rewritten without FetchContent assumptions, ~3 min
   faster per platform. Added a symbol-isolation check that fails the
   build if any non-`cozip_*` symbol leaks into the shared library.
+- `r/DESCRIPTION`: drops `SystemRequirements: libzip` (no longer
+  needed) and adds `SystemRequirements: GNU make` (required by the
+  new `Makevars`).
+- `r/src/Makevars` and `r/src/Makevars.win` — rewritten. No
+  `pkg-config`, no `-lzip`, no `-lz`. Builds libzip + zlib + cozip
+  + glue from the vendored sources via `$(wildcard …)` plus a small
+  exclusion list per platform. `Makevars.win` adds `-ladvapi32` for
+  libzip's Win32 RNG backend.
+- `Makefile` extended: `sync-c` now mirrors `core/{libzip,zlib}/`
+  into `r/src/` via `rsync -a --delete`; `sync-check` validates the
+  trees with `diff -r -q`; `r-clean` recursively deletes `.o` files.
+- `.pre-commit-config.yaml` regex extended to fire `sync-check` when
+  any file under `core/{libzip,zlib}/` or `r/src/{libzip,zlib}/`
+  changes.
 
 ### Removed
 
 - `core/cozip.c`: dead helper `get_u64()` (never called by any code
   path; would have been needed only if the writer parsed ZIP64 LFH
   extras, which it doesn't).
+- `r/configure` — the package no longer detects a system libzip,
+  so there is nothing left to configure.
 
 ### Fixed
 
@@ -196,6 +224,7 @@ Versioning is [CalVer](https://calver.org/) `YYYY.M.D`.
 - GitHub Release with `libcozip-<version>-<platform>.{tar.gz,zip}`
   archives for C-standalone consumers.
 
+[2026.5.2]: https://github.com/asterisk-labs/taco/compare/v2026.5.1...v2026.5.2
 [2026.5.1]: https://github.com/asterisk-labs/taco/compare/v2026.4.30...v2026.5.1
 [2026.4.30]: https://github.com/asterisk-labs/taco/compare/v2026.4.29...v2026.4.30
 [2026.4.29]: https://github.com/asterisk-labs/taco/releases/tag/v2026.4.29

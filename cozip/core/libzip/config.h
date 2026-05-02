@@ -9,11 +9,11 @@
  * match.
  *
  * Layout:
- *   1. Common POSIX macros — apply on Linux, macOS, WASM/Emscripten.
- *   2. Windows MSVC cluster — _underscore variants of the same APIs,
- *                             plus C11 Annex K bounds-checking funcs.
- *   3. macOS / BSD extras — arc4random, clonefile, getprogname, fts.
- *   4. Tunables — package metadata, sizeof checks, FDOPEN toggle.
+ *   1. Common (every platform, no #ifdef guard).
+ *   2. POSIX (Linux, macOS, MinGW; explicitly NOT MSVC).
+ *   3. Windows MSVC cluster — _underscore variants, Annex K, etc.
+ *   4. macOS / BSD extras — arc4random, clonefile, getprogname, fts.
+ *   5. Tunables — package metadata, sizeof checks, FDOPEN toggle.
  *
  * libzip itself does not depend on the actual values of PACKAGE or
  * VERSION, so we hardcode them to identify the vendored copy.
@@ -33,7 +33,6 @@
 #define HAVE_FCHMOD
 #define HAVE_FSEEKO
 #define HAVE_FTELLO
-#define HAVE_LOCALTIME_R
 #define HAVE_SETMODE
 #define HAVE_SNPRINTF
 #define HAVE_STRCASECMP
@@ -41,9 +40,25 @@
 #define HAVE_STRTOLL
 #define HAVE_STRTOULL
 #define HAVE_STDBOOL_H
+#define ENABLE_FDOPEN
+
+/* POSIX-only macros — guarded to skip MSVC, where they don't apply.
+ * MinGW provides POSIX semantics and is treated as POSIX here.
+ *
+ *   HAVE_UNISTD_H   leaks into zlib's zconf.h line 440 (no _WIN32
+ *                   guard upstream), making MSVC try to include
+ *                   <unistd.h> and fail C1083. Must NOT be set on MSVC.
+ *   HAVE_STRINGS_H  POSIX <strings.h> is absent on MSVC (different
+ *                   from <string.h>). Guarded preventively.
+ *   HAVE_LOCALTIME_R  POSIX-only thread-safe localtime. MSVC has
+ *                     localtime_s instead. compat.h dispatches via
+ *                     these flags; setting HAVE_LOCALTIME_R on MSVC
+ *                     would resolve to the missing symbol. */
+#if !defined(_WIN32) || defined(__MINGW32__) || defined(__MINGW64__)
+#define HAVE_LOCALTIME_R
 #define HAVE_STRINGS_H
 #define HAVE_UNISTD_H
-#define ENABLE_FDOPEN
+#endif
 
 /* Sizes: 64-bit on every platform we target (no 32-bit Windows,
  * no 32-bit ARM). If 32-bit support is ever required, gate these
@@ -73,6 +88,12 @@
 #define HAVE__STRTOI64
 #define HAVE__STRTOUI64
 #define HAVE__UNLINK
+
+/* MSVC time API. localtime_s on MSVC has signature
+ * (struct tm *result, const time_t *t) and returns errno_t.
+ * compat.h's HAVE_LOCALTIME_S branch handles the swapped argument
+ * order on Windows. */
+#define HAVE_LOCALTIME_S
 
 /* C11 Annex K bounds-checking interfaces. MSVC declares these in
  * <string.h> / <corecrt_memcpy_s.h>. They MUST be advertised here

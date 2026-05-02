@@ -12,6 +12,8 @@
  *   1. Common (every platform, no #ifdef guard).
  *   2. POSIX (Linux, macOS, MinGW; explicitly NOT MSVC).
  *   3. Windows MSVC cluster — _underscore variants, Annex K, etc.
+ *   3b. MinGW/Rtools cluster — narrow set of Windows-specific
+ *       declarations needed when building with GCC.
  *   4. macOS / BSD extras — arc4random, clonefile, getprogname, fts.
  *   5. Tunables — package metadata, sizeof checks, FDOPEN toggle.
  *
@@ -79,7 +81,6 @@
 #define HAVE__SETMODE
 #define HAVE__SNPRINTF
 #define HAVE__SNPRINTF_S
-#define HAVE__SNWPRINTF_S
 #define HAVE__STAT64
 #define HAVE__STRDUP
 #define HAVE__STRICMP
@@ -113,6 +114,22 @@
 #define HAVE_STRERROR_S
 
 #endif /* _WIN32 && !MINGW */
+
+
+/* ---- 2b. MinGW / Rtools45 (Windows with GCC) ---- */
+
+/* MinGW-w64 ships <wchar.h> with the C11 Annex K wide-string family,
+ * including _snwprintf_s. We must advertise it here so libzip's
+ * compat.h skips its variadic-macro fallback at line 104. That
+ * fallback is `#define _snwprintf_s(buf, bufsz, len, fmt, ...) ...`
+ * which GCC under -std=gnu2x rejects with "expected declaration
+ * specifiers or '...' before '(' token" when expanded by libzip's
+ * own callers — even though the macro itself is syntactically
+ * valid C99. Declaring HAVE__SNWPRINTF_S routes libzip to the real
+ * CRT function and avoids the macro entirely. */
+#if defined(__MINGW32__) || defined(__MINGW64__)
+#define HAVE__SNWPRINTF_S
+#endif
 
 
 /* ---- 3. Apple/BSD extras ---- */

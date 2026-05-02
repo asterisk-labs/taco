@@ -30,34 +30,32 @@
 /* ---- 1. Common POSIX (Linux, macOS, WASM/Emscripten) ---- */
 
 #define HAVE_FILENO
-#define HAVE_FCHMOD
-#define HAVE_FSEEKO
-#define HAVE_FTELLO
 #define HAVE_SETMODE
 #define HAVE_SNPRINTF
-#define HAVE_STRCASECMP
 #define HAVE_STRDUP
 #define HAVE_STRTOLL
 #define HAVE_STRTOULL
 #define HAVE_STDBOOL_H
 #define ENABLE_FDOPEN
 
-/* POSIX-only macros — guarded to skip MSVC, where they don't apply.
+/* POSIX-only — guarded to skip MSVC, which lacks these.
  * MinGW provides POSIX semantics and is treated as POSIX here.
  *
- *   HAVE_UNISTD_H   leaks into zlib's zconf.h line 440 (no _WIN32
- *                   guard upstream), making MSVC try to include
- *                   <unistd.h> and fail C1083. Must NOT be set on MSVC.
- *   HAVE_STRINGS_H  POSIX <strings.h> is absent on MSVC (different
- *                   from <string.h>). Guarded preventively.
- *   HAVE_LOCALTIME_R  POSIX-only thread-safe localtime. MSVC has
- *                     localtime_s instead. compat.h dispatches via
- *                     these flags; setting HAVE_LOCALTIME_R on MSVC
- *                     would resolve to the missing symbol. */
+ * libzip's compat.h uses each HAVE_* macro as a "capability" flag:
+ * declaring HAVE_X tells compat.h that X is callable. If MSVC doesn't
+ * have X but config.h advertises HAVE_X, compat.h skips the fallback
+ * alias and the source files break with "undeclared identifier".
+ *
+ * Headers (<unistd.h>, <strings.h>) likewise must not be advertised
+ * on MSVC because compat.h / zlib's zconf.h #include them blindly. */
 #if !defined(_WIN32) || defined(__MINGW32__) || defined(__MINGW64__)
-#define HAVE_LOCALTIME_R
-#define HAVE_STRINGS_H
-#define HAVE_UNISTD_H
+#define HAVE_FCHMOD       /* POSIX file permission API */
+#define HAVE_FSEEKO       /* 64-bit fseek; MSVC has _fseeki64 instead */
+#define HAVE_FTELLO       /* 64-bit ftell; MSVC has _ftelli64 instead */
+#define HAVE_LOCALTIME_R  /* MSVC has localtime_s (different signature) */
+#define HAVE_STRCASECMP   /* MSVC has _stricmp instead */
+#define HAVE_STRINGS_H    /* POSIX <strings.h>, distinct from <string.h> */
+#define HAVE_UNISTD_H     /* POSIX <unistd.h>, leaks into zlib's zconf.h */
 #endif
 
 /* Sizes: 64-bit on every platform we target (no 32-bit Windows,

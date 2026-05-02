@@ -1,1 +1,0 @@
-#define COZIP_VERSION_STRING ""

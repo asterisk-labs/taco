@@ -36,7 +36,7 @@ endif
 
 .PHONY: all lib sync sync-version sync-c sync-check \
         py-install py-test py-wheel \
-        r-install r-build r-check \
+        r-install r-build r-check r-clean \
         clean help
 
 # Default target: full pre-push validation. Run this before commits
@@ -91,6 +91,7 @@ sync-version:
 	@echo "DESCRIPTION → Version: $(VERSION)"
 
 sync-c:
+	@rm -f $(R_DIR)/src/cozip.c $(R_DIR)/src/cozip.h
 	@cp $(CORE_DIR)/cozip.c $(R_DIR)/src/cozip.c
 	@cp $(CORE_DIR)/cozip.h $(R_DIR)/src/cozip.h
 	@echo "core/cozip.{c,h} → r/src/"
@@ -120,10 +121,20 @@ py-wheel: lib
 
 # --- R ---
 
-r-install: sync-check
+# Clean any leftover build artifacts in r/src/. Run before switching
+# build environments (e.g. macOS → Docker/Linux) — make only checks
+# timestamps, not binary format, so a stale Mach-O .so will silently
+# survive an attempted Linux build and fail at load time with
+# "invalid ELF header".
+r-clean:
+	rm -f $(R_DIR)/src/version.h
+	rm -f $(R_DIR)/src/*.o $(R_DIR)/src/*.so
+	rm -f $(R_DIR)/src/*.dylib $(R_DIR)/src/*.dll
+
+r-install: sync-check r-clean
 	R CMD INSTALL $(R_DIR)
 
-r-build: sync-check
+r-build: sync-check r-clean
 	mkdir -p $(DIST_DIR)
 	cd $(DIST_DIR) && R CMD build ../$(R_DIR)
 
@@ -135,6 +146,8 @@ r-check: r-build
 clean:
 	rm -rf build/ $(DIST_DIR)/
 	rm -f $(PY_LIB_DIR)/*.dylib $(PY_LIB_DIR)/*.so $(PY_LIB_DIR)/*.dll
-	rm -f $(R_DIR)/src/version.h $(R_DIR)/src/*.o $(R_DIR)/src/*.so
+	rm -f $(R_DIR)/src/version.h
+	rm -f $(R_DIR)/src/*.o $(R_DIR)/src/*.so $(R_DIR)/src/*.dylib $(R_DIR)/src/*.dll
+	rm -f $(R_DIR)/src/.DS_Store
 	rm -rf $(PY_DIR)/dist $(PY_DIR)/build $(PY_DIR)/*.egg-info
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true

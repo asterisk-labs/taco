@@ -12,13 +12,18 @@ name: Release
 # core/{libzip,zlib}/ into r/src/{libzip,zlib}/. The validate job below
 # checks the tag matches VERSION on disk.
 #
+# build-r-package mirrors what r-universe does (Rtools45 + MinGW-w64
+# on Windows, system R on Linux/macOS) so MinGW-specific build issues
+# fail in this pipeline rather than 30 min later in r-universe.
+#
 # PyPI Trusted Publisher config (must match exactly):
 #   owner: asterisk-labs   repo: taco
 #   workflow: release.yml  environment: pypi
 
 on:
   push:
-    tags: ['v*']
+    branches:
+      - main
   workflow_dispatch:  # debug only
 
 permissions:
@@ -182,6 +187,58 @@ jobs:
           name: libcozip-${{ matrix.name }}
           path: staged/
           if-no-files-found: error
+
+
+  # Mirror what r-universe does: Rtools45 (= MinGW-w64) on Windows,
+  # system R on Linux and macOS. Catches MinGW-specific bugs in the
+  # vendored libzip/zlib build (-std=gnu2x quirks, missing CRT
+  # functions, etc.) that MSVC's build-lib job won't surface.
+  #
+  # This job does NOT publish the R package — r-universe handles that
+  # on its own poll cycle. Its purpose is to fail fast if r-universe
+  # would also fail, so we don't push broken commits.
+  build-r-package:
+    name: R package — ${{ matrix.name }}
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: ubuntu
+            runner: ubuntu-latest
+          - name: macos
+            runner: macos-14
+          - name: windows
+            runner: windows-2022   # uses Rtools45 / MinGW-w64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Sets up R and (on Windows) the Rtools45 / MinGW toolchain that
+      # r-universe uses to build the R package.
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: 'release'
+          use-public-rspm: true
+
+      # arrow is the only hard runtime dep, plus testthat+withr for
+      # the test suite. setup-r-dependencies reads cozip/r/DESCRIPTION
+      # and installs everything required + suggested.
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          working-directory: cozip/r
+          extra-packages: any::rcmdcheck
+          needs: check
+
+      # R CMD check exercises the full pipeline that r-universe runs:
+      # vendored libzip/zlib compile, glue layer links, testthat tests
+      # exercise create() end-to-end. --no-manual skips PDF generation
+      # (no LaTeX on most runners; r-universe has its own).
+      - uses: r-lib/actions/check-r-package@v2
+        with:
+          working-directory: cozip/r
+          args: 'c("--no-manual", "--as-cran")'
+          error-on: '"warning"'
 
 
   build-wheels:
@@ -357,7 +414,7 @@ jobs:
 
   gh-release:
     name: GitHub Release
-    needs: [validate, build-lib]
+    needs: [validate, build-lib, build-r-package]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
@@ -424,7 +481,7 @@ jobs:
   # is configured on PyPI to accept this exact workflow.
   publish-pypi:
     name: Publish to PyPI
-    needs: [build-wheels, build-sdist]
+    needs: [build-wheels, build-sdist, build-r-package]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     environment: pypi

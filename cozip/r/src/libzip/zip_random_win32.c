@@ -31,6 +31,14 @@
   IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+
+/*
+ * COZIP PATCH: removed rand()/srand() fallback in zip_random_uint32.
+ * cozip uses STORE mode only, no crypto — this function is never
+ * called from cozip's API surface. The fallback triggered CRAN
+ * NOTEs ("Found 'rand'/'srand'") in the R package binary.
+ */
+
 #include "zipint.h"
 
 #ifdef HAVE_CRYPTO
@@ -57,26 +65,22 @@ zip_secure_random(zip_uint8_t *buffer, zip_uint16_t length) {
     }
     return true;
 }
+
 #endif
 
+
 #ifndef HAVE_RANDOM_UINT32
-#include <stdlib.h>
 
 zip_uint32_t
 zip_random_uint32(void) {
-    static bool seeded = false;
-
     zip_uint32_t value;
 
     if (zip_secure_random((zip_uint8_t *)&value, sizeof(value))) {
         return value;
     }
 
-    if (!seeded) {
-        srand((unsigned int)time(NULL));
-        seeded = true;
-    }
-
-    return (zip_uint32_t)rand();
+    /* COZIP PATCH: upstream falls back to srand()/rand() here. */
+    return 0;
 }
+
 #endif

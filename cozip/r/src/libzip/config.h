@@ -94,25 +94,6 @@
 #define HAVE__STRTOUI64
 #define HAVE__UNLINK
 
-/* C11 Annex K bounds-checking interfaces. MSVC declares these in
- * <string.h> / <corecrt_memcpy_s.h>. They MUST be advertised here
- * so libzip's compat.h does not replace them with `#define`-based
- * macro fallbacks — those macros pollute the identifier namespace
- * and clash with the CRT's own function declarations, producing
- * `error C2059: syntax error: '('` deep inside corecrt headers.
- *
- * NOTE: strerrorlen_s is intentionally NOT advertised. It is
- * optional in Annex K and MSVC does not implement it. Letting
- * compat.h see HAVE_STRERROR_S without HAVE_STRERRORLEN_S triggers
- * a fallback macro `#define strerrorlen_s(errnum) 8192` which is
- * the correct behavior on MSVC.
- *
- * On non-MSVC platforms (glibc, macOS, MinGW) these symbols are
- * absent from the CRT and compat.h's macro fallbacks are correct. */
-#define HAVE_MEMCPY_S
-#define HAVE_STRNCPY_S
-#define HAVE_STRERROR_S
-
 #endif /* _WIN32 && !MINGW */
 
 
@@ -137,6 +118,22 @@
  * rejects the same macro at parse time. The real CRT function
  * works correctly on both compilers. */
 #define HAVE__SNWPRINTF_S
+
+/* C11 Annex K bounds-checking string functions. MinGW-w64 exposes
+ * them in <string.h> when __STDC_WANT_LIB_EXT1__=1 is defined,
+ * which compat.h does at line 39. Advertising HAVE_STRNCPY_S here
+ * avoids compat.h's macro fallback at line 220:
+ *
+ *   #define strncpy_s(dest, destsz, src, count) \
+ *       (strncpy((dest), (src), (count)), 0)
+ *
+ * GCC 14 (Rtools45) flags that fallback with -Wstringop-truncation
+ * when callers pass count == strlen(src). The real CRT function
+ * handles the nul terminator correctly without warning. Advertising
+ * HAVE_MEMCPY_S for the same reason. */
+#define HAVE_MEMCPY_S
+#define HAVE_STRNCPY_S
+#define HAVE_STRERROR_S
 
 #endif /* _WIN32 */
 

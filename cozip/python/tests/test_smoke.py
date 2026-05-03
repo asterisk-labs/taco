@@ -195,6 +195,35 @@ def test_roundtrip_in_index_false(tmp_path: Path):
     assert meta_names == ["a.bin"], f"expected only a.bin in metadata, got {meta_names}"
 
 
+def test_create_pads_small_archive(tmp_path: Path):
+    """Tiny payloads are padded so hash finalization can still run."""
+    src = tmp_path / "tiny.txt"
+    src.write_bytes(b"tiny\n")
+
+    table = pa.table({
+        "name": ["tiny.txt"],
+        "path": [str(src)],
+    })
+
+    out = tmp_path / "tiny.cozip"
+    cozip.create(out, table, temp_dir=tmp_path)
+
+    raw = out.read_bytes()
+    assert len(raw) >= 32819, f"archive too small: {len(raw)}"
+    assert raw[43:51] != b"\x00" * 8, "integrity hash was not patched"
+
+    with zipfile.ZipFile(out, "r") as z:
+        names = z.namelist()
+        assert "tiny.txt" in names
+        assert "__metadata__" in names
+        assert "__cozip_padding__" in names
+        assert z.read("tiny.txt") == b"tiny\n"
+
+        meta = pq.read_table(io.BytesIO(z.read("__metadata__")))
+
+    meta_names = meta.column("name").to_pylist()
+    assert meta_names == ["tiny.txt"]
+
 # ---------------------------------------------------------------- geoparquet
 
 @pytest.mark.skipif(not HAS_GEO, reason="geopandas/shapely not installed")

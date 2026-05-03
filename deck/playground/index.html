@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>cozip Playground</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <img src="../../cozip/images/cozip_logo.png" alt="cozip">
+        <div>
+          <h1>cozip Playground</h1>
+          <p>Build a byte-zero indexed ZIP and inspect every moving part.</p>
+        </div>
+      </div>
+      <div class="status-strip" aria-label="Playground status">
+        <span class="status-pill ok">Client-side</span>
+        <span class="status-pill">STORE only</span>
+        <span class="status-pill wasm" id="wasmStatus">WASM optional</span>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <section class="panel input-panel" aria-labelledby="inputTitle">
+        <div class="panel-head">
+          <div>
+            <h2 id="inputTitle">Input Files</h2>
+            <p>Drop files here, or start with deterministic sample payloads.</p>
+          </div>
+          <button id="sampleBtn" type="button">Sample Files</button>
+        </div>
+
+        <label id="dropZone" class="drop-zone" for="filePicker">
+          <input id="filePicker" type="file" multiple>
+          <span class="drop-title">Drop files or browse</span>
+          <span class="drop-copy">Files stay in this browser tab. Zero-byte files are rejected by the cozip core format.</span>
+        </label>
+
+        <div class="control-grid">
+          <label>
+            Archive name
+            <input id="archiveName" type="text" value="dataset.cozip.zip" spellcheck="false">
+          </label>
+          <label>
+            Profile
+            <select id="profileSelect">
+              <option value="0">NONE - core index</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="button-row">
+          <button id="buildBtn" type="button" class="primary">Build cozip</button>
+          <button id="clearBtn" type="button">Clear</button>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Archive path</th>
+                <th class="num">Size</th>
+                <th>Index</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="fileRows">
+              <tr class="empty-row"><td colspan="4">No files loaded yet.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel output-panel" aria-labelledby="outputTitle">
+        <div class="panel-head">
+          <div>
+            <h2 id="outputTitle">Archive Output</h2>
+            <p>Download the generated archive and inspect the planned offsets.</p>
+          </div>
+          <a id="downloadLink" class="download disabled" href="#" aria-disabled="true">Download</a>
+        </div>
+
+        <div class="metrics" id="metrics">
+          <div><span>Archive</span><strong>-</strong></div>
+          <div><span>Index bytes</span><strong>-</strong></div>
+          <div><span>Indexed files</span><strong>-</strong></div>
+          <div><span>FNV-1a hash</span><strong>-</strong></div>
+        </div>
+
+        <div class="byte-map" aria-label="Archive byte layout">
+          <div id="byteMap" class="byte-track">
+            <span class="byte-placeholder">Build an archive to see byte ranges.</span>
+          </div>
+        </div>
+
+        <div class="tabs" role="tablist" aria-label="Explainer tabs">
+          <button type="button" class="tab active" data-tab="plan">Plan</button>
+          <button type="button" class="tab" data-tab="index">Index</button>
+          <button type="button" class="tab" data-tab="zip">ZIP</button>
+          <button type="button" class="tab" data-tab="hash">Hash</button>
+          <button type="button" class="tab" data-tab="wasm">WASM</button>
+        </div>
+
+        <div class="tab-panels">
+          <article class="tab-panel active" id="tab-plan">
+            <h3>Planned construction</h3>
+            <p>The writer computes every Local File Header and payload offset before the archive is written. That is why the byte-zero index can contain final offsets.</p>
+            <ol id="planList"></ol>
+          </article>
+          <article class="tab-panel" id="tab-index">
+            <h3>CZIP index payload</h3>
+            <p>The first entry payload starts at byte 51 and stores names, offsets, and sizes in compact little-endian columns.</p>
+            <pre id="indexPreview">No index yet.</pre>
+          </article>
+          <article class="tab-panel" id="tab-zip">
+            <h3>ZIP compatibility</h3>
+            <p>The output remains a normal ZIP: every user file is a STORE entry, then the Central Directory and EOCD close the archive.</p>
+            <div class="table-wrap small">
+              <table>
+                <thead><tr><th>Entry</th><th class="num">LFH</th><th class="num">Payload</th><th class="num">Size</th></tr></thead>
+                <tbody id="layoutRows"><tr class="empty-row"><td colspan="4">No layout yet.</td></tr></tbody>
+              </table>
+            </div>
+          </article>
+          <article class="tab-panel" id="tab-hash">
+            <h3>Integrity patch</h3>
+            <p>The FNV-1a 64 value covers the index payload and final 32 KiB of the archive. It is a structural check, not a cryptographic signature.</p>
+            <pre id="hashPreview">No hash yet.</pre>
+          </article>
+          <article class="tab-panel" id="tab-wasm">
+            <h3>Client-side WASM path</h3>
+            <p>The C writer can run in the browser through Emscripten. The missing piece is a small JavaScript wrapper that exposes the virtual filesystem and maps files to <code>cozip_entry_t</code>.</p>
+            <ol>
+              <li>Build <code>cozip/javascript/wasm/cozip.js</code> and <code>cozip.wasm</code> with Emscripten.</li>
+              <li>Export <code>FS</code>, <code>ccall</code> or typed helpers, <code>HEAPU8</code>, <code>malloc</code>, and <code>free</code>.</li>
+              <li>Copy browser <code>File</code> bytes into WASM memory or MEMFS.</li>
+              <li>Call <code>cozip_plan</code>, <code>cozip_build_index_payload</code>, <code>cozip_write_archive</code>, and <code>cozip_patch_integrity_hash</code>.</li>
+              <li>Read the output ZIP bytes from MEMFS and download them as a Blob.</li>
+            </ol>
+          </article>
+        </div>
+
+        <div class="log" id="log" aria-live="polite">Ready.</div>
+      </section>
+    </main>
+  </div>
+
+  <script src="app.js" defer></script>
+</body>
+</html>

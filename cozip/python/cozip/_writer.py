@@ -24,8 +24,17 @@ from ._core import (
 )
 
 # Names the writer reserves for itself; users cannot use them.
-_RESERVED_NAMES = frozenset({"__cozip__", "__metadata__"})
+_PADDING_NAME = "__cozip_padding__"
+_RESERVED_NAMES = frozenset({"__cozip__", "__metadata__", _PADDING_NAME})
 
+# Constants mirrored from cozip.h and the ZIP APPNOTE. They are used only to
+# decide whether the Python writer needs a final non-indexed padding entry
+# before the C core patches the 32 KiB integrity suffix.
+_COZIP_INDEX_OFFSET = 51
+_COZIP_HASH_WINDOW_SIZE = 32768
+_COZIP_MIN_ARCHIVE_SIZE = _COZIP_HASH_WINDOW_SIZE + _COZIP_INDEX_OFFSET
+_ZIP_CENTRAL_HEADER_BASE_SIZE = 46
+_ZIP_EOCD_SIZE = 22
 
 def _check(status: int, err: Any) -> None:
     """Raise a CozipError if a libcozip call returned a non-zero status.
@@ -111,6 +120,71 @@ def _build_metadata_parquet(
     return parquet_path
 
 
+def _build_padding_file(size: int, temp_dir: str | Path | None) -> Path:
+    """Create a non-empty temp payload used only to satisfy cozip min size."""
+    if size <= 0:
+        raise ValueError("padding size must be positive")
+    if temp_dir is not None:
+        Path(temp_dir).mkdir(parents=True, exist_ok=True)
+
+    tmp = tempfile.NamedTemporaryFile(
+        suffix=".bin",
+        dir=str(temp_dir) if temp_dir is not None else None,
+        delete=False,
+    )
+    try:
+        tmp.write(b"\x5a" * size)
+    finally:
+        tmp.close()
+    return Path(tmp.name)
+
+
+def _arc_name_len(entry: Any) -> int:
+    """Return the byte length of a cffi entry arc_name."""
+    return len(ffi.string(entry.arc_name))
+
+
+def _predict_zip32_archive_size(
+    entries: Any,
+    n_entries: int,
+    index_payload_size: int,
+) -> int:
+    """Predict libzip's small-archive ZIP32 size for STORE entries.
+
+    This intentionally covers the small-file path where padding matters.
+    ZIP64 archives are already far above the cozip minimum size.
+    """
+    total = _COZIP_INDEX_OFFSET + int(index_payload_size)
+
+    for i in range(n_entries):
+        total += int(entries[i].lfh_size) + int(entries[i].payload_size)
+
+    total += _ZIP_CENTRAL_HEADER_BASE_SIZE + len("__cozip__")
+    for i in range(n_entries):
+        total += _ZIP_CENTRAL_HEADER_BASE_SIZE + _arc_name_len(entries[i])
+
+    total += _ZIP_EOCD_SIZE
+    return total
+
+
+def _required_padding_size(
+    entries: Any,
+    n_entries: int,
+    index_payload_size: int,
+) -> int:
+    """Return payload bytes needed for the optional padding entry."""
+    predicted = _predict_zip32_archive_size(entries, n_entries, index_payload_size)
+    missing = _COZIP_MIN_ARCHIVE_SIZE - predicted
+    if missing <= 0:
+        return 0
+
+    name_len = len(_PADDING_NAME)
+    entry_overhead = (
+        30 + name_len
+        + _ZIP_CENTRAL_HEADER_BASE_SIZE + name_len
+    )
+    return max(1, missing - entry_overhead)
+
 def create(
     out_path: str | Path,
     table: pa.Table,
@@ -193,11 +267,13 @@ def create(
         seen.add(name)
 
     out_path = str(Path(out_path).resolve())
-
-    # Allocate one extra slot for the __metadata__ entry, which always
-    # sits last so its size never shifts the offsets of user entries.
+   
+    # Allocate one extra slot for __metadata__ and one optional
+    # non-indexed padding entry. __metadata__ sits after user files so
+    # its size never shifts user offsets; padding sits after metadata.
     n_total = n_users + 1
-    entries = ffi.new(f"cozip_entry_t[{n_total}]")
+    pad_idx = n_users + 1
+    entries = ffi.new(f"cozip_entry_t[{n_users + 2}]")
     keepalive: list[Any] = []
 
     for i in range(n_users):
@@ -244,6 +320,8 @@ def create(
         table, entries, n_users, in_idx, create_options, temp_dir
     )
 
+    padding_path: Path | None = None
+
     try:
         # 3. Now we know the real parquet size — patch it into the
         #    __metadata__ entry and re-plan. Re-planning is cheap and
@@ -265,6 +343,29 @@ def create(
             lib.cozip_index_payload_size(entries, n_total, idx_size, err),
             err,
         )
+
+        # Small archives need a non-indexed padding entry so the
+        # integrity suffix can cover the final 32 KiB without colliding
+        # with the mutable hash slot in the first LFH.
+        pad_size = _required_padding_size(entries, n_total, int(idx_size[0]))
+        if pad_size:
+            padding_path = _build_padding_file(pad_size, temp_dir)
+            pad_name_c = ffi.new("char[]", _PADDING_NAME.encode("utf-8"))
+            pad_path_c = ffi.new("char[]", str(padding_path).encode("utf-8"))
+            keepalive.extend((pad_name_c, pad_path_c))
+
+            entries[pad_idx].arc_name      = pad_name_c
+            entries[pad_idx].payload_size  = pad_size
+            entries[pad_idx].in_index      = False
+            entries[pad_idx].source.kind   = COZIP_SOURCE_PATH
+            entries[pad_idx].source.u.path = pad_path_c
+
+            n_total += 1
+            _check(lib.cozip_plan(entries, n_total, err), err)
+            _check(
+                lib.cozip_index_payload_size(entries, n_total, idx_size, err),
+                err,
+            )
 
         # 5. Serialize the cozip index payload (profile = FLAT).
         payload = ffi.new(f"uint8_t[{idx_size[0]}]")
@@ -291,5 +392,7 @@ def create(
         )
     finally:
         parquet_path.unlink(missing_ok=True)
+        if padding_path is not None:
+            padding_path.unlink(missing_ok=True)
 
     return out_path

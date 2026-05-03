@@ -41,11 +41,14 @@ jobs:
 
       - name: Build cozip WASM
         run: |
+          CMAKE_BIN="$(command -v cmake)"
+          export EMSDK_QUIET=1
           source "$RUNNER_TEMP/emsdk/emsdk_env.sh"
-          make -C cozip wasm
+          make -C cozip wasm CMAKE="$CMAKE_BIN"
 
       - name: Smoke test WASM wrapper
         run: |
+          export EMSDK_QUIET=1
           source "$RUNNER_TEMP/emsdk/emsdk_env.sh"
           node --input-type=module <<'EOF'
           import path from "node:path";

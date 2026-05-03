@@ -28,6 +28,9 @@ R_DIR      := r
 BUILD_DIR  := $(CORE_DIR)/build
 PY_LIB_DIR := $(PY_DIR)/cozip/_lib
 DIST_DIR   := dist
+CMAKE      ?= cmake
+EMCMAKE    ?= emcmake
+EMCC       ?= emcc
 
 UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Darwin)
@@ -84,8 +87,8 @@ help:
 # --- C library ---
 
 lib:
-	cmake -B $(BUILD_DIR) -S $(CORE_DIR) -G Ninja
-	cmake --build $(BUILD_DIR)
+	$(CMAKE) -B $(BUILD_DIR) -S $(CORE_DIR) -G Ninja
+	$(CMAKE) --build $(BUILD_DIR)
 	mkdir -p $(PY_LIB_DIR)
 	cp $(BUILD_DIR)/$(LIB_NAME) $(PY_LIB_DIR)/$(LIB_NAME)
 
@@ -102,12 +105,12 @@ WASM_BUILD_DIR := $(CORE_DIR)/build-wasm
 JS_WASM_DIR    := javascript/wasm
 
 wasm:
-	emcmake cmake -B $(WASM_BUILD_DIR) -S $(CORE_DIR) -G Ninja \
+	$(EMCMAKE) $(CMAKE) -B $(WASM_BUILD_DIR) -S $(CORE_DIR) -G Ninja \
 		-DCMAKE_BUILD_TYPE=Release \
 		-DBUILD_SHARED_LIBS=OFF
-	cmake --build $(WASM_BUILD_DIR)
+	$(CMAKE) --build $(WASM_BUILD_DIR)
 	mkdir -p $(JS_WASM_DIR)
-	emcc \
+	$(EMCC) \
 		-I $(CORE_DIR) -I $(WASM_BUILD_DIR) \
 		javascript/wasm_bridge.c \
 		$(WASM_BUILD_DIR)/cozip.a \

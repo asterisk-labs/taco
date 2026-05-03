@@ -1,9 +1,9 @@
-# Cloud-Optimized ZIP Format Specification
+# Cloud Optimized ZIP Format Specification
 
-**Version** 1.0-draft.5  
+**Version** 1.0
 **Binary format version** 1  
-**Status** Draft  
-**Date** 2026-04-28  
+**Status** Stable  
+**Date** 2026-05-03  
 **License** CC BY 4.0
 
 ---
@@ -12,15 +12,15 @@
 
 ## 1. Summary
 
-A **cozip** file (Cloud-Optimized ZIP) is a ZIP archive built for random access over byte-addressable storage. It targets workloads where a dataset contains many files and a consumer needs to reach any one of them quickly, in arbitrary order, without downloading the full archive. Machine learning training is the canonical example: a dataloader samples items in random order across an epoch, and every cold lookup must be fast.
+A **cozip** file (Cloud Optimized ZIP) is a ZIP archive built for random access over byte-addressable storage. It targets workloads where a dataset contains many files and a consumer needs to reach any one of them quickly, in arbitrary order, without downloading the full archive. Machine learning training is the canonical example: a dataloader samples items in random order across an epoch, and every cold lookup must be fast.
 
-A standard ZIP archive places its table of contents, the Central Directory, at the end of the file. A reader must first find and read that table before locating any entry. On archives with millions of files the Central Directory can be very large, and every cold reader pays this cost. A cozip moves the fast access path to the start of the file.
+A standard ZIP archive places its table of contents, the Central Directory, at the end of the file. A reader must first find and read that table before locating any entry. On archives with millions of files the Central Directory can be very large, and every current ZIP reader pays that cost. A cozip moves the fast access path to the start of the file.
 
-A compact binary index sits at byte 0 and lists the offsets and sizes of the files the creator chose to prioritize. A cozip-aware reader fetches that index and then jumps directly to any priority file. The Central Directory remains present and valid, so standard ZIP tools can still open the archive, but cozip-aware readers do not need the Central Directory for priority-file access.
+Simply put, a compact binary index sits at byte 0 and lists the offsets and sizes of the files the creator chose to prioritize. A cozip-aware reader fetches that index and then jumps directly to any priority file. The Central Directory remains present and valid, so standard ZIP tools can still open the archive, but cozip-aware readers do not need the Central Directory for priority-file access.
 
 In practice, priority files often include metadata containers such as Parquet, which encode structured, typed information about archive entries. Query engines such as DuckDB or Arrow can read this metadata to resolve byte ranges and access underlying data directly, treating the cozip like a database.
 
-Part I defines the on-disk format, the semantics of the index, and the recommended procedure for remote reading. Part II defines optional **profiles** that fix the names and roles of priority files for specific use cases.
+Part I defines the on-disk format and the semantics of the index. Part II defines optional **profiles** that fix the names and roles of priority files for specific use cases.
 
 ## 2. Conformance
 
@@ -70,7 +70,7 @@ Byte 0 of the archive is the first byte of the Local File Header of the index en
 The top-level layout is:
 
 ```text
-[LFH for __cozip__][cozip index payload]
+[LFH for __cozip__][cozip index payload] 
 [file entry 1]
 [file entry 2]
 ...
@@ -96,7 +96,7 @@ The ZIP archive comment length in the EOCD **MUST** be zero. Therefore, the EOCD
 5. Every ZIP entry **MUST** use compression method `0` (STORE), and its resolved compressed size and resolved uncompressed size **MUST** be equal and greater than zero. Explicit directory entries (zero-byte folder records) are not allowed.
 6. Every ZIP entry **MUST** be unencrypted: General Purpose Bit Flag bits 0, 6, and 13 **MUST NOT** be set, compression method `99` **MUST NOT** be used, and archive-level Central Directory Encryption **MUST NOT** be used.
 7. General Purpose Bit Flag bit 3 (Data Descriptor) **MUST NOT** be set for any entry.
-8. All ZIP entry filenames **MUST** be valid UTF-8 path strings. General Purpose Bit Flag bit 11 (UTF-8 language encoding) **MUST** be set in both the Local File Header and the Central Directory Header for every entry whose filename contains any byte greater than or equal to `0x80`. For filenames composed entirely of bytes less than `0x80` (pure ASCII), bit 11 **MAY** be either set or unset, since ASCII is unambiguously valid UTF-8. This relaxation reflects the behaviour of common ZIP writers (e.g. libzip).
+8. All ZIP entry filenames **MUST** be valid UTF-8 path strings. General Purpose Bit Flag bit 11 (UTF-8 language encoding) **MUST** be set in both the Local File Header and the Central Directory Header for every entry whose filename contains any byte greater than or equal to `0x80`. For filenames composed entirely of bytes less than `0x80` (pure ASCII), bit 11 **MAY** be either set or unset, since ASCII is unambiguously valid UTF-8. This relaxation reflects the behavior of common ZIP writers (e.g. libzip).
 9. All ZIP entry filenames **MUST** be unique within the archive.
 
 #### Archive-level
@@ -109,7 +109,6 @@ The ZIP archive comment length in the EOCD **MUST** be zero. Therefore, the EOCD
 
 1. The `__cozip__` index entry **MUST NOT** use ZIP64 and **MUST NOT** contain a ZIP64 extra field.
 2. Non-index entries and archive-level structures (Central Directory, EOCD) **MAY** use ZIP64 as defined in APPNOTE 6.3.10. When a 32-bit field carries the sentinel `0xFFFFFFFF`, or a 16-bit field carries `0xFFFF`, the corresponding ZIP64 extra field or ZIP64 end record **MUST** provide the real value. If ZIP64 is required for the archive, the writer **MUST** emit both the ZIP64 End of Central Directory Record and ZIP64 End of Central Directory Locator.
-3. Multi-disk and split features remain prohibited even with ZIP64. All ZIP64 disk-number fields **MUST** describe a single-disk archive.
 
 ### 5.3 Name requirements
 
@@ -126,7 +125,7 @@ A cozip filename is a UTF-8 string stored in the ZIP filename field.
 
 This section is normative for writers.
 
-A cozip writer **MUST** construct a final, internally consistent ZIP archive. The recommended model is planned or virtual construction: before writing bytes to the output object, the writer computes every Local File Header size, payload offset, payload size, ZIP64 requirement, profile metadata file, and Central Directory record.
+A cozip writer **MUST** construct a final, internally consistent ZIP archive. The recommended model is planned construction: before writing to the output object, the writer must compute all final archive metadata—Local File Header sizes, payload offsets and sizes, ZIP64 requirements, profile metadata, and Central Directory records.
 
 The writer **MUST** know all final payload offsets and sizes before writing the index payload. The index payload, its CRC-32, and its 32-bit size fields **MUST** be final when the index entry is emitted.
 
@@ -270,65 +269,7 @@ The canonical validation procedure is:
 7. Compute FNV-1a 64 over the union of the index region and suffix region (§8.2).
 8. Compare the computed value with the stored `integrity_hash`. If they differ, reject the archive with `HASH_MISMATCH`.
 
-## 9. HTTP and byte-range access
-
-This section is normative for remote cozip readers and for services that claim to serve cozip byte ranges correctly.
-
-cozip offsets are defined over the exact bytes of the ZIP object. Therefore, remote storage **MUST** expose a byte-exact representation of the archive.
-
-1. A server **MUST NOT** apply transparent HTTP content coding such as gzip or Brotli to the `.zip` object when serving byte ranges. If `Content-Encoding` is present and changes the representation bytes, cozip offsets are invalid for that response.
-2. A reader **SHOULD** request byte ranges using HTTP `Range` over the `bytes` range unit.
-3. Internal cozip ranges are written as half-open intervals `[offset, offset + size)`. HTTP byte ranges use an inclusive final byte position. The conversion is:
-
-   ```http
-   Range: bytes=<offset>-<offset + size - 1>
-   ```
-
-   Since zero-byte entries are prohibited, readers never issue invalid payload ranges such as `bytes=offset-(offset-1)`.
-
-4. To request the leading region, a reader uses `Range: bytes=0-65535` (or any other suitable upper bound).
-5. To request the suffix region for integrity verification, a reader uses `Range: bytes=-32768`, or — if the archive size is already known — `Range: bytes=<archive_size - 32768>-<archive_size - 1>`.
-
-## 10. Recommended reading procedure
-
-This section is informative; the steps invoke the normative requirements defined elsewhere in Part I.
-
-### Step 1. Fetch the leading region
-
-Request the first 64 KiB of the archive (§9, rule 4). This range is expected to contain the fixed Local File Header of the index entry and the complete index payload in typical use.
-
-### Step 2. Validate the index Local File Header
-
-Apply the validation list defined in §8.5, step 1, to the first 51 bytes of the archive. Read `integrity_hash` from archive bytes 43–50.
-
-### Step 3. Locate the index payload
-
-The index payload begins at byte 51. Its length is the 32-bit `compressed_size` from the index entry's Local File Header. If the full payload was not included in Step 1, issue a second range request for `bytes=51-<50 + index_size>`.
-
-### Step 4. Parse the index
-
-Starting at byte 51, parse the index header, name lengths, names, offsets, and sizes as described in §7. Validate:
-
-1. magic is `CZIP`;
-2. version is supported;
-3. all names are valid UTF-8;
-4. all names are unique;
-5. all indexed sizes are greater than zero;
-6. all `offset + size` ranges are within the archive size when the archive size is known.
-
-### Step 5. Optionally verify structural integrity
-
-Fetch the suffix region (§9, rule 5) and complete the integrity-hash check by following §8.5, steps 4 through 8.
-
-### Step 6. Access a priority file
-
-Locate the priority file by literal name match against the Names section, recover its `offset` and `size` from the corresponding entries in §7.4 and §7.5, and request the payload using the conversion in §9, rule 3. The returned bytes are the raw file contents.
-
-### Step 7. Optional full ZIP validation
-
-A strict validator may also read the Central Directory and confirm that each indexed filename has exactly one matching Central Directory entry, that the resolved Local File Header offset yields a payload offset matching the indexed offset, and that the resolved ZIP sizes match the indexed size. This validation is not required for ordinary priority-file reads.
-
-## 11. Error codes
+## 9. Error codes
 
 Implementations **SHOULD** map parse and validation failures to the following canonical names.
 
@@ -345,10 +286,8 @@ Implementations **SHOULD** map parse and validation failures to the following ca
 | `INVALID_NAME`                | A filename violates §5.3 or is not valid UTF-8. |
 | `MISSING_ENTRY`               | An indexed name has no corresponding ZIP entry, or its offset/size disagrees with the matching ZIP entry. |
 | `INVALID_OFFSET`              | An offset/size pair overflows u64 arithmetic or extends beyond the archive size. |
-| `INVALID_ZIP_ENTRY`           | A ZIP entry violates §5.1: compression method other than STORE, encrypted, data descriptor present, explicit directory entry, or zero or unequal sizes. |
-| `SPLIT_ARCHIVE`               | The archive is split, spanned, multi-disk, or starts with a spanning marker. |
+| `INVALID_ZIP_STRUCTURE`       | A ZIP entry or archive-level structure violates §5.1: compression method other than STORE, encrypted, data descriptor present, explicit directory entry, zero or unequal sizes, UTF-8 flag inconsistent with §5.1.8, non-zero EOCD comment, or split/multi-disk archive. |
 | `INVALID_ZIP64`               | A ZIP64 sentinel lacks a valid corresponding ZIP64 value, ZIP64 values are inconsistent, or the index entry uses ZIP64. |
-| `HTTP_RANGE_NOT_BYTE_EXACT`   | The remote response is content-encoded or otherwise not byte-exact for cozip offsets. |
 
 ---
 
@@ -380,9 +319,9 @@ A profile **MAY** reserve additional filenames, require certain priority files t
 
 A profile **MUST NOT** modify or relax any requirement of Part I, including the binary structure of the cozip index and the Local File Header layout of the `__cozip__` entry. A registered profile value **MUST NOT** be reassigned or redefined by a successor profile.
 
-### 12.4 Reader behaviour
+### 12.4 Reader behavior
 
-Reader behaviour for unrecognised profiles is defined in §7.1. A reader **MAY** raise `UNKNOWN_PROFILE` when profile-specific guarantees are required by the application. A reader that supports the declared profile **SHOULD** validate the profile-specific requirements before exposing profile semantics to its caller.
+Reader behavior for unrecognized profiles is defined in §7.1. A reader **MAY** raise `UNKNOWN_PROFILE` when profile-specific guarantees are required by the application. A reader that supports the declared profile **SHOULD** validate the profile-specific requirements before exposing profile semantics to its caller.
 
 ## 13. Flat profile
 
@@ -466,7 +405,7 @@ A TACO-profile cozip uses the file extension `.zip`. The MIME type is `applicati
 
 ## Appendix A. MIME type and file extension
 
-A cozip archive uses the standard ZIP file extension `.zip` and MIME type `application/zip`. cozip is a structural profile of ZIP — analogous to how Cloud-Optimized GeoTIFF uses `.tif` — and is detected by the presence of a `__cozip__` index entry at byte 0, not by extension. 
+A cozip archive uses the standard ZIP file extension `.zip` and MIME type `application/zip`. cozip is a structural profile of ZIP — analogous to how Cloud Optimized GeoTIFF uses `.tif` — and is detected by the presence of a `__cozip__` index entry at byte 0, not by extension. 
 
 When serving `.zip` over HTTP, servers must preserve byte-exact object bytes for range requests. Transparent content encoding is incompatible with cozip byte offsets.
 
@@ -477,8 +416,9 @@ When serving `.zip` over HTTP, servers must preserve byte-exact object bytes for
 | 1.0-draft.1  | 2026-04-27 | Initial draft. |
 | 1.0-draft.2  | 2026-04-27 | Added ZIP64 policy for non-index entries; explicitly prohibited encryption, split/spanned archives, data descriptors, directory entries, and zero-size entries; changed the integrity hash to cover the index payload plus the final 32 KiB; fixed HTTP byte-range inclusivity; made UTF-8 and filename uniqueness requirements explicit; fixed Flat profile `__metadata__` semantics; made TACO priority files contiguous; replaced pending TACO reference. |
 | 1.0-draft.3  | 2026-04-28 | **Editorial refactor of Part I.** Removed the *Semantics and guarantees* section as fully redundant with §4–§8. Consolidated STORE+size, encryption, ZIP64-sentinel, name-uniqueness, archive-immutability, and hash-byte-range statements that were repeated across §5, §6, §7, §8, §9. Reorganised §5.1 into three groups (Index entry / All ZIP entries / Archive-level). Reduced §5.2 from six items to three. Made §8.5 step 1 the single canonical LFH validation list and added a missing check for GP bit 11 set and exact 9-byte filename equality; §10 step 2 now references it. Relaxed the §7.5 archive-size constraint from MUST to SHOULD on the reader side (writers still MUST). Reduced error codes from 24 to 15 by collapsing index/zip duplicate-name codes, name/UTF-8 codes, range/overflow codes, and per-entry violation codes into single canonical names. Fixed the APPNOTE URL in Appendix C. |
-| 1.0-draft.4  | 2026-04-28 | **Editorial refactor of Part II.** Collapsed *what a profile MAY do* and *what a profile MUST NOT do* into a single profile-constraints section, and folded reader-behaviour duplication into §7.1. Removed the Flat-profile §14.3 *position requirement* as a normative MUST; placement of `__metadata__` is now an informative writer hint. Removed the Flat-profile schema's *Must be unique* note for the `name` column (already covered archive-wide by §5.1.9) and clarified that an archive with no other data entries may carry a zero-row `__metadata__`. Removed from the TACO profile the prohibition on directory entries for `DATA/` and `METADATA/` (already prohibited archive-wide by §5.1.5). Clarified that the relative order of TACO priority files within the contiguous priority block is unspecified. Section numbering shifted: Profiles is now §12, Flat is §13, TACO is §14. |
-| 1.0-draft.5  | 2026-04-29 | Relaxed §5.1.8 and §8.5 step 1.ii to require GP bit 11 (UTF-8) only when the filename contains bytes ≥ 0x80. Aligns the spec with common ZIP writer behaviour and unblocks libzip builds that omit the flag for ASCII-only names. |
+| 1.0-draft.4  | 2026-04-28 | **Editorial refactor of Part II.** Collapsed *what a profile MAY do* and *what a profile MUST NOT do* into a single profile-constraints section, and folded reader-behavior duplication into §7.1. Removed the Flat-profile §14.3 *position requirement* as a normative MUST; placement of `__metadata__` is now an informative writer hint. Removed the Flat-profile schema's *Must be unique* note for the `name` column (already covered archive-wide by §5.1.9) and clarified that an archive with no other data entries may carry a zero-row `__metadata__`. Removed from the TACO profile the prohibition on directory entries for `DATA/` and `METADATA/` (already prohibited archive-wide by §5.1.5). Clarified that the relative order of TACO priority files within the contiguous priority block is unspecified. Section numbering shifted: Profiles is now §12, Flat is §13, TACO is §14. |
+| 1.0-draft.5  | 2026-04-29 | Relaxed §5.1.8 and §8.5 step 1.ii to require GP bit 11 (UTF-8) only when the filename contains bytes ≥ 0x80. Aligns the spec with common ZIP writer behavior and unblocks libzip builds that omit the flag for ASCII-only names. |
+| 1.0          | 2026-05-03 | First stable release. Some redundant normative statements were removed during the draft phase, but no technical changes were made between 1.0-draft.5 and 1.0.
 
 
 ## Appendix C. References

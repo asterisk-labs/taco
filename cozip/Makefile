@@ -109,12 +109,14 @@ wasm:
 	mkdir -p $(JS_WASM_DIR)
 	emcc \
 		-I $(CORE_DIR) -I $(WASM_BUILD_DIR) \
+		javascript/wasm_bridge.c \
 		$(WASM_BUILD_DIR)/cozip.a \
 		$(WASM_BUILD_DIR)/libzip/libzip.a \
 		$(WASM_BUILD_DIR)/zlib/libzlibstatic.a \
 		--no-entry \
-		-sEXPORTED_FUNCTIONS='["_cozip_version_string","_cozip_status_string","_cozip_plan","_cozip_index_payload_size","_cozip_build_index_payload","_cozip_build_extra_field","_cozip_write_archive","_cozip_patch_integrity_hash","_malloc","_free"]' \
-		-sEXPORTED_RUNTIME_METHODS='["UTF8ToString","stringToUTF8","HEAPU8","HEAP32"]' \
+		-sEXPORTED_FUNCTIONS='["_cozip_version_string","_cozip_status_string","_cozip_plan","_cozip_index_payload_size","_cozip_build_index_payload","_cozip_build_extra_field","_cozip_write_archive","_cozip_patch_integrity_hash","_cozip_wasm_error_size","_cozip_wasm_error_message_offset","_cozip_wasm_write_archive_from_buffers","_malloc","_free"]' \
+		-sEXPORTED_RUNTIME_METHODS='["FS","UTF8ToString","stringToUTF8","lengthBytesUTF8","HEAPU8","HEAPU32"]' \
+		-sFORCE_FILESYSTEM=1 \
 		-sMODULARIZE \
 		-sEXPORT_ES6=0 \
 		-sEXPORT_NAME=createCozipModule \

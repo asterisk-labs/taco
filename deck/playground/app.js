@@ -17,6 +17,9 @@
   const FNV_OFFSET = 0xcbf29ce484222325n;
   const FNV_PRIME = 0x100000001b3n;
   const U64_MASK = 0xffffffffffffffffn;
+  const WASM_LOADER_URL = new URL("../../cozip/javascript/wasm/cozip.js", document.baseURI).href;
+  const WASM_WRAPPER_URL = new URL("../../cozip/javascript/src/cozip-wasm-wrapper.js", document.baseURI).href;
+  const WASM_BINARY_BASE_URL = new URL("../../cozip/javascript/wasm/", document.baseURI).href;
 
   const textEncoder = new TextEncoder();
   const crcTable = makeCrcTable();
@@ -26,6 +29,9 @@
     nextId: 1,
     objectUrl: null,
     lastResult: null,
+    wasmPromise: null,
+    wasmWriter: null,
+    wasmError: null,
   };
 
   const els = {
@@ -51,7 +57,7 @@
   init();
 
   function init() {
-    updateWasmStatus();
+    primeWasm();
     bindEvents();
     renderFiles();
     renderEmptyOutput();
@@ -129,14 +135,71 @@
     });
   }
 
-  function updateWasmStatus() {
-    if (window.WebAssembly) {
-      els.wasmStatus.textContent = "WASM capable";
+  function updateWasmStatus(status, detail = "") {
+    els.wasmStatus.classList.remove("ok", "warn");
+    els.wasmStatus.title = detail;
+
+    if (status === "ready") {
+      els.wasmStatus.textContent = "WASM ready";
       els.wasmStatus.classList.add("ok");
+    } else if (status === "loading") {
+      els.wasmStatus.textContent = "WASM loading";
+    } else if (status === "fallback") {
+      els.wasmStatus.textContent = "JS fallback";
+      els.wasmStatus.classList.add("warn");
     } else {
       els.wasmStatus.textContent = "WASM unavailable";
       els.wasmStatus.classList.add("warn");
     }
+  }
+
+  function primeWasm() {
+    if (!window.WebAssembly) {
+      updateWasmStatus("unavailable", "This browser does not expose WebAssembly.");
+      return;
+    }
+
+    updateWasmStatus("loading", "Loading the compiled cozip writer.");
+    state.wasmPromise = loadWasmWriter()
+      .then((writer) => {
+        state.wasmWriter = writer;
+        updateWasmStatus("ready", "Builds use the compiled C writer through WebAssembly.");
+        return writer;
+      })
+      .catch((error) => {
+        state.wasmError = error;
+        updateWasmStatus("fallback", error.message);
+        return null;
+      });
+  }
+
+  async function getWasmWriter() {
+    if (state.wasmWriter) return state.wasmWriter;
+    if (!state.wasmPromise) return null;
+    return state.wasmPromise;
+  }
+
+  async function loadWasmWriter() {
+    await loadClassicScript(WASM_LOADER_URL);
+    const wasm = await import(WASM_WRAPPER_URL);
+    return wasm.createCozipWasmWriter({
+      locateFile: (path) => new URL(path, WASM_BINARY_BASE_URL).href,
+    });
+  }
+
+  function loadClassicScript(url) {
+    if (typeof window.createCozipModule === "function") {
+      return Promise.resolve();
+    }
+
+    return new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = url;
+      script.async = true;
+      script.onload = () => resolve();
+      script.onerror = () => reject(new Error(`Could not load ${url}`));
+      document.head.append(script);
+    });
   }
 
   function addFiles(items, options = {}) {
@@ -193,11 +256,13 @@
       if (prepared.renamed.length) renderFiles();
 
       const profile = Number(els.profileSelect.value || PROFILE_NONE);
-      const result = buildCozipArchive(prepared.entries, profile);
+      const jsResult = buildCozipArchive(prepared.entries, profile);
+      const built = await buildWithBestAvailableWriter(prepared.entries, profile, jsResult);
+      const result = built.result;
       state.lastResult = result;
       setDownload(result);
       renderResult(result, prepared.renamed);
-      setLog(`Built ${formatBytes(result.bytes.length)} archive with ${result.indexedCount} indexed file${result.indexedCount === 1 ? "" : "s"}.`);
+      setLog(buildSuccessMessage(result, built.engine, built.warning));
     } catch (error) {
       console.error(error);
       state.lastResult = null;
@@ -353,6 +418,68 @@
       suffixStart: bytes.length - HASH_WINDOW_SIZE,
       indexEnd: INDEX_OFFSET + indexPayload.length,
     };
+  }
+
+  async function buildWithBestAvailableWriter(entries, profile, jsResult) {
+    const writer = await getWasmWriter();
+    if (!writer) {
+      return {
+        result: jsResult,
+        engine: "JavaScript planner",
+        warning: state.wasmError ? state.wasmError.message : "",
+      };
+    }
+
+    try {
+      const wasmBytes = await writer.writeArchive({
+        entries: entries.map((entry) => ({
+          name: entry.name,
+          data: entry.data,
+          inIndex: entry.inIndex,
+        })),
+        profile,
+      });
+
+      return {
+        result: mergeWasmBytes(jsResult, wasmBytes),
+        engine: "WASM C writer",
+        warning: "",
+      };
+    } catch (error) {
+      console.warn("WASM writer failed; falling back to JavaScript planner.", error);
+      state.wasmError = error;
+      updateWasmStatus("fallback", error.message);
+      return {
+        result: jsResult,
+        engine: "JavaScript planner",
+        warning: `WASM failed: ${error.message}`,
+      };
+    }
+  }
+
+  function mergeWasmBytes(modelResult, wasmBytes) {
+    const result = { ...modelResult, bytes: wasmBytes, engine: "wasm" };
+    if (wasmBytes.length >= INDEX_OFFSET + modelResult.indexPayload.length) {
+      const hash = computeIntegrityHash(wasmBytes, modelResult.indexPayload.length);
+      result.hash = hash;
+      result.hashHex = hex64(hash);
+      result.suffixStart = wasmBytes.length - HASH_WINDOW_SIZE;
+      result.indexEnd = INDEX_OFFSET + modelResult.indexPayload.length;
+    }
+    if (wasmBytes.length !== modelResult.bytes.length) {
+      result.wasmMismatch = `WASM output is ${formatBytes(wasmBytes.length)}; the JS visual plan is ${formatBytes(modelResult.bytes.length)}.`;
+    }
+    return result;
+  }
+
+  function buildSuccessMessage(result, engine, warning) {
+    const parts = [
+      `Built ${formatBytes(result.bytes.length)} archive with ${result.indexedCount} indexed file${result.indexedCount === 1 ? "" : "s"}`,
+      `engine: ${engine}`,
+    ];
+    if (result.wasmMismatch) parts.push(result.wasmMismatch);
+    if (warning) parts.push(warning);
+    return `${parts.join("; ")}.`;
   }
 
   function computeIndexPayloadSize(entries) {

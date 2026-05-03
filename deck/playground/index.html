@@ -132,12 +132,12 @@
           </article>
           <article class="tab-panel" id="tab-wasm">
             <h3>Client-side WASM path</h3>
-            <p>The C writer can run in the browser through Emscripten. The missing piece is a small JavaScript wrapper that exposes the virtual filesystem and maps files to <code>cozip_entry_t</code>.</p>
+            <p>The C writer can run in the browser through Emscripten. This page automatically uses the compiled writer when the static WASM files are deployed, then falls back to the JavaScript explainer when they are not.</p>
             <ol>
               <li>Build <code>cozip/javascript/wasm/cozip.js</code> and <code>cozip.wasm</code> with Emscripten.</li>
-              <li>Export <code>FS</code>, <code>ccall</code> or typed helpers, <code>HEAPU8</code>, <code>malloc</code>, and <code>free</code>.</li>
-              <li>Copy browser <code>File</code> bytes into WASM memory or MEMFS.</li>
-              <li>Call <code>cozip_plan</code>, <code>cozip_build_index_payload</code>, <code>cozip_write_archive</code>, and <code>cozip_patch_integrity_hash</code>.</li>
+              <li>Deploy them with <code>cozip/javascript/src/cozip-wasm-wrapper.js</code> on the same static site.</li>
+              <li>Copy browser <code>File</code> bytes into WASM memory.</li>
+              <li>Call <code>cozip_wasm_write_archive_from_buffers</code>, which runs plan, index serialization, archive write, padding, and hash patching in C.</li>
               <li>Read the output ZIP bytes from MEMFS and download them as a Blob.</li>
             </ol>
           </article>

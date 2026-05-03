@@ -1,86 +1,131 @@
-# cozip — JavaScript / WebAssembly
+# cozip - JavaScript / WebAssembly
 
-Status: build pipeline ready, public API not yet written.
+Status: WASM build path and browser wrapper scaffold are present. The production
+TypeScript package is not finished yet.
 
-## What works today
+## What Works Today
 
-The cozip C library compiles cleanly to WebAssembly via Emscripten
-with no source changes. `make wasm` from the repository root produces:
+The cozip C library can be compiled to WebAssembly with Emscripten. From the
+repository root:
 
-    javascript/wasm/cozip.js     emscripten loader
-    javascript/wasm/cozip.wasm   compiled module
+```bash
+cd cozip
+make wasm
+```
 
-The eight public cozip functions are exported and callable from
-JavaScript:
+On Windows PowerShell, GNU `make` is often not installed. Use the native script
+instead:
 
-    cozip_version_string
-    cozip_status_string
-    cozip_plan
-    cozip_index_payload_size
-    cozip_build_index_payload
-    cozip_build_extra_field
-    cozip_write_archive
-    cozip_patch_integrity_hash
+```powershell
+conda activate taco
+.\cozip\build-wasm.ps1
+```
 
-Plus `_malloc` and `_free` for heap management from JS.
+If you are already inside the `cozip` directory, run:
 
-## What is missing
+```powershell
+.\build-wasm.ps1
+```
 
-There is no idiomatic TypeScript API on top of the raw WASM exports
-yet. Anyone using the module today has to:
+If Emscripten is installed but not active in the current terminal, pass the
+`emsdk` checkout path and the script will import `emsdk_env.bat` before building:
 
-- allocate memory in the WASM heap with `_malloc`
-- copy strings and structs byte-by-byte using `stringToUTF8` and
-  manual offset arithmetic against the `cozip_entry_t` layout
-- handle 64-bit values via `BigInt`
-- free memory with `_free` after each call
+```powershell
+.\cozip\build-wasm.ps1 -EmsdkRoot C:\tools\emsdk
+```
 
-Writing this wrapper is roughly 1–2 weeks of focused work. The shape
-will be something like:
+Both paths require Emscripten (`emcc` and `emcmake`) to be available on `PATH`.
+The `taco` conda environment already has CMake and Ninja in the local setup, but
+it does not currently have Emscripten.
 
-    import { writeArchive } from '@asterisk-labs/cozip';
+The build writes generated artifacts under:
 
-    await writeArchive({
-        out: 'data.zip',
-        profile: 'flat',
-        entries: [
-            { name: 'metadata.parquet', source: parquetBytes, inIndex: true },
-            { name: 'image_001.tif',    source: imageBytes },
-        ],
-    });
+```text
+cozip/javascript/wasm/cozip.js
+cozip/javascript/wasm/cozip.wasm
+```
 
-When a concrete use case appears (browser-native cozip reader, npm
-package for downstream tooling, demo of TACO datasets in the
-browser), this directory is where that work lives.
+Those files are ignored by git and regenerated on demand.
 
-## Building locally
+The target exports the low-level C ABI plus a small browser-oriented bridge:
 
-Requires Emscripten 3.x or newer. On macOS:
+```text
+cozip_plan
+cozip_index_payload_size
+cozip_build_index_payload
+cozip_write_archive
+cozip_patch_integrity_hash
+cozip_wasm_write_archive_from_buffers
+```
 
-    brew install emscripten
+The bridge lives in `wasm_bridge.c`. It accepts arrays of names, byte buffers,
+sizes, and index flags, builds `cozip_entry_t` records in C, writes the archive
+to Emscripten MEMFS, patches the integrity hash, and adds a non-indexed
+`__cozip_padding__` entry when tiny inputs would otherwise violate the cozip
+minimum size.
 
-Then from the repository root:
+## Browser Wrapper
 
-    make wasm
+`src/cozip-wasm-wrapper.js` is a thin ES module over the generated Emscripten
+module. It accepts browser `File`/`Blob` objects or `Uint8Array` payloads and
+returns a generated ZIP as a `Uint8Array`.
 
-This runs `emcmake cmake` against `core/`, builds the static archives
-under `core/build-wasm/`, and links them into `javascript/wasm/cozip.{js,wasm}`.
+Example from a page served at the repository root:
 
-The output is regenerated on every `make wasm` and is not committed
-to the repository.
+```html
+<script src="/cozip/javascript/wasm/cozip.js"></script>
+<script type="module">
+  import { createCozipWasmWriter } from "/cozip/javascript/src/cozip-wasm-wrapper.js";
 
-## Why WASM and not a native node-gyp addon
+  const writer = await createCozipWasmWriter({
+    locateFile: (path) => `/cozip/javascript/wasm/${path}`,
+  });
 
-Two reasons:
+  const bytes = await writer.writeArchive({
+    entries: [
+      { name: "data/a.txt", data: new TextEncoder().encode("hello\n"), inIndex: true },
+    ],
+  });
 
-1. WASM is portable — one binary runs on Linux, macOS, Windows,
-   browser, Node, Deno, Cloudflare Workers, edge runtimes. A native
-   addon needs a separate build per platform-architecture pair.
+  const blob = new Blob([bytes], { type: "application/zip" });
+  const url = URL.createObjectURL(blob);
+  window.open(url);
+</script>
+```
 
-2. The cozip C library is already standalone (libzip and zlib are
-   vendored under `core/`). Going through Emscripten reuses that
-   work directly — no separate node-gyp build chain to maintain.
+Use a local HTTP server. Loading the generated `.wasm` through `file://` is
+browser-dependent and often fails because Emscripten loads the binary with
+`fetch`.
 
-The trade-off is that WASM has higher memory-management overhead
-than a native addon for hot loops. For cozip's workload (writing
-archive metadata, computing offsets) this is not a bottleneck.
+```powershell
+python -m http.server 8000
+```
+
+Then open `http://localhost:8000/deck/playground/` or a dedicated WASM demo page.
+
+## Current Scope
+
+The wrapper supports the core `NONE` cozip profile cleanly: browser files become
+stored ZIP entries, selected files are listed in the byte-zero index, and the
+output remains normal ZIP.
+
+It does not yet build FLAT/TACO semantics by itself:
+
+- FLAT needs a generated `__metadata__` Parquet file.
+- TACO needs profile-specific metadata validation.
+- A browser Parquet writer such as Arrow JS or parquet-wasm would be needed for
+  parity with the Python writer.
+
+The current path is therefore:
+
+1. Keep the pure JavaScript playground as an educational fallback.
+2. Build `make wasm`.
+3. Use `src/cozip-wasm-wrapper.js` for client-side core cozip conversion.
+4. Add a Parquet metadata layer later for FLAT/TACO browser parity.
+
+## Why WASM And Not Node Native Addons
+
+WASM runs in browsers and also works in Node, Deno, and edge runtimes. A native
+Node addon would need a separate binary per operating system and architecture.
+The cozip C core already vendors libzip and zlib, so Emscripten reuses the same
+writer implementation across those targets.

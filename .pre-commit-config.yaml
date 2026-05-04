@@ -10,16 +10,9 @@
 repos:
   - repo: local
     hooks:
-      # Fails the commit if any pair of mirrored files diverges:
-      #   cozip/VERSION              ↔  cozip/r/DESCRIPTION (Version field)
-      #   cozip/core/cozip.{c,h}     ↔  cozip/r/src/cozip.{c,h}
-      #   cozip/core/libzip/*        ↔  cozip/r/src/libzip/*
-      #   cozip/core/zlib/*          ↔  cozip/r/src/zlib/*
-      #
-      # The fix is `make -C cozip sync` followed by re-staging.
-      - id: cozip-sync-check
-        name: cozip sync (VERSION ↔ DESCRIPTION, core ↔ r/src)
-        entry: make -C cozip sync-check
+      - id: cozip-sync
+        name: cozip sync (VERSION → R/Julia, core → r/src)
+        entry: make -C cozip sync
         language: system
         pass_filenames: false
-        files: ^cozip/(VERSION|core/cozip\.[ch]|core/(libzip|zlib)/.+|r/src/cozip\.[ch]|r/src/(libzip|zlib)/.+|r/DESCRIPTION)$
+        always_run: true

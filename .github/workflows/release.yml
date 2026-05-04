@@ -1,8 +1,13 @@
 name: Release
 
 # Coordinated release: libcozip + Python wheel + sdist all go out under
-# the same tag. R/Julia bindings live downstream — r-universe builds
-# the R package on its own poll cycle, Julia is TODO.
+# the same tag.
+#
+# R bindings live downstream — r-universe builds the R package on its
+# own poll cycle. Julia bindings are validated here against the
+# freshly-built libcozip via COZIP_LIB_PATH; their Artifacts.toml is
+# regenerated manually after each release with make-artifacts-toml.jl
+# and committed in a follow-up PR.
 #
 # libcozip is standalone: libzip and zlib sources live committed under
 # cozip/core/{libzip,zlib}/ and compile in-tree. Builds have zero
@@ -240,6 +245,62 @@ jobs:
           error-on: '"warning"'
 
 
+  # Validates the Julia binding against the libcozip we just built.
+  # We override Artifacts.toml lookup with COZIP_LIB_PATH because the
+  # toml still points at the previous release's binaries until it's
+  # regenerated post-release; this job tests the binding code itself,
+  # not the artifact resolution.
+  #
+  # This job does NOT publish — registration in AsteriskRegistry is a
+  # manual `LocalRegistry.register` call after the release ships. Its
+  # purpose is the same as build-r-package: fail fast on the same
+  # platforms downstream users will install on.
+  build-julia-package:
+    name: Julia package — ${{ matrix.name }}
+    needs: build-lib
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            runner: ubuntu-24.04
+            lib_ext: so
+          - name: macos-universal
+            runner: macos-14
+            lib_ext: dylib
+          - name: windows-x86_64
+            runner: windows-2022
+            lib_ext: dll
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: '1'
+
+      - uses: julia-actions/cache@v2
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: libcozip-${{ matrix.name }}
+          path: libcozip-bin/
+
+      - name: Set COZIP_LIB_PATH (Unix)
+        if: runner.os != 'Windows'
+        run: echo "COZIP_LIB_PATH=$(pwd)/libcozip-bin/cozip.${{ matrix.lib_ext }}" >> "$GITHUB_ENV"
+
+      - name: Set COZIP_LIB_PATH (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $p = Join-Path (Get-Location) "libcozip-bin\cozip.dll"
+          Add-Content -Path $env:GITHUB_ENV -Value "COZIP_LIB_PATH=$p"
+
+      - name: Test
+        run: julia --project=cozip/julia -e 'using Pkg; Pkg.instantiate(); Pkg.test()'
+
+
   build-wheels:
     name: Wheel — ${{ matrix.name }}
     needs: build-lib
@@ -413,7 +474,7 @@ jobs:
 
   gh-release:
     name: GitHub Release
-    needs: [validate, build-lib, build-r-package]
+    needs: [validate, build-lib, build-r-package, build-julia-package]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
@@ -475,12 +536,61 @@ jobs:
           draft: false
           prerelease: ${{ contains(github.ref, '-') }}
 
+  regenerate-artifacts-toml:
+    name: Regenerate Julia Artifacts.toml
+    needs: [validate, gh-release]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: regenerate-artifacts-toml
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: '1'
+
+      # make-artifacts-toml.jl uses only Pkg, Downloads, SHA stdlib —
+      # no Project activation needed. Pass VERSION as ARG explicitly so
+      # the script does not depend on the on-disk cozip/VERSION.
+      - name: Regenerate Artifacts.toml
+        working-directory: cozip/julia
+        run: |
+          set -euo pipefail
+          julia make-artifacts-toml.jl "${{ needs.validate.outputs.version }}" > Artifacts.toml.new
+          mv Artifacts.toml.new Artifacts.toml
+          echo "── Generated Artifacts.toml ──"
+          cat Artifacts.toml
+
+      - name: Commit and push to main
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add cozip/julia/Artifacts.toml
+          if git diff --staged --quiet; then
+            echo "Artifacts.toml unchanged — nothing to commit"
+            exit 0
+          fi
+          git commit -m "chore(julia): regenerate Artifacts.toml for v${VERSION}"
+          # Rebase on top of any commits that landed on main between
+          # checkout and now (rare but possible during bursty merges).
+          git pull --rebase origin main
+          git push origin HEAD:main
 
   # Trusted Publishing: no API token, just OIDC. The 'pypi' environment
   # is configured on PyPI to accept this exact workflow.
   publish-pypi:
     name: Publish to PyPI
-    needs: [build-wheels, build-sdist, build-r-package]
+    needs: [build-wheels, build-sdist, build-r-package, build-julia-package]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     environment: pypi

@@ -1,30 +1,28 @@
-# cozip — top-level Makefile (lives at cozip/Makefile).
+# cozip — top-level Makefile (cozip/Makefile).
 #
-# Targets:
-#   make lib            build libcozip standalone (CMake + Ninja)
-#   make sync-version   write VERSION into r/DESCRIPTION
-#   make sync-c         copy core/cozip.{c,h} + libzip/ + zlib/ into r/src/
-#   make sync           sync-version + sync-c
-#   make sync-check     fail if anything is out of sync (no writes)
-#   make py-install     editable install of python package
-#   make py-test        run python tests
-#   make py-wheel       build python wheel
-#   make r-install      R CMD INSTALL r/
-#   make r-build        R CMD build r/ (produces .tar.gz)
-#   make r-check        R CMD check on the built tarball
-#   make clean          nuke build artifacts
+# Pipelines:
+#   make all       sync + lib + python + r + julia (full pre-push validation)
+#   make sync      VERSION → r/DESCRIPTION + julia/Project.toml,
+#                  core C → r/src/, valida coherencia
+#   make lib       build libcozip + copy into python/_lib/
+#   make wasm      build cozip.wasm + cozip.js
+#   make python    clean + install + test + wheel
+#   make r         clean + install + build + check
+#   make julia     instantiate + test
+#   make clean     nuke build artifacts
 #
 # Layout:
-#   core/build/    C library build directory (CMake + Ninja, vendored
-#                  libzip and zlib compiled here).
-#   python/build/  Python wheel build (managed by python -m build).
-#   dist/          Final R tarballs.
+#   core/build/    C library build (CMake + Ninja, vendored libzip + zlib)
+#   python/build/  Python wheel build
+#   dist/          Final R tarballs
 
 VERSION    := $(shell tr -d '[:space:]' < VERSION)
+VERSION_JL := $(shell echo $(VERSION) | cut -d. -f1-3 | tr -d '[:space:]')
 
 CORE_DIR   := core
 PY_DIR     := python
 R_DIR      := r
+JL_DIR     := julia
 BUILD_DIR  := $(CORE_DIR)/build
 PY_LIB_DIR := $(PY_DIR)/cozip/_lib
 DIST_DIR   := dist
@@ -43,46 +41,28 @@ ifeq ($(OS),Windows_NT)
     LIB_NAME := cozip.dll
 endif
 
-.PHONY: all lib wasm sync sync-version sync-c sync-check \
-        py-install py-test py-wheel \
-        r-install r-build r-check r-clean \
-        clean help
+WASM_BUILD_DIR := $(CORE_DIR)/build-wasm
+JS_WASM_DIR    := javascript/wasm
 
-# Default target: full pre-push validation. Run this before commits
-# to catch anything r-universe / CI would catch.
-all: sync lib py-install r-build
+.PHONY: all lib wasm sync python r julia clean help
+
+all: sync lib python r julia
 	@echo ""
-	@echo "✓ all green — sync, lib, python install, R build all passed"
+	@echo "✓ all green — sync + lib + python + r + julia"
 	@echo "  cozip $(VERSION)"
 
 help:
 	@echo "cozip $(VERSION)"
 	@echo "  Vendored: libzip 1.11.4, zlib 1.3.1"
 	@echo ""
-	@echo "Pipelines:"
-	@echo "  all                full validation (sync + lib + python + R build)"
-	@echo ""
-	@echo "Sync:"
-	@echo "  sync               sync-version + sync-c"
-	@echo "  sync-version       VERSION → DESCRIPTION"
-	@echo "  sync-c             core/cozip.{c,h} + libzip/ + zlib/ → r/src/"
-	@echo "  sync-check         fail if out of sync (no writes)"
-	@echo ""
-	@echo "C library:"
-	@echo "  lib                build libcozip + copy into python/_lib/"
-	@echo "  wasm               build cozip.wasm + cozip.js into javascript/wasm/"
-	@echo ""
-	@echo "Python:"
-	@echo "  py-install         editable install"
-	@echo "  py-test            run pytest"
-	@echo "  py-wheel           build wheel"
-	@echo ""
-	@echo "R:"
-	@echo "  r-install          R CMD INSTALL r/"
-	@echo "  r-build            R CMD build r/ (produces dist/.tar.gz)"
-	@echo "  r-check            R CMD check on the built tarball"
-	@echo ""
-	@echo "  clean              nuke build artifacts"
+	@echo "  all       full validation (sync + lib + python + r + julia)"
+	@echo "  sync      VERSION → R/Julia + core C → r/src/ + verifica"
+	@echo "  lib       build libcozip + copy into python/_lib/"
+	@echo "  wasm      build cozip.wasm + cozip.js"
+	@echo "  python    clean + install + test + wheel"
+	@echo "  r         clean + install + build + check"
+	@echo "  julia     instantiate + test"
+	@echo "  clean     nuke build artifacts"
 
 # --- C library ---
 
@@ -94,20 +74,13 @@ lib:
 
 # --- WASM ---
 #
-# Builds cozip + libzip + zlib to a single WebAssembly module that
-# can be loaded from Node.js or the browser. Outputs go to
-# javascript/wasm/, not committed to the repo (regenerated on demand).
-#
-# Requires Emscripten 3.x+ (brew install emscripten on macOS).
-# The exported function list must match cozip.h's public API surface.
-
-WASM_BUILD_DIR := $(CORE_DIR)/build-wasm
-JS_WASM_DIR    := javascript/wasm
+# cozip + libzip + zlib → un solo módulo WebAssembly cargable desde
+# Node o browser. Output a javascript/wasm/ (no commiteado).
+# Requiere Emscripten 3.x+. Lista de exports debe matchear cozip.h.
 
 wasm:
 	$(EMCMAKE) $(CMAKE) -B $(WASM_BUILD_DIR) -S $(CORE_DIR) -G Ninja \
-		-DCMAKE_BUILD_TYPE=Release \
-		-DBUILD_SHARED_LIBS=OFF
+		-DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF
 	$(CMAKE) --build $(WASM_BUILD_DIR)
 	mkdir -p $(JS_WASM_DIR)
 	$(EMCC) \
@@ -119,95 +92,88 @@ wasm:
 		--no-entry \
 		-sEXPORTED_FUNCTIONS='["_cozip_version_string","_cozip_status_string","_cozip_plan","_cozip_index_payload_size","_cozip_build_index_payload","_cozip_build_extra_field","_cozip_write_archive","_cozip_patch_integrity_hash","_cozip_wasm_error_size","_cozip_wasm_error_message_offset","_cozip_wasm_write_archive_from_buffers","_malloc","_free"]' \
 		-sEXPORTED_RUNTIME_METHODS='["FS","UTF8ToString","stringToUTF8","lengthBytesUTF8","HEAPU8","HEAPU32"]' \
-		-sFORCE_FILESYSTEM=1 \
-		-sMODULARIZE \
-		-sEXPORT_ES6=0 \
-		-sEXPORT_NAME=createCozipModule \
-		-sALLOW_MEMORY_GROWTH=1 \
-		-o $(JS_WASM_DIR)/cozip.js \
-		-O2
-	@echo ""
-	@echo "✓ WASM build complete:"
-	@echo "  $(JS_WASM_DIR)/cozip.js   (loader)"
-	@echo "  $(JS_WASM_DIR)/cozip.wasm (binary)"
+		-sFORCE_FILESYSTEM=1 -sMODULARIZE -sEXPORT_ES6=0 \
+		-sEXPORT_NAME=createCozipModule -sALLOW_MEMORY_GROWTH=1 \
+		-o $(JS_WASM_DIR)/cozip.js -O2
+	@echo "✓ WASM → $(JS_WASM_DIR)/cozip.{js,wasm}"
 
 # --- Sync ---
+#
+# VERSION (CalVer 4 partes, e.g. 2026.5.2.6) →
+#   r/DESCRIPTION       (full)
+#   julia/Project.toml  (3 partes; Julia exige SemVer estricto)
+# Y mirror core/cozip.{c,h} + libzip/ + zlib/ → r/src/.
+# Julia consume libcozip vía Pkg.Artifacts, no necesita mirror C.
+# Al final valida coherencia — falla si algo diverge.
 
-sync: sync-version sync-c
-
-sync-version:
+sync:
 	@sed -i.bak -E 's/^Version:.*/Version: $(VERSION)/' $(R_DIR)/DESCRIPTION
 	@rm -f $(R_DIR)/DESCRIPTION.bak
 	@echo "DESCRIPTION → Version: $(VERSION)"
-
-# Mirror core/cozip.{c,h} plus the vendored libzip/ and zlib/ trees
-# into r/src/. rsync --delete keeps the destinations as exact mirrors:
-# files removed upstream in core/ are also removed in r/src/.
-sync-c:
+	@sed -i.bak -E 's/^version = ".*"/version = "$(VERSION_JL)"/' $(JL_DIR)/Project.toml
+	@rm -f $(JL_DIR)/Project.toml.bak
+	@echo "Project.toml → version = \"$(VERSION_JL)\""
 	@rm -f $(R_DIR)/src/cozip.c $(R_DIR)/src/cozip.h
 	@cp $(CORE_DIR)/cozip.c $(R_DIR)/src/cozip.c
 	@cp $(CORE_DIR)/cozip.h $(R_DIR)/src/cozip.h
 	@rsync -a --delete $(CORE_DIR)/libzip/ $(R_DIR)/src/libzip/
 	@rsync -a --delete $(CORE_DIR)/zlib/   $(R_DIR)/src/zlib/
 	@echo "core/cozip.{c,h} + libzip/ + zlib/ → r/src/"
-
-sync-check:
 	@VFILE=$$(grep -E '^Version:' $(R_DIR)/DESCRIPTION | sed 's/Version:[[:space:]]*//'); \
-	 if [ "$$VFILE" != "$(VERSION)" ]; then \
-	   echo "VERSION=$(VERSION) but DESCRIPTION=$$VFILE — run 'make sync-version'"; \
-	   exit 1; \
-	 fi
-	@diff -q $(CORE_DIR)/cozip.c $(R_DIR)/src/cozip.c >/dev/null || \
-	  { echo "core/cozip.c differs from r/src/cozip.c — run 'make sync-c'"; exit 1; }
-	@diff -q $(CORE_DIR)/cozip.h $(R_DIR)/src/cozip.h >/dev/null || \
-	  { echo "core/cozip.h differs from r/src/cozip.h — run 'make sync-c'"; exit 1; }
-	@diff -r -q $(CORE_DIR)/libzip $(R_DIR)/src/libzip >/dev/null || \
-	  { echo "core/libzip/ differs from r/src/libzip/ — run 'make sync-c'"; exit 1; }
-	@diff -r -q $(CORE_DIR)/zlib $(R_DIR)/src/zlib >/dev/null || \
-	  { echo "core/zlib/ differs from r/src/zlib/ — run 'make sync-c'"; exit 1; }
+	 [ "$$VFILE" = "$(VERSION)" ] || { echo "check: DESCRIPTION=$$VFILE != $(VERSION)"; exit 1; }
+	@VJL=$$(grep -E '^version = ' $(JL_DIR)/Project.toml | sed -E 's/version = "(.*)"/\1/'); \
+	 [ "$$VJL" = "$(VERSION_JL)" ] || { echo "check: Project.toml=$$VJL != $(VERSION_JL)"; exit 1; }
+	@diff -q $(CORE_DIR)/cozip.c $(R_DIR)/src/cozip.c >/dev/null || { echo "check: cozip.c diverge"; exit 1; }
+	@diff -q $(CORE_DIR)/cozip.h $(R_DIR)/src/cozip.h >/dev/null || { echo "check: cozip.h diverge"; exit 1; }
+	@diff -r -q $(CORE_DIR)/libzip $(R_DIR)/src/libzip >/dev/null || { echo "check: libzip/ diverge"; exit 1; }
+	@diff -r -q $(CORE_DIR)/zlib $(R_DIR)/src/zlib >/dev/null     || { echo "check: zlib/ diverge"; exit 1; }
 	@echo "sync OK"
 
 # --- Python ---
 
-py-install: lib
+python: lib
+	@python -c 'import pytest, build' 2>/dev/null || \
+	  { echo "ERROR: pytest/build no instalados — pip install pytest build"; exit 1; }
+	rm -rf $(PY_DIR)/dist $(PY_DIR)/build $(PY_DIR)/*.egg-info
 	pip install -e $(PY_DIR)
-
-py-test: py-install
-	@python -c 'import pytest' 2>/dev/null || \
-	  { echo "ERROR: pytest not installed in this env."; \
-	    echo "  fix: pip install pytest"; exit 1; }
 	cd $(PY_DIR) && pytest tests/ -v
-
-py-wheel: lib
-	@python -c 'import build' 2>/dev/null || \
-	  { echo "ERROR: 'build' not installed in this env."; \
-	    echo "  fix: pip install build"; exit 1; }
 	cd $(PY_DIR) && python -m build --wheel
 
 # --- R ---
-
-# Clean any leftover build artifacts in r/src/. Run before switching
-# build environments (e.g. macOS → Docker/Linux) — make only checks
-# timestamps, not binary format, so a stale Mach-O .so will silently
-# survive an attempted Linux build and fail at load time with
-# "invalid ELF header".
 #
-# `find ... -name '*.o' -delete` covers .o files in r/src/ and the
-# vendored subtrees r/src/libzip/ and r/src/zlib/.
-r-clean:
+# Limpia artefactos previos en r/src/ antes de compilar. make solo
+# checkea timestamps; un .so Mach-O viejo sobrevive un build Linux
+# y falla al cargar con "invalid ELF header".
+
+r: sync
 	rm -f $(R_DIR)/src/version.h
 	rm -f $(R_DIR)/src/*.so $(R_DIR)/src/*.dylib $(R_DIR)/src/*.dll
 	@find $(R_DIR)/src -name '*.o' -delete
-
-r-install: sync-check r-clean
 	R CMD INSTALL $(R_DIR)
-
-r-build: sync-check r-clean
 	mkdir -p $(DIST_DIR)
 	cd $(DIST_DIR) && R CMD build ../$(R_DIR)
-
-r-check: r-build
 	cd $(DIST_DIR) && R CMD check cozip_$(VERSION).tar.gz
+
+# --- Julia ---
+#
+# Julia consume libcozip vía Pkg.Artifacts (descarga del GH Release).
+# Project.toml usa SemVer estricto (3 componentes); el cuarto del C
+# se expone vía LibCozip.cozip_version().
+#
+# `julia` depende de `lib` para que libcozip esté compilada antes
+# de los tests. COZIP_LIB_PATH se setea con ENV[...] dentro del
+# proceso Julia padre — Pkg.test() forkea un subproceso con su propio
+# environment, y solo así lo hereda confiablemente. abspath garantiza
+# ruta absoluta porque el child cambia de cwd.
+#
+# Con esto los tests pasan sin Artifacts.toml válido todavía:
+# LibCozip.jl hace runtime lookup y cae al ENV var cuando el artifact
+# no está registrado.
+
+julia: lib
+	cd $(JL_DIR) && julia --project=. -e \
+	  'ENV["COZIP_LIB_PATH"] = "$(abspath $(PY_LIB_DIR)/$(LIB_NAME))"; \
+	   using Pkg; Pkg.instantiate(); Pkg.test()'
 
 # --- Clean ---
 

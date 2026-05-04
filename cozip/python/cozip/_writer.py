@@ -58,7 +58,7 @@ def _build_metadata_parquet(
     create_options: dict | None,
     temp_dir: str | Path | None,
 ) -> Path:
-    """Build the `__metadata__.parquet` temp file.
+    """Build the `__metadata__` temp file.
 
     Filters the input table to in-index rows, drops the columns the
     spec considers writer-private (`path`, `in_index`), and appends
@@ -194,7 +194,7 @@ def create(
     """Build a FLAT-profile .cozip archive on disk.
 
     Walks the libcozip pipeline end-to-end: plan offsets, drop a
-    `__metadata__.parquet` describing the indexed user files, serialize
+    `__metadata__` describing the indexed user files, serialize
     the cozip index, write the archive via libzip, and patch the
     FNV-1a 64 integrity hash. The output file is overwritten if it
     exists. The temp parquet is always cleaned up.

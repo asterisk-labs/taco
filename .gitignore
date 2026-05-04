@@ -22,3 +22,5 @@ cozip/r/src/cozip.so
 
 cozip/dist/
 cozip/bootstrap_vendor.sh
+
+create-julia-skeleton.sh

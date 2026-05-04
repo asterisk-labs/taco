@@ -1,22 +1,20 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="Cloud Optimized ZIP logo">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="cozip logo">
   <defs>
     <filter id="softShadow" x="-25%" y="-25%" width="150%" height="150%">
-      <feDropShadow dx="0" dy="8" stdDeviation="7" flood-color="#0b2340" flood-opacity="0.22"/>
+      <feDropShadow dx="0" dy="6" stdDeviation="6" flood-color="#0b2340" flood-opacity="0.22"/>
     </filter>
   </defs>
   <g filter="url(#softShadow)" stroke-linecap="round" stroke-linejoin="round">
 
-    <!-- ============ CLOUD: classic 2-bump silhouette ============ -->
-    <!-- Big bump (left/center) + smaller bump (right) + flat bottom -->
-
+    <!-- ============ CLOUD: square proportions (taller, narrower) ============ -->
     <!-- White sticker outline -->
     <path
-      d="M 50 162
-         C 28 162 16 140 32 125
-         C 18 92 60 55 100 70
-         C 110 38 165 38 175 80
-         C 200 65 240 88 222 125
-         C 240 138 230 165 205 162
+      d="M 67 213
+         C 45 213 29 185 45 163
+         C 29 128 55 78 95 93
+         C 105 43 165 43 175 93
+         C 207 78 227 118 215 163
+         C 227 185 217 213 195 213
          Z"
       fill="#ffffff"
       stroke="#ffffff"
@@ -25,24 +23,22 @@
 
     <!-- Cloud fill + dark outline -->
     <path
-      d="M 50 162
-         C 28 162 16 140 32 125
-         C 18 92 60 55 100 70
-         C 110 38 165 38 175 80
-         C 200 65 240 88 222 125
-         C 240 138 230 165 205 162
+      d="M 67 213
+         C 45 213 29 185 45 163
+         C 29 128 55 78 95 93
+         C 105 43 165 43 175 93
+         C 207 78 227 118 215 163
+         C 227 185 217 213 195 213
          Z"
       fill="#B8E6FF"
       stroke="#143A63"
       stroke-width="8"
     />
 
-    <!-- (highlight removed) -->
 
-
-    <!-- ============ ZIP file (unchanged from your code) ============ -->
+    <!-- ============ ZIP file (repositioned for square balance) ============ -->
     <!-- ZIP white sticker outline -->
-    <g transform="translate(71 76) scale(2.05) rotate(-5 28 28)">
+    <g transform="translate(71 128) scale(2.05) rotate(-5 28 28)">
       <path
         d="M36.985,0H7.963C7.155,0,6.5,0.655,6.5,1.926V55c0,0.345,0.655,1,1.463,1h40.074
         c0.808,0,1.463-0.655,1.463-1V12.978c0-0.696-0.093-0.92-0.257-1.085L37.607,0.257
@@ -53,7 +49,7 @@
       />
     </g>
     <!-- ZIP icon -->
-    <g transform="translate(71 76) scale(2.05) rotate(-5 28 28)">
+    <g transform="translate(71 128) scale(2.05) rotate(-5 28 28)">
       <path fill="#F4F7F2" d="M36.985,0H7.963C7.155,0,6.5,0.655,6.5,1.926V55c0,0.345,0.655,1,1.463,1h40.074
         c0.808,0,1.463-0.655,1.463-1V12.978c0-0.696-0.093-0.92-0.257-1.085L37.607,0.257
         C37.442,0.093,37.218,0,36.985,0z"/>

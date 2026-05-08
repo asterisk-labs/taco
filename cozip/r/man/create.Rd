@@ -2,64 +2,23 @@
 % Please edit documentation in R/cozip.R
 \name{create}
 \alias{create}
-\title{Create a Cloud-Optimized ZIP archive (FLAT profile)}
+\title{Write a cozip archive in one call}
 \usage{
-create(out_path, entries, create_options = NULL, temp_dir = NULL)
+create(out_path, table, temp_dir = NULL)
 }
 \arguments{
-\item{out_path}{Destination file path. Resolved to an absolute path.
-Existing files are overwritten.}
+\item{out_path}{Destination archive path.}
 
-\item{entries}{A data frame describing the entries. Must contain:
-\itemize{
-\item \code{name} (character): archive-internal name in UTF-8.
-\item \code{path} (character): filesystem path of the source file.
-}
+\item{table}{arrow::Table with \code{name} and \code{path}.}
 
-Optionally:
-\itemize{
-\item \code{in_index} (logical, default \code{TRUE}): whether to list this entry
-in the cozip index and metadata parquet.
-}
-
-Any other columns flow through to the metadata parquet as extra
-metadata.}
-
-\item{create_options}{Named list of arguments forwarded to
-\code{\link[arrow:write_parquet]{arrow::write_parquet()}} (e.g. \code{list(compression = "zstd")}).}
-
-\item{temp_dir}{Directory for the temporary metadata parquet.
-Created if missing. Defaults to \code{\link[=tempdir]{tempdir()}}.}
+\item{temp_dir}{Directory for the temp metadata parquet
+(defaults to \code{\link[=tempdir]{tempdir()}}).}
 }
 \value{
-Absolute path of the created archive, as a character scalar.
+Absolute path of the created archive.
 }
 \description{
-Walks the libcozip pipeline end-to-end: plans offsets, drops a
-\verb{__metadata__.parquet} describing the indexed user files, serializes
-the cozip index, writes the archive via libzip, and patches the
-FNV-1a 64 integrity hash. The output file is overwritten if it
-exists. The temporary metadata parquet is always cleaned up.
-}
-\details{
-The metadata parquet contains one row per indexed entry with
-columns \code{name} (string), \code{offset} (uint64), \code{size} (uint64), plus
-every additional column from \code{entries} other than \code{path} and
-\code{in_index}. Rows with \code{in_index = FALSE} are excluded.
-}
-\examples{
-\dontrun{
-  tmp <- tempfile(fileext = ".bin")
-  writeBin(as.raw(0:255), tmp)
-
-  entries <- data.frame(
-    name = "data.bin",
-    path = tmp,
-    description = "example payload",
-    stringsAsFactors = FALSE
-  )
-
-  archive <- cozip::create(file.path(tempdir(), "demo.cozip"), entries)
-}
-
+Wraps \code{\link[=stage_metadata]{stage_metadata()}} + \code{\link[arrow:write_parquet]{arrow::write_parquet()}} +
+\code{\link[=stage_create]{stage_create()}}. For GeoParquet or custom write options, use
+the staging functions directly.
 }

@@ -9,6 +9,51 @@ Versioning is [CalVer](https://calver.org/) `YYYY.M.D`.
 
 
 
+## [2026.5.10] — 2026-05-10
+
+### Added
+
+- 3 contract tests in `cozip/julia/test/runtests.jl` for the new
+  `stage_metadata` return shape: NamedTuple form, `paths` row-aligned
+  with `metadata`, and end-to-end use of the returned `paths` in
+  `stage_create` without reconstructing them from the input table.
+- `INDEX_NAME`, `PADDING_NAME`, `METADATA_NAME` cached as module
+  constants in `cozip/julia/src/LibCozip.jl`. Populated once via
+  `ccall` in `__init__`, replacing per-call lookups in the validation
+  hot paths.
+
+### Changed
+
+- **Julia binding API**: `stage_metadata(table)` returns a NamedTuple
+  `(metadata, paths)` instead of just the metadata `DataFrame`.
+  `paths` is a `Vector{Tuple{String,String}}` row-aligned with
+  `metadata`, ready to feed into `stage_create`. Aligns the Julia
+  surface with Python and R, where the same three-layer writer API
+  has been the contract since 2026.5.1. Existing call sites that did
+  `md = stage_metadata(tbl)` switch to
+  `md = stage_metadata(tbl).metadata` or
+  `md, paths = stage_metadata(tbl)`.
+- `cozip/julia/src/Writer.jl`: `create` consumes `(metadata, paths)`
+  directly and no longer reconstructs paths from the input table.
+- `cozip/julia/src/Writer.jl`: `_validate_parquet_values` vectorized
+  via `findfirst(.!=)`, replacing the per-row loop.
+- `.github/workflows/release.yml`: header narrative and per-job
+  descriptions stripped. WHY-comments preserved (BUILD_SHARED_LIBS
+  rationale, Sequoia codesign, manylinux quirks, symbol-leak
+  detection, prerelease detection). PyPI Trusted Publisher config
+  moved next to the `publish-pypi` job.
+
+### Removed
+
+- Dead enum redefinitions from `cozip/julia/src/LibCozip.jl`:
+  `COZIP_OK`, `COZIP_ERR_INVALID_LFH`, `COZIP_ERR_ARCHIVE_TOO_SMALL`,
+  `COZIP_ERR_INVALID_ARGUMENT`, `COZIP_ERR_BUFFER_TOO_SMALL`,
+  `COZIP_ERR_IO`, `COZIP_PROFILE_NONE`, `COZIP_PROFILE_FLAT`,
+  `COZIP_PROFILE_TACO`. None were referenced by the binding (status
+  checks compared against literal `0`; the FLAT profile selector is
+  set internally by `cozip_write_flat`). `COZIP_SOURCE_PATH`,
+  `COZIP_SOURCE_BUFFER`, and `COZIP_ERROR_MESSAGE_SIZE` remain.
+
 ## [2026.5.2] — 2026-05-02
 
 ### Added
@@ -224,6 +269,7 @@ Versioning is [CalVer](https://calver.org/) `YYYY.M.D`.
 - GitHub Release with `libcozip-<version>-<platform>.{tar.gz,zip}`
   archives for C-standalone consumers.
 
+[Unreleased]: https://github.com/asterisk-labs/taco/compare/v2026.5.2...HEAD
 [2026.5.2]: https://github.com/asterisk-labs/taco/compare/v2026.5.1...v2026.5.2
 [2026.5.1]: https://github.com/asterisk-labs/taco/compare/v2026.4.30...v2026.5.1
 [2026.4.30]: https://github.com/asterisk-labs/taco/compare/v2026.4.29...v2026.4.30

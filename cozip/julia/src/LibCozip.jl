@@ -2,21 +2,9 @@ module LibCozip
 
 using Artifacts
 
-# Status codes. Must match cozip.h.
-const COZIP_OK                    = Cint(0)
-const COZIP_ERR_INVALID_LFH       = Cint(1)
-const COZIP_ERR_ARCHIVE_TOO_SMALL = Cint(2)
-const COZIP_ERR_INVALID_ARGUMENT  = Cint(100)
-const COZIP_ERR_BUFFER_TOO_SMALL  = Cint(101)
-const COZIP_ERR_IO                = Cint(102)
-
-const COZIP_PROFILE_NONE = Cint(0)
-const COZIP_PROFILE_FLAT = Cint(1)
-const COZIP_PROFILE_TACO = Cint(2)
-
-const COZIP_SOURCE_PATH   = Cint(1)
-const COZIP_SOURCE_BUFFER = Cint(2)
-
+# Must match cozip.h.
+const COZIP_SOURCE_PATH        = Cint(1)
+const COZIP_SOURCE_BUFFER      = Cint(2)
 const COZIP_ERROR_MESSAGE_SIZE = 192
 
 mutable struct cozip_error_t
@@ -25,7 +13,7 @@ mutable struct cozip_error_t
     cozip_error_t() = new(Cint(0), ntuple(_ -> Cchar(0), COZIP_ERROR_MESSAGE_SIZE))
 end
 
-# Immutable, isbits → Vector{cozip_entry_t} stores them contiguously.
+# isbits, so Vector{cozip_entry_t} is contiguous.
 struct cozip_entry_t
     arc_name::Ptr{Cchar}
     payload_size::UInt64
@@ -73,11 +61,7 @@ function _resolve_lib_path()
         return env
     end
 
-    # Runtime artifact lookup — deliberately NOT the @artifact_str
-    # macro. The macro resolves at precompile time and breaks the build
-    # whenever Artifacts.toml is empty, regenerated, or out of sync
-    # with the current release. Resolving at module load instead lets
-    # the package precompile cleanly even with a stale manifest.
+    # @artifact_str resolves at precompile and breaks with stale Artifacts.toml.
     artifacts_toml = joinpath(@__DIR__, "..", "Artifacts.toml")
     isfile(artifacts_toml) || error("cozip: missing $artifacts_toml")
     hash = artifact_hash("cozip", artifacts_toml)
@@ -91,8 +75,7 @@ function _resolve_lib_path()
     )
     artifact_dir = artifact_path(hash)
 
-    # Release archives wrap everything in a single libcozip-VERSION-PLAT/
-    # folder. Descend into it if present; otherwise assume flat layout.
+    # Release tarballs wrap a libcozip-VERSION-PLAT/ folder; descend if present.
     base = artifact_dir
     entries = readdir(base)
     if length(entries) == 1 && isdir(joinpath(base, entries[1]))
@@ -106,7 +89,17 @@ end
 
 const libcozip = Ref{String}("")
 
-__init__() = (libcozip[] = _resolve_lib_path())
+# libcozip[] only resolves in __init__, so the ccalls must run there too.
+const INDEX_NAME    = Ref{String}("")
+const PADDING_NAME  = Ref{String}("")
+const METADATA_NAME = Ref{String}("")
+
+function __init__()
+    libcozip[] = _resolve_lib_path()
+    INDEX_NAME[]    = unsafe_string(ccall((:cozip_index_name,         libcozip[]), Cstring, ()))
+    PADDING_NAME[]  = unsafe_string(ccall((:cozip_padding_name,       libcozip[]), Cstring, ()))
+    METADATA_NAME[] = unsafe_string(ccall((:cozip_flat_metadata_name, libcozip[]), Cstring, ()))
+end
 
 struct CozipError <: Exception
     code::Int
@@ -135,12 +128,11 @@ function cozip_status_string(status::Integer)
     return unsafe_string(ptr)
 end
 
-# `Ref(err)` for a mutable struct does NOT copy — RefValue's field
-# aliases the original object, so C writes through the pointer to the
-# same storage `err` references. That makes the copy-back of err.code
-# / err.message that earlier versions did pure no-ops; reading `err`
-# directly after the ccall already sees the new values.
+cozip_index_name()         = INDEX_NAME[]
+cozip_padding_name()       = PADDING_NAME[]
+cozip_flat_metadata_name() = METADATA_NAME[]
 
+# Ref(err) aliases err in place; C writes go straight through, no copy-back.
 function plan!(entries::AbstractVector{cozip_entry_t}, err::cozip_error_t)
     err_ref = Ref(err)
     GC.@preserve entries err_ref begin
@@ -202,6 +194,39 @@ function patch_integrity_hash!(archive_path::AbstractString,
         status = ccall((:cozip_patch_integrity_hash, libcozip[]), Cint,
                        (Cstring, Csize_t, Ptr{cozip_error_t}),
                        archive_path, Csize_t(payload_size), err_ref)
+    end
+    status == 0 || throw(CozipError(err))
+    return nothing
+end
+
+# plan_flat!  needs length(entries) == n_users + 1   (slot for __metadata__)
+# write_flat! needs length(entries) == n_users + 2   (slots for __metadata__ + padding)
+function plan_flat!(entries::AbstractVector{cozip_entry_t},
+                    n_users::Integer,
+                    err::cozip_error_t)
+    err_ref = Ref(err)
+    GC.@preserve entries err_ref begin
+        status = ccall((:cozip_plan_flat, libcozip[]), Cint,
+                       (Ptr{cozip_entry_t}, Csize_t, Ptr{cozip_error_t}),
+                       pointer(entries), Csize_t(n_users), err_ref)
+    end
+    status == 0 || throw(CozipError(err))
+    return nothing
+end
+
+function write_flat!(out_path::AbstractString,
+                     entries::AbstractVector{cozip_entry_t},
+                     n_users::Integer,
+                     metadata_parquet::AbstractString,
+                     err::cozip_error_t)
+    err_ref = Ref(err)
+    GC.@preserve entries err_ref begin
+        status = ccall((:cozip_write_flat, libcozip[]), Cint,
+                       (Cstring, Ptr{cozip_entry_t}, Csize_t, Csize_t,
+                        Cstring, Ptr{cozip_error_t}),
+                       out_path, pointer(entries),
+                       Csize_t(n_users), Csize_t(length(entries)),
+                       metadata_parquet, err_ref)
     end
     status == 0 || throw(CozipError(err))
     return nothing

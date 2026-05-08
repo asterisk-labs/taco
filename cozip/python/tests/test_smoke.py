@@ -1,4 +1,4 @@
-"""Smoke + roundtrip tests for the cozip Python binding."""
+"""Conformance tests for the cozip Python writer"""
 
 import io
 import struct
@@ -11,362 +11,369 @@ import pytest
 
 import cozip
 
-# Optional geo stack — only needed for the geoparquet test.
-try:
-    import geopandas as gpd
-    from shapely.geometry import Point
-    HAS_GEO = True
-except ImportError:
-    HAS_GEO = False
+
+SMALL_CONTENT = b"hello cozip\n" * 8
+MEDIUM_CONTENT = bytes(range(256)) * 160
+
+INDEX_OFFSET = 51
+HASH_WINDOW = 32768
+ZIP_LFH_SIG = b"PK\x03\x04"
+INDEX_NAME = b"__cozip__"
+HASH_BLOCK_HEADER = b"\x0c\xca\x08\x00"
+INDEX_MAGIC = b"CZIP"
+INDEX_VERSION = b"\x01\x00"
+PROFILE_FLAT = 1
 
 
-# ---------------------------------------------------------------- bindings
-
-def test_library_loads():
-    """The shared library loads and exposes the expected symbols."""
-    assert cozip.lib is not None
-    for sym in (
-        "cozip_plan",
-        "cozip_index_payload_size",
-        "cozip_build_index_payload",
-        "cozip_write_archive",
-        "cozip_patch_integrity_hash",
-    ):
-        assert hasattr(cozip.lib, sym), f"missing symbol: {sym}"
+def fnv1a_64(data: bytes) -> int:
+    h = 0xCBF29CE484222325
+    prime = 0x100000001B3
+    for b in data:
+        h ^= b
+        h = (h * prime) & 0xFFFFFFFFFFFFFFFF
+    return h
 
 
-def test_error_struct():
-    """cozip_error_t can be instantiated and read back."""
-    err = cozip.ffi.new("cozip_error_t*")
-    err.code = 42
-    cozip.ffi.memmove(err.message, b"oops\x00", 5)
-    assert err.code == 42
-    assert cozip.ffi.string(err.message).decode() == "oops"
+def hash_input(archive: bytes, index_size: int) -> bytes:
+    archive_size = len(archive)
+    suffix_start = archive_size - HASH_WINDOW
+    index_end = INDEX_OFFSET + index_size
+    if index_end <= suffix_start:
+        return archive[INDEX_OFFSET:index_end] + archive[suffix_start:archive_size]
+    return archive[INDEX_OFFSET:archive_size]
 
 
-# ---------------------------------------------------------------- helpers
+def parse_index(payload: bytes) -> dict[str, tuple[int, int]]:
+    assert payload[:4] == INDEX_MAGIC, f"bad magic: {payload[:4]!r}"
+    n = struct.unpack_from("<I", payload, 7)[0]
+    cur = 11
+    name_lens = struct.unpack_from(f"<{n}H", payload, cur)
+    cur += 2 * n
+    names = []
+    for nl in name_lens:
+        names.append(payload[cur:cur + nl].decode("utf-8"))
+        cur += nl
+    offsets = struct.unpack_from(f"<{n}Q", payload, cur)
+    cur += 8 * n
+    sizes = struct.unpack_from(f"<{n}Q", payload, cur)
+    return {nm: (off, sz) for nm, off, sz in zip(names, offsets, sizes)}
 
-def _make_payload(seed: int, size: int) -> bytes:
-    """Deterministic byte payload — same seed always yields same bytes."""
-    return bytes([(seed + i) & 0xFF for i in range(size)])
+
+def index_size_from_lfh(archive: bytes) -> int:
+    return struct.unpack("<I", archive[18:22])[0]
 
 
-# ---------------------------------------------------------------- roundtrip
+def extract_metadata_payload(archive: bytes) -> bytes:
+    payload = archive[INDEX_OFFSET:INDEX_OFFSET + index_size_from_lfh(archive)]
+    offset, size = parse_index(payload)["__metadata__"]
+    return archive[offset:offset + size]
 
-def test_roundtrip(tmp_path: Path):
-    """End-to-end: create a .cozip archive and validate every layer.
 
-    Validates:
-      1. archive exists and clears the spec minimum size (>= 32819)
-      2. zipfile sees a valid ZIP with __cozip__ first and __metadata__ present
-      3. LFH layout for the __cozip__ entry (filename len, extra len, 0xCA0C)
-      4. integrity hash (bytes 43..50) is non-zero
-      5. CZIP magic at byte 51
-      6. cozip index lists 4 entries (3 users + __metadata__)
-      7. user payloads round-trip byte-for-byte through zipfile
-      8. __metadata__.parquet has the expected schema and offsets
-    """
-    sizes = [12000, 13000, 14000]
-    src_files: list[Path] = []
-    src_payloads: list[bytes] = []
-    for i, sz in enumerate(sizes):
-        p = tmp_path / f"src_{i}.bin"
-        payload = _make_payload(0xA0 + i, sz)
-        p.write_bytes(payload)
-        src_files.append(p)
-        src_payloads.append(payload)
+def assert_valid_cozip(data: bytes) -> None:
+    assert len(data) >= HASH_WINDOW + INDEX_OFFSET
+    assert data[:4] == ZIP_LFH_SIG
+    assert data[30:39] == INDEX_NAME
+    assert data[51:55] == INDEX_MAGIC
+    expected = fnv1a_64(hash_input(data, index_size_from_lfh(data)))
+    stored = struct.unpack("<Q", data[43:51])[0]
+    assert stored == expected
 
-    arc_names = [f"data/file_{i}.bin" for i in range(3)]
-    table = pa.table({
-        "name": arc_names,
-        "path": [str(p) for p in src_files],
+
+@pytest.fixture
+def fixtures(tmp_path: Path) -> dict[str, Path]:
+    small = tmp_path / "small.txt"
+    small.write_bytes(SMALL_CONTENT)
+    medium = tmp_path / "medium.bin"
+    medium.write_bytes(MEDIUM_CONTENT)
+    return {"small": small, "medium": medium}
+
+
+@pytest.fixture
+def input_table(fixtures: dict[str, Path]) -> pa.Table:
+    return pa.table({
+        "name": ["a.txt", "b.bin"],
+        "path": [str(fixtures["small"]), str(fixtures["medium"])],
+        "category": ["text", "binary"],
     })
 
-    out = tmp_path / "out.cozip"
-    returned = cozip.create(out, table)
 
-    # 1. exists + size >= minimum
-    assert Path(returned).exists()
-    assert out.exists()
-    archive_size = out.stat().st_size
-    assert archive_size >= 32819, f"archive too small: {archive_size}"
-
-    # 2. valid ZIP, first entry __cozip__, __metadata__ present
-    with zipfile.ZipFile(out, "r") as z:
-        names = z.namelist()
-        infos = z.infolist()
-    assert names[0] == "__cozip__", f"first entry is {names[0]!r}"
-    assert "__metadata__" in names, "__metadata__ entry missing"
-    for arc in arc_names:
-        assert arc in names, f"missing entry: {arc}"
-
-    cozip_info = next(i for i in infos if i.filename == "__cozip__")
-    assert cozip_info.compress_type == zipfile.ZIP_STORED
-
-    # 3. inspect raw bytes for the __cozip__ LFH
-    raw = out.read_bytes()
-    assert raw[:4] == b"PK\x03\x04", "missing local file header signature"
-
-    fname_len = struct.unpack_from("<H", raw, 26)[0]
-    extra_len = struct.unpack_from("<H", raw, 28)[0]
-    assert fname_len == 9, f"__cozip__ name length: {fname_len}"
-    assert extra_len == 12, f"0xCA0C extra length: {extra_len}"
-    assert raw[30:39] == b"__cozip__"
-
-    extra_id = struct.unpack_from("<H", raw, 39)[0]
-    assert extra_id == 0xCA0C, f"unexpected extra id: 0x{extra_id:04X}"
-    assert struct.unpack_from("<H", raw, 41)[0] == 8
-
-    # 4. hash patched (non-zero)
-    assert raw[43:51] != b"\x00" * 8, "integrity hash was not patched"
-
-    # 5. CZIP magic at byte 51
-    assert raw[51:55] == b"CZIP", f"bad magic: {raw[51:55]!r}"
-
-    # 6. index header: version, profile, n_entries
-    version = struct.unpack_from("<H", raw, 55)[0]
-    profile = raw[57]
-    n_index = struct.unpack_from("<I", raw, 58)[0]
-    assert version == 1
-    assert profile == 1, f"profile must be FLAT (1), got {profile}"
-    assert n_index == 4, f"index count: expected 4 (3 users + meta), got {n_index}"
-
-    # 7. user payloads round-trip via zipfile
-    with zipfile.ZipFile(out, "r") as z:
-        for arc, expected in zip(arc_names, src_payloads):
-            assert z.read(arc) == expected, f"payload mismatch for {arc}"
-
-    # 8. __metadata__.parquet schema and content
-    with zipfile.ZipFile(out, "r") as z:
-        meta_bytes = z.read("__metadata__")
-    meta = pq.read_table(io.BytesIO(meta_bytes))
-
-    assert meta.column_names[:3] == ["name", "offset", "size"]
-    assert "path" not in meta.column_names, "path must not appear in __metadata__"
-    assert "in_index" not in meta.column_names, "in_index must not appear in __metadata__"
-    assert len(meta) == 3, f"expected 3 rows in __metadata__, got {len(meta)}"
-
-    # offsets + sizes in the parquet must point to the actual user payloads
-    meta_names = meta.column("name").to_pylist()
-    meta_offsets = meta.column("offset").to_pylist()
-    meta_sizes = meta.column("size").to_pylist()
-    for arc, expected in zip(arc_names, src_payloads):
-        idx = meta_names.index(arc)
-        off = int(meta_offsets[idx])
-        sz = int(meta_sizes[idx])
-        assert raw[off:off + sz] == expected, f"offset/size wrong for {arc}"
+@pytest.fixture
+def paths_arg(input_table: pa.Table) -> list[tuple[str, str]]:
+    return list(zip(
+        input_table.column("name").to_pylist(),
+        input_table.column("path").to_pylist(),
+    ))
 
 
-def test_roundtrip_in_index_false(tmp_path: Path):
-    """Entries with in_index=False are written but not listed in the index.
-
-    The cozip index still gets __metadata__ entry, so n_index = 1 + 1 = 2
-    when only one user is in_index=True.
-    """
-    src = tmp_path / "small.bin"
-    big = tmp_path / "big.bin"
-    src.write_bytes(_make_payload(0x10, 100))
-    big.write_bytes(_make_payload(0x20, 33000))  # alone clears the 32 KiB minimum
-
-    table = pa.table({
-        "name":     ["a.bin", "b.bin"],
-        "path":     [str(src), str(big)],
-        "in_index": [True, False],
-    })
-
-    out = tmp_path / "out.cozip"
-    cozip.create(out, table)
-
-    raw = out.read_bytes()
-    n_index = struct.unpack_from("<I", raw, 58)[0]
-    assert n_index == 2, f"expected a.bin + __metadata__ in index, got {n_index}"
-
-    with zipfile.ZipFile(out, "r") as z:
-        names = z.namelist()
-    assert "a.bin" in names
-    assert "b.bin" in names
-    assert "__metadata__" in names
-
-    # The metadata parquet must NOT list b.bin (in_index=False).
-    with zipfile.ZipFile(out, "r") as z:
-        meta_bytes = z.read("__metadata__")
-    meta = pq.read_table(io.BytesIO(meta_bytes))
-    meta_names = meta.column("name").to_pylist()
-    assert meta_names == ["a.bin"], f"expected only a.bin in metadata, got {meta_names}"
+@pytest.fixture
+def archive(tmp_path: Path, input_table: pa.Table) -> Path:
+    out = tmp_path / "out.zip"
+    cozip.create(out, input_table)
+    return out
 
 
-def test_create_pads_small_archive(tmp_path: Path):
-    """Tiny payloads are padded so hash finalization can still run."""
-    src = tmp_path / "tiny.txt"
-    src.write_bytes(b"tiny\n")
+class TestSpecInvariants:
+    def test_archive_size_minimum(self, archive: Path) -> None:
+        assert archive.stat().st_size >= HASH_WINDOW + INDEX_OFFSET
 
-    table = pa.table({
-        "name": ["tiny.txt"],
-        "path": [str(src)],
-    })
+    def test_lfh_signature(self, archive: Path) -> None:
+        assert archive.read_bytes()[:4] == ZIP_LFH_SIG
 
-    out = tmp_path / "tiny.cozip"
-    cozip.create(out, table, temp_dir=tmp_path)
+    def test_index_entry_filename(self, archive: Path) -> None:
+        assert archive.read_bytes()[30:39] == INDEX_NAME
 
-    raw = out.read_bytes()
-    assert len(raw) >= 32819, f"archive too small: {len(raw)}"
-    assert raw[43:51] != b"\x00" * 8, "integrity hash was not patched"
+    def test_hash_block_header(self, archive: Path) -> None:
+        assert archive.read_bytes()[39:43] == HASH_BLOCK_HEADER
 
-    with zipfile.ZipFile(out, "r") as z:
-        names = z.namelist()
-        assert "tiny.txt" in names
-        assert "__metadata__" in names
-        assert "__cozip_padding__" in names
-        assert z.read("tiny.txt") == b"tiny\n"
+    def test_index_header(self, archive: Path) -> None:
+        data = archive.read_bytes()
+        assert data[51:55] == INDEX_MAGIC
+        assert data[55:57] == INDEX_VERSION
+        assert data[57] == PROFILE_FLAT
 
-        meta = pq.read_table(io.BytesIO(z.read("__metadata__")))
+    def test_eocd_comment_is_empty(self, archive: Path) -> None:
+        assert archive.read_bytes()[-2:] == b"\x00\x00"
 
-    meta_names = meta.column("name").to_pylist()
-    assert meta_names == ["tiny.txt"]
+    def test_integrity_hash(self, archive: Path) -> None:
+        data = archive.read_bytes()
+        expected = fnv1a_64(hash_input(data, index_size_from_lfh(data)))
+        stored = struct.unpack("<Q", data[43:51])[0]
+        assert stored == expected, (
+            f"stored=0x{stored:016x} expected=0x{expected:016x}"
+        )
 
-# ---------------------------------------------------------------- geoparquet
-
-@pytest.mark.skipif(not HAS_GEO, reason="geopandas/shapely not installed")
-def test_geoparquet_metadata_roundtrip(tmp_path: Path):
-    """A GeoDataFrame as input survives as a GeoParquet inside __metadata__.
-
-    Validates:
-      1. user-supplied geometry + CRS reach the metadata parquet
-      2. extra user columns flow through unchanged
-      3. offsets in the metadata parquet point at the correct user payloads
-      4. GeoPandas can read __metadata__ directly from the zip
-    """
-    n = 3
-    src_files: list[Path] = []
-    src_payloads: list[bytes] = []
-    for i in range(n):
-        p = tmp_path / f"src_{i}.bin"
-        payload = _make_payload(0xA0 + i, 12000 + i * 1000)
-        p.write_bytes(payload)
-        src_files.append(p)
-        src_payloads.append(payload)
-
-    arc_names = [f"data/file_{i}.bin" for i in range(n)]
-    countries = ["Peru", "Chile", "Brazil"]
-    elevations = [3000, 4500, 1200]
-    points = [
-        Point(-77.0, -12.0),  # Lima
-        Point(-70.7, -33.4),  # Santiago
-        Point(-47.9, -15.7),  # Brasilia
-    ]
-
-    gdf = gpd.GeoDataFrame(
-        {
-            "name": arc_names,
-            "path": [str(p) for p in src_files],
-            "country": countries,
-            "elevation": elevations,
-            "geometry": points,
-        },
-        crs="EPSG:4326",
-    )
-
-    # GDF -> parquet -> pa.Table preserves the b"geo" schema metadata that
-    # GeoParquet readers (incl. GeoPandas) look for.
-    in_parquet = tmp_path / "input.parquet"
-    gdf.to_parquet(in_parquet)
-    table = pq.read_table(in_parquet)
-
-    assert table.schema.metadata is not None
-    assert b"geo" in table.schema.metadata, \
-        "input table should carry the b'geo' schema metadata"
-
-    # Build the cozip.
-    out = tmp_path / "out.cozip"
-    cozip.create(out, table)
-    assert out.exists()
-
-    raw = out.read_bytes()
-
-    # Read __metadata__ straight out of the zip and parse with GeoPandas.
-    with zipfile.ZipFile(out, "r") as z:
-        assert "__metadata__" in z.namelist()
-        meta_bytes = z.read("__metadata__")
-
-    meta_gdf = gpd.read_parquet(io.BytesIO(meta_bytes))
-
-    # 1. CRS preserved
-    assert meta_gdf.crs is not None, "CRS lost in roundtrip"
-    assert meta_gdf.crs.to_epsg() == 4326
-
-    # Geometry round-trip
-    assert "geometry" in meta_gdf.columns
-    assert set(meta_gdf.geometry.geom_type) == {"Point"}
-    assert len(meta_gdf) == n
-
-    # 2. Extra columns preserved, writer-private columns dropped
-    assert "country" in meta_gdf.columns
-    assert "elevation" in meta_gdf.columns
-    assert "path" not in meta_gdf.columns
-    assert "in_index" not in meta_gdf.columns
-
-    # Writer-added columns
-    assert "name" in meta_gdf.columns
-    assert "offset" in meta_gdf.columns
-    assert "size" in meta_gdf.columns
-
-    # User column values come back intact
-    by_name = meta_gdf.set_index("name")
-    for arc, country, elev, pt in zip(arc_names, countries, elevations, points):
-        row = by_name.loc[arc]
-        assert row["country"] == country
-        assert int(row["elevation"]) == elev
-        assert row["geometry"].equals(pt), f"geometry mismatch for {arc}"
-
-    # 3. offsets/sizes resolve to the original user payloads
-    for arc, expected in zip(arc_names, src_payloads):
-        row = by_name.loc[arc]
-        off = int(row["offset"])
-        sz = int(row["size"])
-        assert raw[off:off + sz] == expected, f"offset/size wrong for {arc}"
+    def test_index_lists_only_metadata(self, archive: Path) -> None:
+        data = archive.read_bytes()
+        entries = parse_index(data[INDEX_OFFSET:INDEX_OFFSET + index_size_from_lfh(data)])
+        assert set(entries) == {"__metadata__"}
+        offset, size = entries["__metadata__"]
+        assert 0 < offset < len(data)
+        assert 0 < size <= len(data) - offset
 
 
-# ---------------------------------------------------------------- negatives
+class TestZipCompatibility:
+    def test_stdlib_zipfile_lists_all_entries(self, archive: Path) -> None:
+        with zipfile.ZipFile(archive) as zf:
+            names = set(zf.namelist())
+        assert {"__cozip__", "__metadata__", "a.txt", "b.bin"} <= names
 
-def test_create_rejects_empty(tmp_path: Path):
-    """create() refuses to build a 0-entry archive."""
-    out = tmp_path / "empty.cozip"
-    with pytest.raises(ValueError, match="empty"):
-        cozip.create(out, pa.table({"name": [], "path": []}))
+    def test_all_entries_use_store(self, archive: Path) -> None:
+        with zipfile.ZipFile(archive) as zf:
+            for info in zf.infolist():
+                assert info.compress_type == zipfile.ZIP_STORED, info.filename
 
+    def test_no_encryption_no_data_descriptor(self, archive: Path) -> None:
+        with zipfile.ZipFile(archive) as zf:
+            for info in zf.infolist():
+                assert info.flag_bits & 0x01 == 0, f"{info.filename} encrypted"
+                assert info.flag_bits & 0x08 == 0, f"{info.filename} has DD"
 
-def test_create_rejects_missing_source(tmp_path: Path):
-    """Missing source file is caught before any C call."""
-    out = tmp_path / "out.cozip"
-    table = pa.table({
-        "name": ["does/not/exist.bin"],
-        "path": [str(tmp_path / "nope.bin")],
-    })
-    with pytest.raises(FileNotFoundError):
-        cozip.create(out, table)
-
-
-def test_create_rejects_reserved_name(tmp_path: Path):
-    """User cannot use names the writer reserves for itself."""
-    src = tmp_path / "src.bin"
-    src.write_bytes(_make_payload(0x33, 33000))
-    table = pa.table({
-        "name": ["__metadata__"],
-        "path": [str(src)],
-    })
-    with pytest.raises(ValueError, match="reserved"):
-        cozip.create(tmp_path / "out.cozip", table)
+    def test_user_payloads_byte_exact(self, archive: Path) -> None:
+        with zipfile.ZipFile(archive) as zf:
+            assert zf.read("a.txt") == SMALL_CONTENT
+            assert zf.read("b.bin") == MEDIUM_CONTENT
 
 
-def test_create_rejects_duplicate_names(tmp_path: Path):
-    """Duplicate names within one archive are rejected upfront."""
-    src1 = tmp_path / "a.bin"
-    src2 = tmp_path / "b.bin"
-    src1.write_bytes(_make_payload(0x10, 100))
-    src2.write_bytes(_make_payload(0x20, 33000))
-    table = pa.table({
-        "name": ["dupe.bin", "dupe.bin"],
-        "path": [str(src1), str(src2)],
-    })
-    with pytest.raises(ValueError, match="duplicate"):
-        cozip.create(tmp_path / "out.cozip", table)
+class TestStageMetadata:
+    def test_drops_path_column(self, input_table: pa.Table) -> None:
+        meta, _ = cozip.stage_metadata(input_table)
+        assert "path" not in meta.column_names
+
+    def test_adds_offset_and_size_as_uint64(self, input_table: pa.Table) -> None:
+        meta, _ = cozip.stage_metadata(input_table)
+        assert meta.schema.field("offset").type == pa.uint64()
+        assert meta.schema.field("size").type == pa.uint64()
+
+    def test_preserves_user_extras(self, input_table: pa.Table) -> None:
+        meta, _ = cozip.stage_metadata(input_table)
+        assert meta.column("category").to_pylist() == ["text", "binary"]
+
+    def test_canonical_column_order(self, input_table: pa.Table) -> None:
+        meta, _ = cozip.stage_metadata(input_table)
+        assert meta.column_names[:3] == ["name", "offset", "size"]
+
+    def test_sizes_match_source_lengths(self, input_table: pa.Table) -> None:
+        meta, _ = cozip.stage_metadata(input_table)
+        assert meta.column("size").to_pylist() == [len(SMALL_CONTENT), len(MEDIUM_CONTENT)]
+
+    def test_offsets_strictly_increasing(self, input_table: pa.Table) -> None:
+        meta, _ = cozip.stage_metadata(input_table)
+        offsets = meta.column("offset").to_pylist()
+        assert all(a < b for a, b in zip(offsets, offsets[1:]))
+
+    def test_returns_paths_aligned_with_table(self, input_table: pa.Table) -> None:
+        meta, paths = cozip.stage_metadata(input_table)
+        expected = list(zip(
+            input_table.column("name").to_pylist(),
+            input_table.column("path").to_pylist(),
+        ))
+        assert paths == expected
+        assert len(paths) == meta.num_rows
+
+    def test_paths_drive_stage_create(
+        self, tmp_path: Path, input_table: pa.Table
+    ) -> None:
+        meta, paths = cozip.stage_metadata(input_table)
+        meta_pq = tmp_path / "meta.parquet"
+        pq.write_table(meta, meta_pq)
+        out = tmp_path / "out.zip"
+        cozip.stage_create(out, paths, meta_pq)
+        assert_valid_cozip(out.read_bytes())
+
+    def test_rejects_offset_in_input(self, fixtures: dict[str, Path]) -> None:
+        bad = pa.table({
+            "name": ["a.txt"],
+            "path": [str(fixtures["small"])],
+            "offset": [0],
+        })
+        with pytest.raises(ValueError, match="reserved"):
+            cozip.stage_metadata(bad)
+
+    def test_rejects_duplicate_names(self, fixtures: dict[str, Path]) -> None:
+        bad = pa.table({
+            "name": ["x", "x"],
+            "path": [str(fixtures["small"]), str(fixtures["medium"])],
+        })
+        with pytest.raises(ValueError, match="duplicate"):
+            cozip.stage_metadata(bad)
+
+    def test_rejects_reserved_archive_name(self, fixtures: dict[str, Path]) -> None:
+        bad = pa.table({
+            "name": ["__metadata__"],
+            "path": [str(fixtures["small"])],
+        })
+        with pytest.raises(ValueError, match="reserved"):
+            cozip.stage_metadata(bad)
+
+
+class TestStageCreate:
+    def _write_meta(self, tmp_path: Path, input_table: pa.Table) -> Path:
+        meta, _ = cozip.stage_metadata(input_table)
+        meta_pq = tmp_path / "meta.parquet"
+        pq.write_table(meta, meta_pq)
+        return meta_pq
+
+    def test_packs_a_valid_archive(
+        self, tmp_path: Path, input_table: pa.Table, paths_arg
+    ) -> None:
+        out = tmp_path / "out.zip"
+        meta_pq = self._write_meta(tmp_path, input_table)
+        cozip.stage_create(out, paths_arg, meta_pq)
+        assert_valid_cozip(out.read_bytes())
+
+    def test_metadata_parquet_embedded_verbatim(
+        self, tmp_path: Path, input_table: pa.Table, paths_arg
+    ) -> None:
+        meta_pq = self._write_meta(tmp_path, input_table)
+        original_bytes = meta_pq.read_bytes()
+
+        out = tmp_path / "out.zip"
+        cozip.stage_create(out, paths_arg, meta_pq)
+
+        embedded = extract_metadata_payload(out.read_bytes())
+        assert embedded == original_bytes
+
+    def test_rejects_parquet_with_path_column(
+        self, tmp_path: Path, input_table: pa.Table, paths_arg
+    ) -> None:
+        meta, _ = cozip.stage_metadata(input_table)
+        tampered = meta.append_column("path", pa.array(["/tmp/a", "/tmp/b"]))
+        meta_pq = tmp_path / "meta.parquet"
+        pq.write_table(tampered, meta_pq)
+
+        with pytest.raises(ValueError, match="path"):
+            cozip.stage_create(tmp_path / "out.zip", paths_arg, meta_pq)
+
+    def test_rejects_parquet_missing_required_columns(
+        self, tmp_path: Path, paths_arg
+    ) -> None:
+        bad = pa.table({"name": ["a.txt", "b.bin"]})
+        meta_pq = tmp_path / "meta.parquet"
+        pq.write_table(bad, meta_pq)
+
+        with pytest.raises(ValueError, match="required column"):
+            cozip.stage_create(tmp_path / "out.zip", paths_arg, meta_pq)
+
+    def test_rejects_offset_mismatch(
+        self, tmp_path: Path, input_table: pa.Table, paths_arg
+    ) -> None:
+        meta, _ = cozip.stage_metadata(input_table)
+        idx = meta.column_names.index("offset")
+        bad = meta.set_column(idx, "offset", pa.array([0, 0], type=pa.uint64()))
+        meta_pq = tmp_path / "meta.parquet"
+        pq.write_table(bad, meta_pq)
+
+        with pytest.raises(ValueError, match="offset mismatch"):
+            cozip.stage_create(tmp_path / "out.zip", paths_arg, meta_pq)
+
+    def test_rejects_row_count_mismatch(
+        self, tmp_path: Path, input_table: pa.Table, paths_arg
+    ) -> None:
+        meta, _ = cozip.stage_metadata(input_table)
+        truncated = meta.slice(0, 1)
+        meta_pq = tmp_path / "meta.parquet"
+        pq.write_table(truncated, meta_pq)
+
+        with pytest.raises(ValueError, match="rows"):
+            cozip.stage_create(tmp_path / "out.zip", paths_arg, meta_pq)
+
+
+class TestSchemaMetadataRoundTrip:
+    def test_arrow_schema_metadata_is_preserved(
+        self, tmp_path: Path, input_table: pa.Table, paths_arg
+    ) -> None:
+        geo_value = (
+            b'{"version":"1.0.0","primary_column":"geometry",'
+            b'"columns":{"geometry":{"encoding":"WKB","crs":null}}}'
+        )
+        meta, _ = cozip.stage_metadata(input_table)
+        tagged = meta.replace_schema_metadata(
+            {b"geo": geo_value, b"asterisk:tag": b"cozip-conformance"}
+        )
+        meta_pq = tmp_path / "meta.parquet"
+        pq.write_table(tagged, meta_pq)
+
+        out = tmp_path / "out.zip"
+        cozip.stage_create(out, paths_arg, meta_pq)
+
+        embedded = extract_metadata_payload(out.read_bytes())
+        recovered = pq.read_table(io.BytesIO(embedded))
+
+        assert recovered.schema.metadata is not None
+        assert recovered.schema.metadata.get(b"geo") == geo_value
+        assert recovered.schema.metadata.get(b"asterisk:tag") == b"cozip-conformance"
+
+
+class TestGeopandasRoundTrip:
+    def test_geopandas_reads_embedded_geoparquet(
+        self, tmp_path: Path, input_table: pa.Table, paths_arg
+    ) -> None:
+        gpd = pytest.importorskip("geopandas")
+        from shapely.geometry import Point
+
+        meta, _ = cozip.stage_metadata(input_table)
+        df = meta.to_pandas()
+        gdf = gpd.GeoDataFrame(
+            df,
+            geometry=[Point(-77.04, -12.05), Point(2.35, 48.86)],
+            crs="EPSG:4326",
+        )
+        meta_pq = tmp_path / "meta.parquet"
+        gdf.to_parquet(meta_pq)
+
+        out = tmp_path / "out.zip"
+        cozip.stage_create(out, paths_arg, meta_pq)
+
+        extracted = tmp_path / "extracted.parquet"
+        extracted.write_bytes(extract_metadata_payload(out.read_bytes()))
+        recovered = gpd.read_parquet(extracted)
+
+        assert isinstance(recovered, gpd.GeoDataFrame)
+        assert recovered.crs.to_string() == "EPSG:4326"
+        assert recovered["name"].tolist() == ["a.txt", "b.bin"]
+        assert recovered["offset"].tolist() == df["offset"].tolist()
+        assert recovered["size"].tolist() == df["size"].tolist()
+
+        first, second = recovered.geometry.iloc[0], recovered.geometry.iloc[1]
+        assert (first.x, first.y) == (-77.04, -12.05)
+        assert (second.x, second.y) == (2.35, 48.86)

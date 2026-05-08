@@ -3,6 +3,6 @@ module Cozip
 include("LibCozip.jl")
 include("Writer.jl")
 
-export metadata, create
+export stage_metadata, stage_create, create
 
 end # module

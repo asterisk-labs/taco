@@ -6,20 +6,24 @@
 \alias{cozip-package}
 \title{cozip: Cloud-Optimized ZIP}
 \description{
-R bindings to libcozip, the reference writer for the Cloud-Optimized
-ZIP (cozip) format. A cozip archive is a regular ZIP whose first
-entry is a binary index placed at byte 0, allowing readers to locate
-any priority file in a single HTTP range request without scanning
-the Central Directory.
+R bindings to libcozip. A cozip archive is a regular ZIP whose
+first entry is a binary index at byte 0, letting a reader locate
+any priority file in one range request without scanning the
+Central Directory.
 }
-\section{Package philosophy}{
-
-Two layers, mirroring the Python binding. A high-level \code{\link[=create]{create()}}
-covers the FLAT profile (parquet manifest at the tail of the
-archive). Low-level \code{.Call} shims to the libcozip C ABI cover
-custom profiles and advanced workflows.
+\details{
+Three layers, mirroring the Python binding:
+\itemize{
+\item \code{\link[=create]{create()}} — all-in-one writer for the FLAT profile.
+\item \code{\link[=stage_metadata]{stage_metadata()}} — pure planner; returns the canonical
+metadata table.
+\item \code{\link[=stage_create]{stage_create()}} — packs an archive from source files and a
+user-written parquet, embedded verbatim.
 }
 
+For NONE / TACO profiles or buffer sources, call
+\code{.Call(C_R_cozip_finalize, ...)} directly.
+}
 \seealso{
 Useful links:
 \itemize{

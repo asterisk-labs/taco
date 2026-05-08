@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "cozip"
 dynamic = ["version"]
-description = "COZIP Cloud-Optimized ZIP Open a ZIP like a table."
+description = "Python bindings to libcozip, the reference writer for the Cloud-Optimized ZIP (cozip) format."
 readme = { file = "../README.md", content-type = "text/markdown" }
 license = { file = "../LICENSE" }
 requires-python = ">=3.10"
@@ -14,9 +14,9 @@ dependencies = [
     "pyarrow>=14",
 ]
 authors = [
-    { name = "Roy Yali", email = "ryali93@gmail.com" },
     { name = "Cesar Aybar", email = "cesar@asterisk.coop" },
     { name = "Julio Contreras", email = "julio.contreras@uv.es" },
+    { name = "Roy Yali", email = "ryali93@gmail.com" },
 ]
 keywords = [
     "zip",
@@ -47,12 +47,18 @@ Homepage = "https://asterisk.coop/taco/cozip"
 Repository = "https://github.com/asterisk-labs/taco"
 Issues = "https://github.com/asterisk-labs/taco/issues"
 
+[project.optional-dependencies]
+test = [
+    "pytest>=8",
+    "geopandas>=1.0",
+    "shapely>=2.0",
+]
+
 # Single source of truth for the version: cozip/VERSION.
 # Hatchling reads it at build time so wheel metadata and tag stay in sync.
 [tool.hatch.version]
 path = "../VERSION"
 pattern = "^(?P<version>.+)$"
-
 
 [tool.hatch.build.targets.wheel]
 packages = ["cozip"]

@@ -1,30 +1,5 @@
 name: Release
 
-# Coordinated release: libcozip + Python wheel + sdist all go out under
-# the same tag.
-#
-# R bindings live downstream — r-universe builds the R package on its
-# own poll cycle. Julia bindings are validated here against the
-# freshly-built libcozip via COZIP_LIB_PATH; their Artifacts.toml is
-# regenerated manually after each release with make-artifacts-toml.jl
-# and committed in a follow-up PR.
-#
-# libcozip is standalone: libzip and zlib sources live committed under
-# cozip/core/{libzip,zlib}/ and compile in-tree. Builds have zero
-# network dependency. Bumping libzip or zlib is a manual repo edit.
-#
-# Pre-commit syncs cozip/VERSION across binding manifests and mirrors
-# core/{libzip,zlib}/ into r/src/{libzip,zlib}/. The validate job below
-# checks the tag matches VERSION on disk.
-#
-# build-r-package mirrors what r-universe does (Rtools45 + MinGW-w64
-# on Windows, system R on Linux/macOS) so MinGW-specific build issues
-# fail in this pipeline rather than 30 min later in r-universe.
-#
-# PyPI Trusted Publisher config (must match exactly):
-#   owner: asterisk-labs   repo: taco
-#   workflow: release.yml  environment: pypi
-
 on:
   push:
     tags: ['v*']
@@ -60,7 +35,7 @@ jobs:
 
 
   build-lib:
-    name: libcozip — ${{ matrix.name }}
+    name: libcozip (${{ matrix.name }})
     needs: validate
     strategy:
       fail-fast: false
@@ -98,8 +73,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # manylinux ships gcc/cmake but not ninja. Other platforms get it
-      # from their package manager.
+      # manylinux ships gcc/cmake but not ninja.
       - if: startsWith(matrix.name, 'linux')
         run: yum install -y ninja-build
       - if: runner.os == 'macOS'
@@ -115,8 +89,7 @@ jobs:
 
       - name: Configure
         # BUILD_SHARED_LIBS=ON applies only to cozip. Vendored libzip
-        # and zlib are STATIC explicitly in their own CMakeLists and
-        # are absorbed into cozip with hidden visibility.
+        # and zlib stay STATIC and absorb into cozip with hidden visibility.
         run: >
           cmake -B build -S cozip/core -G Ninja
           -DCMAKE_BUILD_TYPE=Release
@@ -128,8 +101,7 @@ jobs:
       - run: cmake --build build --config Release --parallel
       - run: cmake --install build --config Release
 
-      # Ad-hoc signature so Sequoia+ accepts the dylib in sandboxed
-      # contexts. Verify lipo actually fused both arches.
+      # Ad-hoc signature so Sequoia+ accepts the dylib in sandboxed contexts.
       - if: matrix.name == 'macos-universal'
         name: Sign and verify universal dylib
         run: |
@@ -139,24 +111,15 @@ jobs:
           echo "$ARCHS" | grep -qw x86_64 || { echo "Missing x86_64"; exit 1; }
           echo "$ARCHS" | grep -qw arm64  || { echo "Missing arm64";  exit 1; }
 
-      # Verify the dylib doesn't leak libzip or zlib symbols. cozip
-      # exposes 8 cozip_* functions and nothing else. If this fails,
-      # the static link absorbed the deps but didn't hide their
-      # symbols — likely C_VISIBILITY_PRESET regressed.
-      #
-      # Implementation detail: we use awk (not `nm | grep -v | wc -l`)
-      # because pipefail propagates grep's exit-1-on-no-match, which
-      # falsely failed the step when there were zero leaks. awk emits
-      # the offending symbol names directly so a real failure prints
-      # what leaked.
+      # Catches a regression where the static link absorbs libzip/zlib
+      # but doesn't hide their symbols. awk instead of `nm | grep -v`
+      # because pipefail propagates grep's exit-1-on-no-match.
       - if: runner.os != 'Windows'
         name: Verify symbol isolation
         run: |
           if [ "${{ runner.os }}" = "macOS" ]; then
-            # Mach-O prefixes C symbols with a single underscore.
             LEAKS=$(nm -gU install/lib/cozip.dylib | awk '$2 == "T" && $3 !~ /^_cozip_/ {print $3}')
           else
-            # ELF on Linux has no symbol prefix.
             LEAKS=$(nm -D --defined-only install/lib/cozip.so | awk '$2 == "T" && $3 !~ /^cozip_/ {print $3}')
           fi
           if [ -n "$LEAKS" ]; then
@@ -164,7 +127,7 @@ jobs:
             echo "$LEAKS"
             exit 1
           fi
-          echo "✓ symbol isolation OK"
+          echo "symbol isolation OK"
 
       - name: Stage artifact (Unix)
         if: runner.os != 'Windows'
@@ -193,16 +156,10 @@ jobs:
           if-no-files-found: error
 
 
-  # Mirror what r-universe does: Rtools45 (= MinGW-w64) on Windows,
-  # system R on Linux and macOS. Catches MinGW-specific bugs in the
-  # vendored libzip/zlib build (-std=gnu2x quirks, missing CRT
-  # functions, etc.) that MSVC's build-lib job won't surface.
-  #
-  # This job does NOT publish the R package — r-universe handles that
-  # on its own poll cycle. Its purpose is to fail fast if r-universe
-  # would also fail, so we don't push broken commits.
+  # Surfaces MinGW-w64 quirks (-std=gnu2x, missing CRT functions) that
+  # the MSVC build-lib job won't catch, before r-universe runs.
   build-r-package:
-    name: R package — ${{ matrix.name }}
+    name: R package (${{ matrix.name }})
     needs: validate
     strategy:
       fail-fast: false
@@ -213,31 +170,23 @@ jobs:
           - name: macos
             runner: macos-14
           - name: windows
-            runner: windows-2022   # uses Rtools45 / MinGW-w64
+            runner: windows-2022
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
 
-      # Sets up R and (on Windows) the Rtools45 / MinGW toolchain that
-      # r-universe uses to build the R package.
       - uses: r-lib/actions/setup-r@v2
         with:
           r-version: 'release'
           use-public-rspm: true
 
-      # arrow is the only hard runtime dep, plus testthat+withr for
-      # the test suite. setup-r-dependencies reads cozip/r/DESCRIPTION
-      # and installs everything required + suggested.
       - uses: r-lib/actions/setup-r-dependencies@v2
         with:
           working-directory: cozip/r
           extra-packages: any::rcmdcheck
           needs: check
 
-      # R CMD check exercises the full pipeline that r-universe runs:
-      # vendored libzip/zlib compile, glue layer links, testthat tests
-      # exercise create() end-to-end. --no-manual skips PDF generation
-      # (no LaTeX on most runners; r-universe has its own).
+      # --no-manual: no LaTeX on most runners.
       - uses: r-lib/actions/check-r-package@v2
         with:
           working-directory: cozip/r
@@ -245,18 +194,10 @@ jobs:
           error-on: '"warning"'
 
 
-  # Validates the Julia binding against the libcozip we just built.
-  # We override Artifacts.toml lookup with COZIP_LIB_PATH because the
-  # toml still points at the previous release's binaries until it's
-  # regenerated post-release; this job tests the binding code itself,
-  # not the artifact resolution.
-  #
-  # This job does NOT publish — registration in AsteriskRegistry is a
-  # manual `LocalRegistry.register` call after the release ships. Its
-  # purpose is the same as build-r-package: fail fast on the same
-  # platforms downstream users will install on.
+  # COZIP_LIB_PATH override because Artifacts.toml still points at the
+  # previous release until regenerate-artifacts-toml runs post-release.
   build-julia-package:
-    name: Julia package — ${{ matrix.name }}
+    name: Julia package (${{ matrix.name }})
     needs: build-lib
     strategy:
       fail-fast: false
@@ -302,7 +243,7 @@ jobs:
 
 
   build-wheels:
-    name: Wheel — ${{ matrix.name }}
+    name: Wheel (${{ matrix.name }})
     needs: build-lib
     strategy:
       fail-fast: false
@@ -338,8 +279,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # manylinux has multiple Pythons under /opt/python. We only need
-      # one to drive the build (wheel is py3-none, retagged below).
+      # manylinux has multiple Pythons under /opt/python; one is enough
+      # to drive the build (wheel is py3-none, retagged below).
       - name: Set up Python (manylinux)
         if: startsWith(matrix.name, 'linux')
         run: |
@@ -354,7 +295,6 @@ jobs:
 
       - run: python -m pip install --upgrade pip build hatchling cffi wheel
 
-      # Repair tools per-platform. Windows DLLs sit next to the .pyd.
       - if: startsWith(matrix.name, 'linux')
         run: python -m pip install auditwheel
       - if: runner.os == 'macOS'
@@ -365,8 +305,7 @@ jobs:
           name: libcozip-${{ matrix.name }}
           path: libcozip-bin/
 
-      # Drop the lib into cozip/_lib/ where _core.py finds it at import
-      # time. See _resolve_lib_path() in cozip/_core.py.
+      # Where _resolve_lib_path() in cozip/_core.py finds it at import time.
       - name: Bundle native lib (Unix)
         if: runner.os != 'Windows'
         run: |
@@ -383,12 +322,8 @@ jobs:
         working-directory: cozip/python
         run: python -m build --wheel --outdir ../../wheelhouse-raw
 
-      # Repair = rewrite the runtime loader path so the wheel works on
-      # systems without our build env.
-      #   Linux  -> auditwheel (ELF rpath + glibc tag baking)
-      #   macOS  -> delocate   (Mach-O install_name)
-      # Then retag to py3-none-<plat>: one wheel covers every CPython
-      # because we go through cffi/dlopen, no CPython ABI dependency.
+      # Rewrite runtime loader paths so the wheel works without our build
+      # env, then retag to py3-none (cffi/dlopen, no CPython ABI dep).
       - name: Repair (Linux)
         if: startsWith(matrix.name, 'linux')
         run: |
@@ -426,8 +361,6 @@ jobs:
           }
           Move-Item wheelhouse-raw2\*.whl wheelhouse\
 
-      # Smoke test: install the wheel and exercise the cffi binding.
-      # Catches "lib didn't bundle correctly" before PyPI sees it.
       - name: Smoke test (Unix)
         if: runner.os != 'Windows'
         run: |
@@ -487,8 +420,6 @@ jobs:
           pattern: libcozip-*
           path: artifacts/
 
-      # Re-pack each libcozip-<plat> artifact into a versioned archive.
-      # Convention: shared lib in lib/ on Unix, bin/ on Windows.
       - name: Re-pack into versioned archives
         run: |
           set -euo pipefail
@@ -528,13 +459,14 @@ jobs:
               fi)
           done
 
-      # Anything with a hyphen in the version (2026.5.1-rc1 etc) is a prerelease.
+      # Hyphen in version (2026.5.1-rc1 etc) marks a prerelease.
       - uses: softprops/action-gh-release@v2
         with:
           files: release-files/*
           generate_release_notes: true
           draft: false
           prerelease: ${{ contains(github.ref, '-') }}
+
 
   regenerate-artifacts-toml:
     name: Regenerate Julia Artifacts.toml
@@ -556,16 +488,14 @@ jobs:
         with:
           version: '1'
 
-      # make-artifacts-toml.jl uses only Pkg, Downloads, SHA stdlib —
-      # no Project activation needed. Pass VERSION as ARG explicitly so
-      # the script does not depend on the on-disk cozip/VERSION.
+      # Pass VERSION as ARG so the script doesn't depend on on-disk
+      # cozip/VERSION (already bumped on the tagged commit).
       - name: Regenerate Artifacts.toml
         working-directory: cozip/julia
         run: |
           set -euo pipefail
           julia make-artifacts-toml.jl "${{ needs.validate.outputs.version }}" > Artifacts.toml.new
           mv Artifacts.toml.new Artifacts.toml
-          echo "── Generated Artifacts.toml ──"
           cat Artifacts.toml
 
       - name: Commit and push to main
@@ -577,17 +507,18 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add cozip/julia/Artifacts.toml
           if git diff --staged --quiet; then
-            echo "Artifacts.toml unchanged — nothing to commit"
+            echo "Artifacts.toml unchanged, nothing to commit"
             exit 0
           fi
           git commit -m "chore(julia): regenerate Artifacts.toml for v${VERSION}"
-          # Rebase on top of any commits that landed on main between
-          # checkout and now (rare but possible during bursty merges).
+          # Rebase on commits that landed between checkout and now.
           git pull --rebase origin main
           git push origin HEAD:main
 
-  # Trusted Publishing: no API token, just OIDC. The 'pypi' environment
-  # is configured on PyPI to accept this exact workflow.
+
+  # PyPI Trusted Publisher (must match exactly):
+  #   owner: asterisk-labs   repo: taco
+  #   workflow: release.yml   environment: pypi
   publish-pypi:
     name: Publish to PyPI
     needs: [build-wheels, build-sdist, build-r-package, build-julia-package]

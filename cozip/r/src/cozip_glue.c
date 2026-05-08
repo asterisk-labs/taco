@@ -9,8 +9,9 @@
  *       writing the __metadata__.parquet.
  *
  *   R_cozip_finalize(out_path, names, paths, sizes, in_idx, profile) -> NULL
- *       End-to-end pipeline: plan, build index payload, write
- *       archive, patch FNV-1a 64 integrity hash.
+ *       End-to-end pipeline via cozip_finalize: plan, padding
+ *       decision, build index payload, write archive, patch
+ *       FNV-1a 64 integrity hash.
  *
  * The .Call surface is profile-agnostic. Profile-specific logic
  * (FLAT's __metadata__.parquet, TACO's COLLECTION.json + METADATA/)
@@ -86,12 +87,14 @@ static void check_logicals(SEXP x, R_xlen_t expected_len, const char *who) {
                  who, (long long)expected_len, (long long)Rf_xlength(x));
 }
 
-/* Build a cozip_entry_t array from R-side vectors. Allocates from
- * R's transient pool.
+/* Build a cozip_entry_t array from R-side vectors. Allocates
+ * `capacity` slots from R's transient pool but only fills the first
+ * `n`. The extra slots stay zeroed; cozip_finalize uses one of them
+ * for a possible __cozip_padding__ entry.
  *
  * `paths` may be R_NilValue, in which case source.kind stays
  * COZIP_SOURCE_NONE on every entry — fine for cozip_plan, but
- * cozip_write_archive will reject it.
+ * cozip_finalize will reject it.
  *
  * NA in `paths[i]` also leaves source.kind = NONE for that entry.
  * cozip::create uses this for the __metadata__ placeholder slot
@@ -99,10 +102,10 @@ static void check_logicals(SEXP x, R_xlen_t expected_len, const char *who) {
  */
 static cozip_entry_t* build_entries(SEXP names, SEXP paths,
                                     SEXP sizes, SEXP in_idx,
-                                    R_xlen_t n) {
+                                    R_xlen_t n, R_xlen_t capacity) {
     cozip_entry_t *entries =
-        (cozip_entry_t*)R_alloc((size_t)n, sizeof(cozip_entry_t));
-    memset(entries, 0, (size_t)n * sizeof(cozip_entry_t));
+        (cozip_entry_t*)R_alloc((size_t)capacity, sizeof(cozip_entry_t));
+    memset(entries, 0, (size_t)capacity * sizeof(cozip_entry_t));
 
     for (R_xlen_t i = 0; i < n; i++) {
         SEXP name_sxp = STRING_ELT(names, i);
@@ -135,6 +138,26 @@ static cozip_entry_t* build_entries(SEXP names, SEXP paths,
 
 /* ---- 2. .Call entries ---- */
 
+/* Returns libcozip's reserved entry names as a named character
+ * vector with elements `index`, `padding`, `flat_metadata`. R-side
+ * code caches this at load to avoid drift with cozip.h.
+ */
+SEXP R_cozip_reserved_names(void) {
+    SEXP res = PROTECT(Rf_allocVector(STRSXP, 3));
+    SET_STRING_ELT(res, 0, Rf_mkChar(cozip_index_name()));
+    SET_STRING_ELT(res, 1, Rf_mkChar(cozip_padding_name()));
+    SET_STRING_ELT(res, 2, Rf_mkChar(cozip_flat_metadata_name()));
+
+    SEXP nm = PROTECT(Rf_allocVector(STRSXP, 3));
+    SET_STRING_ELT(nm, 0, Rf_mkChar("index"));
+    SET_STRING_ELT(nm, 1, Rf_mkChar("padding"));
+    SET_STRING_ELT(nm, 2, Rf_mkChar("flat_metadata"));
+    Rf_setAttrib(res, R_NamesSymbol, nm);
+
+    UNPROTECT(2);
+    return res;
+}
+
 SEXP R_cozip_plan(SEXP names, SEXP sizes, SEXP in_idx) {
     R_xlen_t n = Rf_xlength(names);
     check_chars(names, n, "names");
@@ -142,7 +165,7 @@ SEXP R_cozip_plan(SEXP names, SEXP sizes, SEXP in_idx) {
     check_logicals(in_idx, n, "in_idx");
 
     cozip_entry_t *entries =
-        build_entries(names, R_NilValue, sizes, in_idx, n);
+        build_entries(names, R_NilValue, sizes, in_idx, n, n);
 
     cozip_error_t err = {0};
     cozip_status_t s  = cozip_plan(entries, (size_t)n, &err);
@@ -187,10 +210,12 @@ SEXP R_cozip_finalize(SEXP out_path, SEXP names, SEXP paths,
     check_doubles(sizes, n, "sizes");
     check_logicals(in_idx, n, "in_idx");
 
+    /* +1 capacity leaves room for the optional __cozip_padding__
+     * entry that cozip_finalize appends on small archives. */
     cozip_entry_t *entries =
-        build_entries(names, paths, sizes, in_idx, n);
+        build_entries(names, paths, sizes, in_idx, n, n + 1);
 
-    /* Every entry must have a path at finalize time. The R-side
+    /* Every user entry must have a path at finalize time. The R-side
      * create() guarantees this (the __metadata__ placeholder gets
      * its real path patched in before this call). */
     for (R_xlen_t i = 0; i < n; i++) {
@@ -201,32 +226,11 @@ SEXP R_cozip_finalize(SEXP out_path, SEXP names, SEXP paths,
     }
 
     cozip_error_t err = {0};
-    cozip_status_t s;
     cozip_profile_t p = (cozip_profile_t)INTEGER(profile)[0];
+    const char *out  = Rf_translateCharUTF8(STRING_ELT(out_path, 0));
 
-    /* 1. Plan offsets. */
-    s = cozip_plan(entries, (size_t)n, &err);
-    if (s != COZIP_OK) R_THROW_COZIP(s, err);
-
-    /* 2. Size the index payload. */
-    size_t idx_size = 0;
-    s = cozip_index_payload_size(entries, (size_t)n, &idx_size, &err);
-    if (s != COZIP_OK) R_THROW_COZIP(s, err);
-
-    /* 3. Build the index payload. */
-    uint8_t *payload = (uint8_t*)R_alloc(idx_size, sizeof(uint8_t));
-    s = cozip_build_index_payload(entries, (size_t)n, p,
-                                  payload, idx_size, &err);
-    if (s != COZIP_OK) R_THROW_COZIP(s, err);
-
-    /* 4. Write the archive (libzip). */
-    const char *out = Rf_translateCharUTF8(STRING_ELT(out_path, 0));
-    s = cozip_write_archive(out, entries, (size_t)n,
-                            payload, idx_size, &err);
-    if (s != COZIP_OK) R_THROW_COZIP(s, err);
-
-    /* 5. Patch the FNV-1a 64 integrity hash into bytes 43..50. */
-    s = cozip_patch_integrity_hash(out, idx_size, &err);
+    cozip_status_t s = cozip_finalize(out, entries, (size_t)n,
+                                      (size_t)(n + 1), p, &err);
     if (s != COZIP_OK) R_THROW_COZIP(s, err);
 
     return R_NilValue;
@@ -236,8 +240,9 @@ SEXP R_cozip_finalize(SEXP out_path, SEXP names, SEXP paths,
 /* ---- 3. Routine registration ---- */
 
 static const R_CallMethodDef CallEntries[] = {
-    {"R_cozip_plan",     (DL_FUNC) &R_cozip_plan,     3},
-    {"R_cozip_finalize", (DL_FUNC) &R_cozip_finalize, 6},
+    {"R_cozip_reserved_names", (DL_FUNC) &R_cozip_reserved_names, 0},
+    {"R_cozip_plan",           (DL_FUNC) &R_cozip_plan,           3},
+    {"R_cozip_finalize",       (DL_FUNC) &R_cozip_finalize,       6},
     {NULL, NULL, 0}
 };
 

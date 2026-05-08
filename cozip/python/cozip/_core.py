@@ -1,4 +1,4 @@
-"""cffi bindings to libcozip. Loads the bundled shared library at import time."""
+"""cffi bindings to libcozip. Loads the bundled shared library at import time"""
 
 import os
 import sys
@@ -6,7 +6,7 @@ from pathlib import Path
 
 import cffi
 
-# Status codes. Must match cozip.h.
+# Status codes. Must match cozip.h
 COZIP_OK                    = 0
 COZIP_ERR_INVALID_LFH       = 1
 COZIP_ERR_ARCHIVE_TOO_SMALL = 2
@@ -14,12 +14,12 @@ COZIP_ERR_INVALID_ARGUMENT  = 100
 COZIP_ERR_BUFFER_TOO_SMALL  = 101
 COZIP_ERR_IO                = 102
 
-# Profile selector for cozip_build_index_payload.
+# Profile selector for cozip_build_index_payload
 COZIP_PROFILE_NONE = 0
 COZIP_PROFILE_FLAT = 1
 COZIP_PROFILE_TACO = 2
 
-# Source kind for cozip_entry_t.source.kind.
+# Source kind for cozip_entry_t.source.kind
 COZIP_SOURCE_NONE   = 0
 COZIP_SOURCE_PATH   = 1
 COZIP_SOURCE_BUFFER = 2
@@ -47,6 +47,9 @@ typedef struct {
 
 const char* cozip_status_string(int status);
 const char* cozip_version_string(void);
+const char* cozip_index_name(void);
+const char* cozip_padding_name(void);
+const char* cozip_flat_metadata_name(void);
 
 int cozip_plan(cozip_entry_t*, size_t, cozip_error_t*);
 int cozip_index_payload_size(const cozip_entry_t*, size_t,
@@ -56,6 +59,14 @@ int cozip_build_index_payload(const cozip_entry_t*, size_t, int,
 int cozip_write_archive(const char*, const cozip_entry_t*, size_t,
                         const uint8_t*, size_t, cozip_error_t*);
 int cozip_patch_integrity_hash(const char*, size_t, cozip_error_t*);
+
+uint64_t cozip_predict_zip32_archive_size(const cozip_entry_t*, size_t,
+                                          size_t);
+uint64_t cozip_required_padding_payload(uint64_t);
+
+int cozip_plan_flat(cozip_entry_t*, size_t, cozip_error_t*);
+int cozip_write_flat(const char*, cozip_entry_t*, size_t, size_t,
+                     const char*, cozip_error_t*);
 """)
 
 

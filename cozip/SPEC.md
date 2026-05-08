@@ -1,9 +1,9 @@
 # Cloud Optimized ZIP Format Specification
 
-**Version** 1.0
+**Version** 1.0.1
 **Binary format version** 1  
 **Status** Stable  
-**Date** 2026-05-03  
+**Date** 2026-05-09  
 **License** CC BY 4.0
 
 ---
@@ -120,6 +120,7 @@ A cozip filename is a UTF-8 string stored in the ZIP filename field.
 4. A filename **MUST** use `/` as the path separator when a path separator is needed.
 5. A filename **MUST NOT** be `.` or `..`, and **MUST NOT** contain `/.` or `/..` path components.
 6. The name `__cozip__` is reserved for the index entry and **MUST NOT** be used by any other entry. Profiles may reserve additional names.
+7. The name `__cozip_padding__` is reserved. A writer **MAY** emit a single ZIP entry with this name to satisfy §5.1.12. Such an entry **MUST NOT** appear in the cozip index, and no other entry **MAY** use this name. Its payload contents and byte length are unspecified; readers **MUST** treat it as an ordinary non-priority ZIP entry with no semantic meaning.
 
 ## 6. Writer model
 
@@ -138,6 +139,8 @@ The archive is finalized after the writer has:
 5. computed and patched the cozip integrity hash (section 8.4).
 
 The hash patch is the only mutation permitted during finalization. It does not invalidate any ZIP CRC-32, because ZIP CRC-32 covers entry payload bytes, not Local File Header extra-field metadata. After finalization the archive **MUST NOT** be modified.
+
+*Informative.* A planned archive whose total predicted size is below the §5.1.12 minimum cannot be finalized as-is, because the integrity-hash bytes at offsets 43–50 would fall inside the 32 KiB suffix region and produce a self-referential hash input. To resolve this, the writer must extend the archive past the floor through any mechanism that does not violate the requirements of this section. The recommended mechanism, and the one used by the reference writer, is to append a single non-indexed entry named `__cozip_padding__` (§5.3.7), placed last so that user payload offsets remain stable across re-planning. The padding entry's payload contents and length are at the writer's discretion. Writers that satisfy §5.1.12 by other means (for example, by enlarging a profile-controlled metadata payload) are equally valid; the only spec-level requirement is that the resulting archive conform to Part I in full.
 
 ## 7. Index layout
 
@@ -339,7 +342,7 @@ Writers **MAY** place `__metadata__` as the last file entry in the archive befor
 
 ### 13.3 Schema
 
-The `__metadata__` Parquet file **MUST** contain one row for every ZIP data entry except the `__cozip__` index entry and the `__metadata__` entry itself.
+The `__metadata__` Parquet file **MUST** contain one row for every ZIP data entry except the `__cozip__` index entry, the `__metadata__` entry itself, and the `__cozip_padding__` entry if present (§5.3.7).
 
 The Parquet file **MUST** contain at least the following columns:
 
@@ -375,6 +378,8 @@ The `DATA/` and `METADATA/` layouts, and the contents of `COLLECTION.json` and t
 ### 14.3 Position and contiguity
 
 All TACO priority files **MUST** form one contiguous final file-entry block immediately before the Central Directory. No non-priority entry **MAY** appear between two TACO priority entries, and no entry **MAY** appear after the priority block. The relative order of priority files within this block is unspecified; readers locate each by name through the cozip index.
+
+A `__cozip_padding__` entry (§5.3.7), when present, **MUST** be placed before the priority block; it **MUST NOT** appear inside or after it.
 
 This guarantees that the priority payloads are addressable through one contiguous archive region. A reader **MAY** compute:
 
@@ -418,7 +423,8 @@ When serving `.zip` over HTTP, servers must preserve byte-exact object bytes for
 | 1.0-draft.3  | 2026-04-28 | **Editorial refactor of Part I.** Removed the *Semantics and guarantees* section as fully redundant with §4–§8. Consolidated STORE+size, encryption, ZIP64-sentinel, name-uniqueness, archive-immutability, and hash-byte-range statements that were repeated across §5, §6, §7, §8, §9. Reorganised §5.1 into three groups (Index entry / All ZIP entries / Archive-level). Reduced §5.2 from six items to three. Made §8.5 step 1 the single canonical LFH validation list and added a missing check for GP bit 11 set and exact 9-byte filename equality; §10 step 2 now references it. Relaxed the §7.5 archive-size constraint from MUST to SHOULD on the reader side (writers still MUST). Reduced error codes from 24 to 15 by collapsing index/zip duplicate-name codes, name/UTF-8 codes, range/overflow codes, and per-entry violation codes into single canonical names. Fixed the APPNOTE URL in Appendix C. |
 | 1.0-draft.4  | 2026-04-28 | **Editorial refactor of Part II.** Collapsed *what a profile MAY do* and *what a profile MUST NOT do* into a single profile-constraints section, and folded reader-behavior duplication into §7.1. Removed the Flat-profile §14.3 *position requirement* as a normative MUST; placement of `__metadata__` is now an informative writer hint. Removed the Flat-profile schema's *Must be unique* note for the `name` column (already covered archive-wide by §5.1.9) and clarified that an archive with no other data entries may carry a zero-row `__metadata__`. Removed from the TACO profile the prohibition on directory entries for `DATA/` and `METADATA/` (already prohibited archive-wide by §5.1.5). Clarified that the relative order of TACO priority files within the contiguous priority block is unspecified. Section numbering shifted: Profiles is now §12, Flat is §13, TACO is §14. |
 | 1.0-draft.5  | 2026-04-29 | Relaxed §5.1.8 and §8.5 step 1.ii to require GP bit 11 (UTF-8) only when the filename contains bytes ≥ 0x80. Aligns the spec with common ZIP writer behavior and unblocks libzip builds that omit the flag for ASCII-only names. |
-| 1.0          | 2026-05-03 | First stable release. Some redundant normative statements were removed during the draft phase, but no technical changes were made between 1.0-draft.5 and 1.0.
+| 1.0          | 2026-05-03 | First stable release. Some redundant normative statements were removed during the draft phase, but no technical changes were made between 1.0-draft.5 and 1.0. |
+| 1.0.1        | 2026-05-09 | Reserved the name `__cozip_padding__` in §5.3.7 as a writer-side mechanism for satisfying the §5.1.12 minimum archive size, and added an informative note in §6 documenting the recommended use. Excluded `__cozip_padding__` from the Flat-profile `__metadata__` row set (§13.3), and clarified its placement under the TACO profile (§14.3). No on-disk format change; archives produced under 1.0 remain valid under 1.0.1 without modification. |
 
 
 ## Appendix C. References

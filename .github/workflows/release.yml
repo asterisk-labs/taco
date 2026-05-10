@@ -451,12 +451,10 @@ jobs:
             cp "$plat_dir/LICENSE"   "$stage/"
             cp "$plat_dir/README.md" "$stage/"
 
-            (cd staging && \
-              if [ "$plat" = "windows-x86_64" ]; then
-                zip -qr "../release-files/${pkg}.zip" "$pkg"
-              else
-                tar czf "../release-files/${pkg}.tar.gz" "$pkg"
-              fi)
+            (cd staging && tar czf "../release-files/${pkg}.tar.gz" "$pkg")
+            if [ "$plat" = "windows-x86_64" ]; then
+              (cd staging && zip -qr "../release-files/${pkg}.zip" "$pkg")
+            fi
           done
 
       # Hyphen in version (2026.5.1-rc1 etc) marks a prerelease.

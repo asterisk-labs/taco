@@ -1,6 +1,7 @@
 module LibCozip
 
 using Artifacts
+using LazyArtifacts
 
 # Must match cozip.h.
 const COZIP_SOURCE_PATH        = Cint(1)
@@ -61,22 +62,11 @@ function _resolve_lib_path()
         return env
     end
 
-    # @artifact_str resolves at precompile and breaks with stale Artifacts.toml.
-    artifacts_toml = joinpath(@__DIR__, "..", "Artifacts.toml")
-    isfile(artifacts_toml) || error("cozip: missing $artifacts_toml")
-    hash = artifact_hash("cozip", artifacts_toml)
-    hash === nothing && error(
-        "cozip: no matching artifact for current platform in $artifacts_toml. " *
-        "Set COZIP_LIB_PATH=/path/to/cozip.{so,dylib,dll} to override.",
-    )
-    artifact_exists(hash) || error(
-        "cozip: artifact $hash is not installed. " *
-        "Run `using Pkg; Pkg.instantiate()` from the active project.",
-    )
-    artifact_dir = artifact_path(hash)
+    # LazyArtifacts makes @artifact_str auto-download lazy=true artifacts on
+    # first use at runtime. No Pkg.instantiate or restart-runtime needed.
+    base = artifact"cozip"
 
     # Release tarballs wrap a libcozip-VERSION-PLAT/ folder; descend if present.
-    base = artifact_dir
     entries = readdir(base)
     if length(entries) == 1 && isdir(joinpath(base, entries[1]))
         base = joinpath(base, entries[1])

@@ -875,8 +875,8 @@
 
   function cleanDownloadName(raw) {
     const requested = String(raw || "").trim();
-    const cleaned = cleanArchiveName(requested || "dataset.cozip.zip").replace(/\//g, "-");
-    return cleaned || "dataset.cozip.zip";
+    const cleaned = cleanArchiveName(requested || "dataset.zip").replace(/\//g, "-");
+    return cleaned || "dataset.zip";
   }
 
   function encodeName(name) {

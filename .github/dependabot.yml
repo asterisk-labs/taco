@@ -1,0 +1,21 @@
+# taco tracks cozip: when cozip publishes a release, this bumps the floor here
+# so the writer and the container library never drift apart silently.
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/python"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "deps"
+    groups:
+      cozip:
+        patterns:
+          - "cozip"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    commit-message:
+      prefix: "ci"

@@ -1,6 +1,6 @@
 # 🌮 TACO Specification v3.0.0
 
-The formal specification for TACO (Transparent Access to Cloud-Optimized datasets), a format for packaging AI-ready Earth Observation datasets.
+The formal specification for TACO (Transparent Access to Cloud-Optimized datasets), a format for packaging Earth Observation datasets.
 
 ## Files
 

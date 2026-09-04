@@ -10,7 +10,9 @@
   <div class="app-shell">
     <header class="topbar">
       <div class="brand">
-        <img src="../../cozip/images/cozip_logo.png" alt="cozip">
+        <a href="https://github.com/asterisk-labs/cozip" target="_blank" rel="noopener noreferrer">
+          <img src="https://asterisk.coop/cozip/images/cozip_logo.svg" alt="cozip">
+        </a>
         <div>
           <h1>cozip Playground</h1>
           <p>Build a byte-zero indexed ZIP and inspect every moving part.</p>
@@ -19,7 +21,7 @@
       <div class="status-strip" aria-label="Playground status">
         <span class="status-pill ok">Client-side</span>
         <span class="status-pill">STORE only</span>
-        <span class="status-pill wasm" id="wasmStatus">WASM optional</span>
+        <a class="status-pill" href="https://github.com/asterisk-labs/cozip" target="_blank" rel="noopener noreferrer">cozip project ↗</a>
       </div>
     </header>
 
@@ -101,7 +103,7 @@
           <button type="button" class="tab" data-tab="index">Index</button>
           <button type="button" class="tab" data-tab="zip">ZIP</button>
           <button type="button" class="tab" data-tab="hash">Hash</button>
-          <button type="button" class="tab" data-tab="wasm">WASM</button>
+          <button type="button" class="tab" data-tab="project">cozip project</button>
         </div>
 
         <div class="tab-panels">
@@ -130,16 +132,14 @@
             <p>The FNV-1a 64 value covers the index payload and final 32 KiB of the archive. It is a structural check, not a cryptographic signature.</p>
             <pre id="hashPreview">No hash yet.</pre>
           </article>
-          <article class="tab-panel" id="tab-wasm">
-            <h3>Client-side WASM path</h3>
-            <p>The C writer can run in the browser through Emscripten. This page automatically uses the compiled writer when the static WASM files are deployed, then falls back to the JavaScript explainer when they are not.</p>
-            <ol>
-              <li>Build <code>cozip/javascript/wasm/cozip.js</code> and <code>cozip.wasm</code> with Emscripten.</li>
-              <li>Deploy them with <code>cozip/javascript/src/cozip-wasm-wrapper.js</code> on the same static site.</li>
-              <li>Copy browser <code>File</code> bytes into WASM memory.</li>
-              <li>Call <code>cozip_wasm_write_archive_from_buffers</code>, which runs plan, index serialization, archive write, padding, and hash patching in C.</li>
-              <li>Read the output ZIP bytes from MEMFS and download them as a Blob.</li>
-            </ol>
+          <article class="tab-panel" id="tab-project">
+            <h3>Official cozip implementation</h3>
+            <p>This page is an educational JavaScript explainer. The production C writer, language bindings, JavaScript reader, specification, and releases live in the separate <a href="https://github.com/asterisk-labs/cozip" target="_blank" rel="noopener noreferrer">asterisk-labs/cozip</a> project.</p>
+            <ul>
+              <li><a href="https://github.com/asterisk-labs/cozip/blob/main/SPEC.md" target="_blank" rel="noopener noreferrer">Read the cozip specification</a>.</li>
+              <li><a href="https://github.com/asterisk-labs/cozip#bindings" target="_blank" rel="noopener noreferrer">Install an official language binding</a>.</li>
+              <li><a href="https://github.com/asterisk-labs/cozip/releases" target="_blank" rel="noopener noreferrer">Download a cozip release</a>.</li>
+            </ul>
           </article>
         </div>
 

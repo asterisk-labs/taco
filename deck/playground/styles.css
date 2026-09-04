@@ -162,6 +162,7 @@ a.download.disabled {
   color: var(--muted);
   background: #fff;
   font-size: 13px;
+  text-decoration: none;
   white-space: nowrap;
 }
 

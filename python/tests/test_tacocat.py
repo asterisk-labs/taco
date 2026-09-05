@@ -163,3 +163,33 @@ def test_partitioned_build_publishes_only_after_every_part_succeeds(
     assert not (output.parent / "ds_val.zip").exists()
     assert not (output.parent / ".tacocat").exists()
     assert not list(output.parent.glob(".ds.release-*"))
+
+
+def test_partitioned_build_restores_outputs_when_publish_fails(
+    tmp_path: Path, collection, make_sample, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import taco._publish as publish_module
+
+    output = tmp_path / "parts" / "ds.zip"
+    native_move = publish_module._move_without_replacing
+    published = 0
+
+    def fail_second_output(source: Path, target: Path) -> None:
+        nonlocal published
+        if target.parent == output.parent and target.suffix == ".zip":
+            published += 1
+            if published == 2:
+                raise OSError("publish failed")
+        native_move(source, target)
+
+    monkeypatch.setattr(publish_module, "_move_without_replacing", fail_second_output)
+    with taco.open_writer(collection, output, partition_by="split") as writer:
+        writer.add(make_sample(0))
+        writer.add(make_sample(1))
+        with pytest.raises(OSError, match="publish failed"):
+            writer.run()
+
+    assert not (output.parent / "ds_train.zip").exists()
+    assert not (output.parent / "ds_val.zip").exists()
+    assert not (output.parent / ".tacocat").exists()
+    assert not list(output.parent.glob(".taco-backup-*"))

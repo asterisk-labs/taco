@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import tempfile
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -49,6 +50,48 @@ def publish_many(replacements: Sequence[tuple[Path, Path]], *, overwrite: bool) 
         if existing is not None:
             raise FileExistsError(f"output already exists (set overwrite=True): {existing}")
 
-    for source, target in replacements:
-        target.parent.mkdir(parents=True, exist_ok=True)
-        publish_file(source, target, overwrite=overwrite)
+    parent = replacements[0][1].parent
+    parent.mkdir(parents=True, exist_ok=True)
+    backup = Path(tempfile.mkdtemp(prefix=".taco-backup-", dir=parent))
+    (backup / "new").mkdir()
+    previous: list[tuple[Path, Path]] = []
+    installed: list[Path] = []
+    try:
+        if overwrite:
+            for index, (_, target) in enumerate(replacements):
+                if target.exists() or target.is_symlink():
+                    saved = backup / f"old-{index}"
+                    target.replace(saved)
+                    previous.append((saved, target))
+        for source, target in replacements:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            _move_without_replacing(source, target)
+            installed.append(target)
+    except BaseException as exc:
+        failures = _restore(previous, installed, backup)
+        if failures:
+            details = "; ".join(failures)
+            raise RuntimeError(f"publication failed and could not be restored: {details}; backup: {backup}") from exc
+        shutil.rmtree(backup, ignore_errors=True)
+        raise
+    shutil.rmtree(backup, ignore_errors=True)
+
+
+def _restore(previous: list[tuple[Path, Path]], installed: list[Path], backup: Path) -> list[str]:
+    move_failures: dict[Path, str] = {}
+    restore_failures: list[str] = []
+    discarded = backup / "new"
+    for index, target in reversed(list(enumerate(installed))):
+        if not target.exists() and not target.is_symlink():
+            continue
+        try:
+            target.replace(discarded / str(index))
+        except OSError as exc:
+            move_failures[target] = f"could not move {target}: {exc}"
+    for saved, target in reversed(previous):
+        try:
+            saved.replace(target)
+            move_failures.pop(target, None)
+        except OSError as exc:
+            restore_failures.append(f"could not restore {target}: {exc}")
+    return [*move_failures.values(), *restore_failures]

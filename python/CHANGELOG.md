@@ -7,8 +7,6 @@ All notable changes to `taco` are documented here. The format follows
 
 ### Changed
 
-- Partitioned ZIP builds, folder metadata commits and TACOCAT replacement are
-  transactional.
 - The reader keeps one DuckDB connection per thread.
 - Collection and nested sample values are validated before writing.
 - Python checks now cover formatting, strict typing, warnings and branch

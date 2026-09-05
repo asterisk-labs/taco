@@ -223,6 +223,12 @@ def _check_scalar(value: object, dtype: pa.DataType) -> None:
     elif pa.types.is_timestamp(dtype):
         if isinstance(value, bool) or not isinstance(value, (datetime, int)):
             _reject(value, dtype, "expected a datetime or an integer epoch value")
+        if isinstance(value, datetime):
+            aware = value.utcoffset() is not None
+            if aware and dtype.tz is None:
+                _reject(value, dtype, "timezone-aware datetime needs a timestamp with a timezone")
+            if not aware and dtype.tz is not None:
+                _reject(value, dtype, "naive datetime needs a timestamp without a timezone")
     elif pa.types.is_date(dtype):
         if isinstance(value, datetime) or not isinstance(value, date):
             _reject(value, dtype, "expected a date")

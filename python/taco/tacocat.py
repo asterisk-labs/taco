@@ -17,6 +17,7 @@ from ._view import DatasetView, open_view
 from .contract.collection import Extent
 from .contract.naming import COLLECTION_FILENAME, SOURCE_FILE, TACOCAT_DIR, level_to_filename, validate_component
 from .errors import ConsolidationError, ContractError
+from .writer.levels import level_schema
 
 __all__ = ["consolidate"]
 
@@ -33,6 +34,15 @@ def _check_partition(dataset: DatasetView, reference: DatasetView) -> None:
         raise ConsolidationError(f"TACOCAT consolidates archive partitions, got {dataset.container}: {dataset.path}")
     if dataset.contract != reference.contract:
         raise ConsolidationError(f"{dataset.path.name} was built with a different contract than {reference.path.name}")
+    if _collection_metadata(dataset) != _collection_metadata(reference):
+        raise ConsolidationError(f"{dataset.path.name} has different collection metadata than {reference.path.name}")
+
+
+def _collection_metadata(dataset: DatasetView) -> dict[str, Any]:
+    metadata = dict(dataset.collection_json)
+    metadata.pop("extent", None)
+    metadata.pop("taco:sources", None)
+    return metadata
 
 
 def _ordered_table(dataset: DatasetView, reference: DatasetView, level: str) -> pa.Table:
@@ -93,7 +103,9 @@ def consolidate(
     _check_partition(reference, reference)
     writer_options = parquet_writer_options(parquet_options)
     output_schemas = {
-        level: reference.level(level).schema.append(pa.field(SOURCE_FILE, pa.string(), nullable=False))
+        level: level_schema(reference.contract, level, with_offsets=True).append(
+            pa.field(SOURCE_FILE, pa.string(), nullable=False)
+        )
         for level in reference.levels
     }
     collection = dict(reference.collection_json)
@@ -120,6 +132,7 @@ def consolidate(
                     table = _ordered_table(dataset, reference, level)
                     source = pa.array([dataset.path.name] * table.num_rows, type=pa.string())
                     table = table.append_column(output_schemas[level].field(SOURCE_FILE), source)
+                    table = pa.Table.from_arrays(table.columns, schema=output_schemas[level])
                     if table.num_rows:
                         writers[level].write_table(table, row_group_size=row_group_size)
                     else:

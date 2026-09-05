@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pyarrow.parquet as pq
 import pytest
 
 import taco
@@ -28,6 +29,9 @@ def test_partition_by_field(tmp_path: Path, collection, make_sample) -> None:
     catalog = open_dataset(result.path)
     assert catalog.container == "tacocat"
     assert catalog.sample_count == 5
+    schema = pq.read_schema(result.path / "collection.parquet")
+    assert schema.metadata == {b"taco:level": b"collection"}
+    assert schema.field("split").metadata == {b"description": b"Dataset split"}
     sources = catalog.collection_json["taco:sources"]
     assert sources["count"] == 2
     assert sources["files"] == ["ds_train.zip", "ds_val.zip"]
@@ -107,6 +111,13 @@ def test_consolidate_manual_and_errors(tmp_path: Path, collection, make_sample) 
     (nested / "a.zip").write_bytes(parts[0].read_bytes())
     with pytest.raises(ConsolidationError, match="unique"):
         taco.consolidate([parts[0], nested / "a.zip"], tmp_path / "dup")
+
+    changed = collection.replace(title="Different")
+    with taco.open_writer(changed, tmp_path / "changed.zip") as writer:
+        writer.add(make_sample(2))
+        changed_part = writer.run().path
+    with pytest.raises(ConsolidationError, match="different collection metadata"):
+        taco.consolidate([parts[0], changed_part], tmp_path / "mismatch")
 
 
 def test_partition_name_collision(tmp_path: Path, make_sample) -> None:

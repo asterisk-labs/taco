@@ -108,35 +108,3 @@ def test_folder_overwrite_keeps_previous_dataset_on_failure(
 
     assert (folder / "COLLECTION.json").read_bytes() == original_collection
     assert open_dataset(folder).sample_count == 1
-
-
-def test_folder_append_restores_metadata_when_commit_fails(
-    tmp_path: Path, collection, make_sample, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    import taco._publish as publish_module
-
-    folder = tmp_path / "ds"
-    with taco.open_folder(collection, folder) as writer:
-        writer.add(make_sample(0))
-        writer.run()
-
-    original_collection = (folder / "COLLECTION.json").read_bytes()
-    native_move = publish_module._move_without_replacing
-    failed = False
-
-    def fail_once(source: Path, target: Path) -> None:
-        nonlocal failed
-        if not failed and source.name == "sample.parquet" and target.parent.name == "METADATA":
-            failed = True
-            raise OSError("commit failed")
-        native_move(source, target)
-
-    monkeypatch.setattr(publish_module, "_move_without_replacing", fail_once)
-    with taco.open_folder(collection.replace(dataset_version="2.0.0"), folder, append=True) as writer:
-        writer.add(make_sample(1))
-        with pytest.raises(OSError, match="commit failed"):
-            writer.run()
-
-    assert not (folder / "DATA" / "1").exists()
-    assert (folder / "COLLECTION.json").read_bytes() == original_collection
-    assert open_dataset(folder).sample_count == 1

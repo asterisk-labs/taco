@@ -35,6 +35,24 @@ def test_missing_dataset(tmp_path: Path) -> None:
     with pytest.raises(ValidationFailed):
         report.raise_for_errors()
 
+    malformed = taco.validate("bad\0path.zip")
+    assert not malformed.ok
+    assert _codes(malformed) == {"container"}
+
+
+def test_check_data_false_still_checks_zip_structure(archive: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    native_zipfile = zipfile.ZipFile
+    opened = False
+
+    def open_zip(*args, **kwargs):
+        nonlocal opened
+        opened = True
+        return native_zipfile(*args, **kwargs)
+
+    monkeypatch.setattr(zipfile, "ZipFile", open_zip)
+    assert taco.validate(archive, check_data=False).ok
+    assert opened
+
 
 def test_warnings_for_optional_fields(tmp_path: Path) -> None:
     contract = taco.Contract(structure=["a.bin"])

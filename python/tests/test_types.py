@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 import pyarrow as pa
@@ -123,3 +123,11 @@ def test_coerce_value_normalizes() -> None:
 def test_coerce_value_checks_nested_and_lossy_values(value, dtype: pa.DataType, match: str) -> None:
     with pytest.raises(TypeError, match=match):
         coerce_value(value, dtype)
+
+
+def test_coerce_value_rejects_timezone_mismatch() -> None:
+    aware = datetime(2024, 1, 1, 12, tzinfo=timezone(timedelta(hours=5)))
+    with pytest.raises(TypeError, match="timestamp with a timezone"):
+        coerce_value(aware, pa.timestamp("us"))
+    with pytest.raises(TypeError, match="timestamp without a timezone"):
+        coerce_value(aware.replace(tzinfo=None), pa.timestamp("us", tz="UTC"))

@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import logging
-import os
 import shutil
 import tempfile
 from collections.abc import Mapping
+from os import PathLike
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -20,8 +19,6 @@ if TYPE_CHECKING:
 
 __all__ = ["FolderWriter", "open_folder"]
 
-logger = logging.getLogger("taco")
-
 
 def _looks_like_taco_folder(path: Path) -> bool:
     return (path / COLLECTION_FILENAME).is_file() and (path / METADATA_DIR).is_dir()
@@ -33,13 +30,13 @@ class FolderWriter(StagedWriter):
     ``append=True`` opens an existing folder built with the same contract and
     continues the sample numbering; the ``collection`` you pass becomes the
     new ``COLLECTION.json`` (bump ``dataset_version`` accordingly).
-    ``link=True`` hard-links assets instead of copying when possible.
+    ``link=True`` hard-links assets instead of copying them.
     """
 
     def __init__(
         self,
         collection: Collection,
-        directory: str | os.PathLike[str],
+        directory: str | PathLike[str],
         *,
         append: bool = False,
         overwrite: bool = False,
@@ -91,13 +88,8 @@ class FolderWriter(StagedWriter):
     def _place(self, source: Path, target: Path) -> int:
         target.parent.mkdir(parents=True, exist_ok=True)
         if self.link:
-            try:
-                if target.exists():
-                    target.unlink()
-                os.link(source, target)
-                return source.stat().st_size
-            except OSError:
-                logger.debug("hard link failed for %s, copying instead", source)
+            target.hardlink_to(source)
+            return source.stat().st_size
         shutil.copyfile(source, target)
         return target.stat().st_size
 
@@ -189,7 +181,7 @@ class FolderWriter(StagedWriter):
 
 def open_folder(
     collection: Collection,
-    directory: str | os.PathLike[str],
+    directory: str | PathLike[str],
     *,
     append: bool = False,
     overwrite: bool = False,

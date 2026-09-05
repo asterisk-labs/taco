@@ -5,7 +5,7 @@ A specification for organizing Earth Observation datasets.
 v3.0.0 in progress.
 
 - [`spec/`](spec/) is the specification document (open `spec/index.html`).
-- [`python/`](python/) is the reference Python writer, installed as `taco-eo`
+- [`python/`](python/) is the reference Python writer
   and imported as `taco`. It builds immutable `.zip` archives carrying cozip
   profile `TACO`, FOLDER datasets with incremental append and TACOCAT
   consolidations, and validates existing datasets.

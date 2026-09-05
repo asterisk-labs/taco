@@ -31,11 +31,13 @@ def connect() -> duckdb.DuckDBPyConnection:
         local = os.environ.get(EXTENSION_ENV)
         connection = None
         try:
+            config: dict[str, str | bool | int | float | list[str]] = {"TimeZone": "UTC"}
             if local:
-                connection = duckdb.connect(config={"allow_unsigned_extensions": "true"})
+                config["allow_unsigned_extensions"] = "true"
+                connection = duckdb.connect(config=config)
                 connection.load_extension(local)
             else:
-                connection = duckdb.connect()
+                connection = duckdb.connect(config=config)
                 connection.install_extension("cozip", repository="community")
                 connection.load_extension("cozip")
             available = connection.execute(

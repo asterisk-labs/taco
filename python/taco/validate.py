@@ -99,7 +99,7 @@ def validate(path: str | PathLike[str], *, check_data: bool = True) -> Validatio
     collector = _Collector(location)
     try:
         dataset = open_view(location)
-    except TacoError as exc:
+    except (TacoError, OSError, ValueError) as exc:
         collector.error("container", str(exc))
         return collector.report
     collector.report.container = dataset.container
@@ -351,10 +351,7 @@ def _check_zip(dataset: DatasetView, collector: _Collector, *, check_data: bool)
     # and every declared byte range. What is left is TACO's own contract with
     # the archive around it.
     expected = {COLLECTION_FILENAME, *(f"{METADATA_DIR}/{level_to_filename(level)}" for level in dataset.levels)}
-    if not check_data:
-        return
-
-    expected_data = {row.archive_name: (row.offset, row.size) for row in dataset.iter_data_rows()}
+    expected_data = {row.archive_name: (row.offset, row.size) for row in dataset.iter_data_rows()} if check_data else {}
     seen_data: dict[str, tuple[int, int]] = {}
     try:
         with zipfile.ZipFile(dataset.path) as archive, dataset.path.open("rb") as stream:
@@ -374,10 +371,13 @@ def _check_zip(dataset: DatasetView, collector: _Collector, *, check_data: bool)
                     collector.error("zip", f"entry {name!r} is not STORE")
                 if info.is_dir():
                     collector.error("zip", f"explicit directory entry {name!r} is forbidden")
-                if name.startswith(DATA_DIR + "/"):
+                if check_data and name.startswith(DATA_DIR + "/"):
                     seen_data[name] = (data_offset, size)
     except (zipfile.BadZipFile, ValueError) as exc:
         collector.error("zip", f"cannot read ZIP structure: {exc}")
+        return
+
+    if not check_data:
         return
 
     missing_entries = sorted(set(expected_data) - set(seen_data))

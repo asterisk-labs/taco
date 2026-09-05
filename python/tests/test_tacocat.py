@@ -29,14 +29,17 @@ def test_partition_by_field(tmp_path: Path, collection, make_sample) -> None:
     assert catalog.container == "tacocat"
     assert catalog.sample_count == 5
     sources = catalog.collection_json["taco:sources"]
-    assert sources["count"] == 2 and sources["files"] == ["ds_train.zip", "ds_val.zip"]
+    assert sources["count"] == 2
+    assert sources["files"] == ["ds_train.zip", "ds_val.zip"]
     assert sources["extents"][1]["samples"] == 2
     sample = catalog.level("sample")
     assert sample.column_names[-1] == "internal:source_file"
     assert set(sample.column("internal:source_file").to_pylist()) == {"ds_train.zip", "ds_val.zip"}
     row = next(catalog.iter_data_rows())
     assert (tmp_path / "parts" / row.source_file).is_file()
-    assert row.offset is not None and row.size > 0
+    assert row.offset is not None
+    assert row.size is not None
+    assert row.size > 0
     report = taco.validate(result.path)
     assert report.ok, report
 
@@ -56,7 +59,8 @@ def test_single_partition_falls_back_to_one_archive(tmp_path: Path, collection, 
     with taco.open_writer(collection, tmp_path / "one.zip", partition_size="10GB") as writer:
         writer.add(make_sample(0))
         result = writer.run()
-    assert not result.partitioned and result.path.name == "one.zip"
+    assert not result.partitioned
+    assert result.path.name == "one.zip"
 
 
 def test_partition_arguments(tmp_path: Path, collection) -> None:
@@ -64,8 +68,10 @@ def test_partition_arguments(tmp_path: Path, collection) -> None:
         taco.open_writer(collection, tmp_path / "x.zip", partition_size="1GB", partition_by="split")
     with pytest.raises(ValueError, match="collection-level"):
         taco.open_writer(collection, tmp_path / "x.zip", partition_by="nope")
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="invalid size"):
         taco.open_writer(collection, tmp_path / "x.zip", partition_size="lots")
+    with pytest.raises(TypeError, match="int or a string"):
+        taco.open_writer(collection, tmp_path / "x.zip", partition_size=1.5)  # type: ignore[arg-type]
 
 
 def test_consolidate_manual_and_errors(tmp_path: Path, collection, make_sample) -> None:
@@ -87,10 +93,15 @@ def test_consolidate_manual_and_errors(tmp_path: Path, collection, make_sample) 
     with taco.open_writer(other, tmp_path / "c.zip") as writer:
         writer.add(taco.Sample(assets={"x.tif": b"x"}))
         different = writer.run().path
+    snapshot = {path.name: path.read_bytes() for path in target.iterdir()}
     with pytest.raises(ConsolidationError, match="different contract"):
         taco.consolidate([*parts, different], overwrite=True)
+    assert {path.name: path.read_bytes() for path in target.iterdir()} == snapshot
+    assert not list(tmp_path.glob(".tacocat-build-*"))
     with pytest.raises(ConsolidationError, match="no partitions"):
         taco.consolidate([])
+    with pytest.raises(ConsolidationError, match="portable directory"):
+        taco.consolidate(parts, tmp_path / "escape", name="../catalog")
     nested = tmp_path / "nested"
     nested.mkdir()
     (nested / "a.zip").write_bytes(parts[0].read_bytes())
@@ -114,3 +125,30 @@ def test_partition_name_collision(tmp_path: Path, make_sample) -> None:
         writer.add(taco.Sample(assets={"a.bin": b"2"}, metadata={"collection": {"g": "a:b"}}))
         with pytest.raises(WriterError, match="collide"):
             writer.run()
+
+
+def test_partitioned_build_publishes_only_after_every_part_succeeds(
+    tmp_path: Path, collection, make_sample, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    output = tmp_path / "parts" / "ds.zip"
+    with taco.open_writer(collection, output, partition_by="split") as writer:
+        writer.add(make_sample(0))
+        writer.add(make_sample(1))
+        build_archive = writer._build_archive
+        calls = 0
+
+        def fail_second(output, samples):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise OSError("partition failed")
+            return build_archive(output, samples)
+
+        monkeypatch.setattr(writer, "_build_archive", fail_second)
+        with pytest.raises(OSError, match="partition failed"):
+            writer.run()
+
+    assert not (output.parent / "ds_train.zip").exists()
+    assert not (output.parent / "ds_val.zip").exists()
+    assert not (output.parent / ".tacocat").exists()
+    assert not list(output.parent.glob(".ds.release-*"))

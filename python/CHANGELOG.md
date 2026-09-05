@@ -3,6 +3,21 @@
 All notable changes to `taco` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Changed
+
+- Partitioned ZIP builds, folder metadata commits and TACOCAT replacement are
+  transactional.
+- The reader keeps one DuckDB connection per thread.
+- Collection and nested sample values are validated before writing.
+- Python checks now cover formatting, strict typing, warnings and branch
+  coverage.
+
+### Removed
+
+- The unused `staging_dir` writer option and `writer.ARCHIVE_SUFFIX` constant.
+
 ## 0.2.0 - 2026-09-04
 
 ### Changed

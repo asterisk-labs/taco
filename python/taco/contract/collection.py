@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
@@ -13,9 +14,9 @@ from .contract import Contract
 __all__ = ["KNOWN_TASKS", "SEMVER", "Collection", "Curator", "Extent", "Provider"]
 
 SEMVER = re.compile(
-    r"^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)"
+    r"(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)"
     r"(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?"
-    r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$"
+    r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?"
 )
 
 KNOWN_TASKS = frozenset(
@@ -65,7 +66,7 @@ _CORE_KEYS = frozenset(
 )
 
 
-def _string_list(values: Any, *, name: str, required: bool) -> tuple[str, ...]:
+def _string_list(values: object, *, name: str, required: bool) -> tuple[str, ...]:
     if values is None:
         if required:
             raise CollectionError(f"{name} is required")
@@ -81,7 +82,7 @@ def _string_list(values: Any, *, name: str, required: bool) -> tuple[str, ...]:
     return result
 
 
-def _parse_iso(value: Any, *, name: str) -> datetime:
+def _parse_iso(value: object, *, name: str) -> datetime:
     if isinstance(value, datetime):
         parsed = value
     elif isinstance(value, str):
@@ -123,19 +124,34 @@ class Provider:
             raise CollectionError("provider name is required")
         if self.roles is not None:
             object.__setattr__(self, "roles", _string_list(self.roles, name="provider roles", required=False))
-        if self.url is not None and not self.url.startswith(("http://", "https://")):
-            raise CollectionError(f"provider url must start with http(s)://, got {self.url!r}")
+        if self.url is not None:
+            if not isinstance(self.url, str):
+                raise CollectionError("provider url must be a string")
+            if not self.url.startswith(("http://", "https://")):
+                raise CollectionError(f"provider url must start with http(s)://, got {self.url!r}")
         if self.links is not None:
-            object.__setattr__(self, "links", tuple(dict(link) for link in self.links))
+            if isinstance(self.links, (str, bytes)) or not isinstance(self.links, Sequence):
+                raise CollectionError("provider links must be a list of objects")
+            links = []
+            for link in self.links:
+                if not isinstance(link, Mapping):
+                    raise CollectionError("provider links must be a list of objects")
+                links.append(dict(link))
+            try:
+                json.dumps(links, allow_nan=False)
+            except (TypeError, ValueError) as exc:
+                raise CollectionError(f"provider links must be JSON serializable: {exc}") from exc
+            object.__setattr__(self, "links", tuple(links))
 
     @classmethod
-    def from_any(cls, value: Any) -> Provider:
+    def from_any(cls, value: object) -> Provider:
         if isinstance(value, Provider):
             return value
         if isinstance(value, str):
             return cls(name=value)
         if isinstance(value, Mapping):
-            known = {key: value[key] for key in ("name", "roles", "url", "links") if key in value}
+            allowed = {"name", "roles", "url", "links"}
+            known = {key: value[key] for key in allowed if key in value}
             if "name" not in known:
                 raise CollectionError("provider entries need a name")
             return cls(**known)
@@ -162,19 +178,24 @@ class Curator:
     role: str | None = None
 
     def __post_init__(self) -> None:
+        for field_name in ("name", "organization", "email", "role"):
+            value = getattr(self, field_name)
+            if value is not None and (not isinstance(value, str) or not value.strip()):
+                raise CollectionError(f"curator {field_name} must be a non-empty string")
         if not self.name and not self.organization:
             raise CollectionError("a curator needs a name or an organization")
         if self.email is not None and "@" not in self.email:
             raise CollectionError(f"invalid curator email {self.email!r}")
 
     @classmethod
-    def from_any(cls, value: Any) -> Curator:
+    def from_any(cls, value: object) -> Curator:
         if isinstance(value, Curator):
             return value
         if isinstance(value, str):
             return cls(name=value)
         if isinstance(value, Mapping):
-            known = {key: value[key] for key in ("name", "organization", "email", "role") if key in value}
+            allowed = {"name", "organization", "email", "role"}
+            known = {key: value[key] for key in allowed if key in value}
             return cls(**known)
         raise CollectionError(f"invalid curator {value!r}")
 
@@ -202,6 +223,8 @@ class Extent:
             west, south, east, north = (float(value) for value in spatial)
         except (TypeError, ValueError) as exc:
             raise CollectionError("extent.spatial values must be numbers") from exc
+        if not all(math.isfinite(value) for value in (west, south, east, north)):
+            raise CollectionError("extent.spatial values must be finite")
         if not (-180 <= west <= 180 and -180 <= east <= 180):
             raise CollectionError("extent longitudes must be within [-180, 180]")
         if not (-90 <= south <= 90 and -90 <= north <= 90):
@@ -221,10 +244,12 @@ class Extent:
             object.__setattr__(self, "temporal", (format_iso(start), format_iso(end)))
 
     @classmethod
-    def from_any(cls, value: Any) -> Extent:
+    def from_any(cls, value: object) -> Extent:
         if isinstance(value, Extent):
             return value
         if isinstance(value, Mapping):
+            if set(value) - {"spatial", "temporal"}:
+                raise CollectionError("extent has unknown fields")
             if "spatial" not in value:
                 raise CollectionError("extent needs a spatial bounding box")
             return cls(spatial=value["spatial"], temporal=value.get("temporal"))
@@ -245,11 +270,33 @@ class Extent:
         """Merge partition extents into a global extent (TACOCAT rule)."""
         if not extents:
             return None
-        wests = [item.spatial[0] for item in extents]
         souths = [item.spatial[1] for item in extents]
-        easts = [item.spatial[2] for item in extents]
         norths = [item.spatial[3] for item in extents]
-        spatial = (min(wests), min(souths), max(easts), max(norths))
+        intervals: list[tuple[float, float]] = []
+        for item in extents:
+            west, _, east, _ = item.spatial
+            start, end = west + 180, east + 180
+            if west <= east:
+                intervals.append((start, end))
+            else:
+                intervals.extend(((0, end), (start, 360)))
+        merged: list[list[float]] = []
+        for start, end in sorted(intervals):
+            if merged and start <= merged[-1][1]:
+                merged[-1][1] = max(merged[-1][1], end)
+            else:
+                merged.append([start, end])
+        gaps = [(merged[index][1], merged[index + 1][0]) for index in range(len(merged) - 1)]
+        gaps.append((merged[-1][1], merged[0][0] + 360))
+        gap_start, gap_end = max(gaps, key=lambda gap: gap[1] - gap[0])
+        if gap_end == gap_start:
+            west, east = -180.0, 180.0
+        else:
+            start = gap_end % 360
+            end = gap_start % 360
+            west = start - 180
+            east = 180.0 if end == 0 and start > 0 else end - 180
+        spatial = (west, min(souths), east, max(norths))
         temporals = [item.temporal for item in extents if item.temporal is not None]
         temporal = None
         if temporals:
@@ -283,7 +330,7 @@ class Collection:
             raise CollectionError("collection id is required")
         if any(char in self.id for char in "/\\:\x00") or self.id != self.id.strip():
             raise CollectionError(f"collection id {self.id!r} contains forbidden characters")
-        if not isinstance(self.dataset_version, str) or not SEMVER.match(self.dataset_version):
+        if not isinstance(self.dataset_version, str) or not SEMVER.fullmatch(self.dataset_version):
             raise CollectionError(f"dataset_version must be SemVer (X.Y.Z), got {self.dataset_version!r}")
         if not isinstance(self.description, str) or not self.description.strip():
             raise CollectionError("collection description is required")
@@ -317,10 +364,10 @@ class Collection:
         for key in extra:
             if not isinstance(key, str) or not key:
                 raise CollectionError("extra keys must be non-empty strings")
-            if key in _CORE_KEYS or key.startswith("internal:") or key.startswith("taco:"):
+            if key in _CORE_KEYS or key.startswith(("internal:", "taco:")):
                 raise CollectionError(f"extra key {key!r} is reserved")
         try:
-            json.dumps(dict(extra))
+            json.dumps(dict(extra), allow_nan=False)
         except (TypeError, ValueError) as exc:
             raise CollectionError(f"extra values must be JSON serializable: {exc}") from exc
         object.__setattr__(self, "extra", dict(extra))
@@ -346,22 +393,26 @@ class Collection:
         if self.extent is not None:
             data["extent"] = self.extent.to_dict()
         data.update(self.contract.to_dict())
-        for key, value in self.extra.items():
-            data[key] = value
+        data.update(self.extra)
         return data
 
     def to_json(self) -> str:
-        return json.dumps(self.to_dict(), ensure_ascii=False, indent=2) + "\n"
+        return json.dumps(self.to_dict(), ensure_ascii=False, indent=2, allow_nan=False) + "\n"
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> Collection:
         if not isinstance(data, Mapping):
             raise CollectionError("COLLECTION.json must be a JSON object")
+        if not all(isinstance(key, str) for key in data):
+            raise CollectionError("COLLECTION.json keys must be strings")
         missing = [
             key for key in ("id", "dataset_version", "description", "licenses", "providers", "tasks") if key not in data
         ]
         if missing:
             raise CollectionError(f"COLLECTION.json is missing required fields {missing}")
+        unknown_taco = sorted(key for key in data if key.startswith("taco:") and key not in _CORE_KEYS)
+        if unknown_taco:
+            raise CollectionError(f"COLLECTION.json uses unknown reserved keys {unknown_taco}")
         contract = Contract.from_dict(data)
         extra = {key: value for key, value in data.items() if key not in _CORE_KEYS and not key.startswith("taco:")}
         return cls(

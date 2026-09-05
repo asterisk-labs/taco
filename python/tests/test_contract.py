@@ -68,6 +68,7 @@ def test_round_trip_and_equality(contract: taco.Contract) -> None:
         (["a.tif"], {"nope": {}}, "do not exist"),
         (["a.tif"], {"collection": {"x": ["int32"]}}, "\\[type, description\\]"),
         (["a.tif"], {"collection": {"x": ["nope", "d"]}}, "unsupported type"),
+        (["a.tif"], {"collection": []}, "must be a mapping"),
     ],
 )
 def test_invalid_contracts(structure, metadata, match) -> None:
@@ -78,7 +79,8 @@ def test_invalid_contracts(structure, metadata, match) -> None:
 def test_variable_leaf_matching() -> None:
     contract = taco.Contract(structure=["img*[2,4].tif"])
     leaf = contract.leaves[0]
-    assert leaf.variable and leaf.identifier == "img"
+    assert leaf.variable
+    assert leaf.identifier == "img"
     assert leaf.match_index("img0.tif") == 0
     assert leaf.match_index("img12.tif") == 12
     assert leaf.match_index("img01.tif") is None
@@ -175,14 +177,16 @@ def test_null_structure_sample(tmp_path: Path) -> None:
     file = tmp_path / "x.bin"
     file.write_bytes(b"1")
     validated = contract.validate_sample(taco.Sample(assets=file))
-    assert validated.single and validated.assets[0].path is None
+    assert validated.single
+    assert validated.assets[0].path is None
     with pytest.raises(SampleError, match="null"):
         contract.validate_sample(taco.Sample(assets={"a.tif": file}))
 
 
 def test_asset_normalization(tmp_path: Path) -> None:
     asset = taco.Asset("a/b.tif", b"bytes")
-    assert asset.is_inline and asset.size() == 5
+    assert asset.is_inline
+    assert asset.size() == 5
     with pytest.raises(SampleError):
         taco.Asset("../escape.tif", b"x")
     with pytest.raises(SampleError):

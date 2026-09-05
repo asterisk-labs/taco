@@ -21,7 +21,8 @@ def _codes(report: ValidationReport) -> set[str]:
 
 def test_valid_archive(archive: Path) -> None:
     report = taco.validate(archive)
-    assert report.ok and report.container == "zip"
+    assert report.ok
+    assert report.container == "zip"
     assert "valid" in str(report)
     report.raise_for_errors()
     assert taco.validate(archive, check_data=False).ok
@@ -29,7 +30,8 @@ def test_valid_archive(archive: Path) -> None:
 
 def test_missing_dataset(tmp_path: Path) -> None:
     report = taco.validate(tmp_path / "nope.zip")
-    assert not report.ok and _codes(report) == {"container"}
+    assert not report.ok
+    assert _codes(report) == {"container"}
     with pytest.raises(ValidationFailed):
         report.raise_for_errors()
 
@@ -81,6 +83,17 @@ def test_folder_tampering_is_detected(folder_dataset: Path) -> None:
     report = taco.validate(folder)
     assert "data" in _codes(report)
     assert any(issue.severity == "warning" and "stray" in issue.message for issue in report.issues)
+
+    before = folder / "METADATA" / "sample__before.parquet"
+    before_table = pq.read_table(before)
+    wrong_folder = before_table.set_column(
+        1,
+        "internal:parent_id",
+        pa.array([1] * before_table.num_rows, type=pa.uint64()),
+    )
+    pq.write_table(wrong_folder, before)
+    assert "parent_id" in _codes(taco.validate(folder, check_data=False))
+    pq.write_table(before_table, before)
 
     sample = folder / "METADATA" / "sample.parquet"
     table = pq.read_table(sample)
@@ -157,3 +170,8 @@ def test_tacocat_validation(tmp_path: Path, collection, make_sample) -> None:
     catalog["taco:sources"]["files"] = ["ds_train.zip"]
     (result.path / "COLLECTION.json").write_text(json.dumps(catalog))
     assert "source_file" in _codes(taco.validate(result.path))
+
+    catalog["taco:sources"]["files"] = "ds_train.zip"
+    (result.path / "COLLECTION.json").write_text(json.dumps(catalog))
+    report = taco.validate(result.path)
+    assert "sources" in _codes(report)

@@ -15,7 +15,9 @@ def test_folder_writer_layout(tmp_path: Path, collection, make_sample) -> None:
         writer.add(make_sample(1))
         result = writer.run()
     folder = result.path
-    assert result.samples == 2 and result.data_files == 9 and result.size > 0
+    assert result.samples == 2
+    assert result.data_files == 9
+    assert result.size > 0
     assert (folder / "COLLECTION.json").is_file()
     assert sorted(item.name for item in (folder / "METADATA").iterdir()) == [
         "collection.parquet",
@@ -43,7 +45,8 @@ def test_folder_append_and_link(tmp_path: Path, collection, make_sample) -> None
     with taco.open_folder(collection.replace(dataset_version="1.1.0"), folder, append=True) as writer:
         writer.add(make_sample(1, 2))
         result = writer.run()
-    assert result.samples == 2 and result.data_files == 6
+    assert result.samples == 2
+    assert result.data_files == 6
     dataset = open_dataset(folder)
     assert dataset.collection.dataset_version == "1.1.0"
     assert dataset.level("collection").column("internal:relative_path").to_pylist() == ["0", "1"]
@@ -64,7 +67,7 @@ def test_folder_append_and_link(tmp_path: Path, collection, make_sample) -> None
 def test_folder_destination_rules(tmp_path: Path, collection, make_sample) -> None:
     with pytest.raises(WriterError):
         taco.open_folder(collection, tmp_path / "x.zip")
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="mutually exclusive"):
         taco.open_folder(collection, tmp_path / "x", append=True, overwrite=True)
     busy = tmp_path / "busy"
     busy.mkdir()
@@ -110,7 +113,7 @@ def test_folder_overwrite_keeps_previous_dataset_on_failure(
 def test_folder_append_restores_metadata_when_commit_fails(
     tmp_path: Path, collection, make_sample, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import taco.writer.folder as folder_module
+    import taco._publish as publish_module
 
     folder = tmp_path / "ds"
     with taco.open_folder(collection, folder) as writer:
@@ -118,18 +121,17 @@ def test_folder_append_restores_metadata_when_commit_fails(
         writer.run()
 
     original_collection = (folder / "COLLECTION.json").read_bytes()
-    native_replace = folder_module.os.replace
+    native_move = publish_module._move_without_replacing
     failed = False
 
-    def fail_once(source: str | Path, target: str | Path) -> None:
+    def fail_once(source: Path, target: Path) -> None:
         nonlocal failed
-        target_path = Path(target)
-        if not failed and Path(source).name == "sample.parquet" and target_path.parent.name == "METADATA":
+        if not failed and source.name == "sample.parquet" and target.parent.name == "METADATA":
             failed = True
             raise OSError("commit failed")
-        native_replace(source, target)
+        native_move(source, target)
 
-    monkeypatch.setattr(folder_module.os, "replace", fail_once)
+    monkeypatch.setattr(publish_module, "_move_without_replacing", fail_once)
     with taco.open_folder(collection.replace(dataset_version="2.0.0"), folder, append=True) as writer:
         writer.add(make_sample(1))
         with pytest.raises(OSError, match="commit failed"):

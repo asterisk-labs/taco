@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import os
 import tempfile
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
+from types import TracebackType
 from typing import Any
 
 from ..contract.collection import Collection
@@ -43,7 +43,6 @@ class StagedWriter:
         self,
         collection: Collection,
         *,
-        staging_dir: str | os.PathLike[str] | None = None,
         batch_size: int = 10_000,
         row_group_size: int = 65_536,
         parquet_options: Mapping[str, Any] | None = None,
@@ -61,19 +60,20 @@ class StagedWriter:
         self.state = WriterState.OPEN
         self._result: BuildResult | None = None
 
-        if staging_dir is not None:
-            Path(staging_dir).mkdir(parents=True, exist_ok=True)
-        self._temporary = tempfile.TemporaryDirectory(
-            prefix="taco-", dir=os.fspath(staging_dir) if staging_dir is not None else None
-        )
+        self._temporary = tempfile.TemporaryDirectory(prefix="taco-")
         self._stage = Path(self._temporary.name)
-        self._journal = Journal(self._stage / "samples.journal")
+        self._journal: Journal[tuple[Sample, int]] = Journal(self._stage / "samples.journal")
         self._inline_dir = self._stage / "inline"
 
     def __enter__(self) -> StagedWriter:
         return self
 
-    def __exit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
         self.close()
 
     @property
@@ -143,13 +143,14 @@ class StagedWriter:
 
         assets: list[Asset] = []
         for position, asset in enumerate(sample.assets):
-            if not asset.is_inline:
+            source = asset.source
+            if isinstance(source, Path):
                 assets.append(asset)
                 continue
             name = asset.path if asset.path is not None else f"asset-{position}"
             target = self._inline_dir / str(sample_id) / name
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(asset.source)  # type: ignore[arg-type]
+            target.write_bytes(source)
             assets.append(asset.with_source(target))
         return sample.replace_assets(assets)
 

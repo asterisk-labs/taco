@@ -8,6 +8,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from .._publish import publish_many
 from ..contract.collection import Collection
 from ..contract.naming import COLLECTION_FILENAME, DATA_DIR, METADATA_DIR, level_to_filename
 from ..errors import WriterError
@@ -43,23 +44,22 @@ class FolderWriter(StagedWriter):
         append: bool = False,
         overwrite: bool = False,
         link: bool = False,
-        staging_dir: str | os.PathLike[str] | None = None,
         row_group_size: int = 65_536,
         batch_size: int = 10_000,
         parquet_options: Mapping[str, Any] | None = None,
     ) -> None:
+        output = Path(directory).expanduser().resolve()
+        if output.suffix.lower() in {".zip", ".tacozip"}:
+            raise WriterError("a FOLDER dataset is a directory, not an archive name")
+        if append and overwrite:
+            raise ValueError("append and overwrite are mutually exclusive")
         super().__init__(
             collection,
-            staging_dir=staging_dir,
             batch_size=batch_size,
             row_group_size=row_group_size,
             parquet_options=parquet_options,
         )
-        self.directory = Path(directory).expanduser().resolve()
-        if self.directory.suffix.lower() in {".zip", ".tacozip"}:
-            raise WriterError("a FOLDER dataset is a directory, not an archive name")
-        if append and overwrite:
-            raise ValueError("append and overwrite are mutually exclusive")
+        self.directory = output
         self.append = append
         self.overwrite = overwrite
         self.link = link
@@ -116,21 +116,9 @@ class FolderWriter(StagedWriter):
             shutil.rmtree(build_directory, ignore_errors=True)
 
     def _publish(self, source: Path) -> None:
-        if not self.directory.exists():
-            os.replace(source, self.directory)
-            return
-        if not self.overwrite and any(self.directory.iterdir()):
+        if self.directory.exists() and not self.overwrite and any(self.directory.iterdir()):
             raise FileExistsError(f"directory is not empty (set overwrite=True): {self.directory}")
-
-        backup = Path(tempfile.mkdtemp(prefix=f".{self.directory.name}.backup-", dir=self.directory.parent))
-        backup.rmdir()
-        os.replace(self.directory, backup)
-        try:
-            os.replace(source, self.directory)
-        except BaseException:
-            os.replace(backup, self.directory)
-            raise
-        shutil.rmtree(backup, ignore_errors=True)
+        publish_many([(source, self.directory)], overwrite=self.directory.exists())
 
     def _write_dataset(self, directory: Path, existing: DatasetView | None) -> BuildResult:
         start = existing.sample_count if existing is not None else 0
@@ -177,11 +165,9 @@ class FolderWriter(StagedWriter):
             metadata_dir.mkdir(exist_ok=True)
             temp_collection = temp_metadata / COLLECTION_FILENAME
             temp_collection.write_text(self.collection.to_json(), encoding="utf-8")
-            replacements = [
-                (paths[level], metadata_dir / level_to_filename(level)) for level in self.contract.levels
-            ]
+            replacements = [(paths[level], metadata_dir / level_to_filename(level)) for level in self.contract.levels]
             replacements.append((temp_collection, directory / COLLECTION_FILENAME))
-            self._replace_metadata(replacements, temp_metadata / "previous")
+            publish_many(replacements, overwrite=True)
         except BaseException:
             for path in created:
                 if path.is_dir():
@@ -200,28 +186,26 @@ class FolderWriter(StagedWriter):
             size=copied_bytes,
         )
 
-    @staticmethod
-    def _replace_metadata(replacements: list[tuple[Path, Path]], backup: Path) -> None:
-        backup.mkdir()
-        previous: list[tuple[Path, Path]] = []
-        installed: list[Path] = []
-        try:
-            for _, target in replacements:
-                if target.exists():
-                    saved = backup / target.name
-                    os.replace(target, saved)
-                    previous.append((saved, target))
-            for source, target in replacements:
-                os.replace(source, target)
-                installed.append(target)
-        except BaseException:
-            for target in installed:
-                target.unlink(missing_ok=True)
-            for saved, target in previous:
-                os.replace(saved, target)
-            raise
 
-
-def open_folder(collection: Collection, directory: str | os.PathLike[str], **options: Any) -> FolderWriter:
+def open_folder(
+    collection: Collection,
+    directory: str | os.PathLike[str],
+    *,
+    append: bool = False,
+    overwrite: bool = False,
+    link: bool = False,
+    row_group_size: int = 65_536,
+    batch_size: int = 10_000,
+    parquet_options: Mapping[str, Any] | None = None,
+) -> FolderWriter:
     """Open a FOLDER-mode writer (appendable, spec section 7.4)."""
-    return FolderWriter(collection, directory, **options)
+    return FolderWriter(
+        collection,
+        directory,
+        append=append,
+        overwrite=overwrite,
+        link=link,
+        row_group_size=row_group_size,
+        batch_size=batch_size,
+        parquet_options=parquet_options,
+    )

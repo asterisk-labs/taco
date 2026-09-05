@@ -36,8 +36,14 @@ def test_collection_round_trip(collection: taco.Collection) -> None:
         ({"extra": {"id": 1}}, "reserved"),
         ({"extra": {"taco:x": 1}}, "reserved"),
         ({"extra": {"blob": b"x"}}, "JSON"),
+        ({"extra": {"value": float("nan")}}, "JSON"),
         ({"curators": [{"email": "nope"}]}, "name or an organization"),
+        ({"curators": [{"name": 42}]}, "curator name"),
         ({"providers": [{"name": "x", "url": "ftp://x"}]}, "http"),
+        ({"providers": [{"name": "x", "url": 42}]}, "url must be a string"),
+        ({"providers": [{"name": "x", "links": [b"bad"]}]}, "links"),
+        ({"extent": {"spatial": [0, 0, 1, 1], "typo": True}}, "unknown fields"),
+        ({"extent": {"spatial": [0, 0, float("nan"), 1]}}, "finite"),
     ],
 )
 def test_invalid_collections(collection: taco.Collection, changes, match) -> None:
@@ -50,6 +56,9 @@ def test_extent_normalizes_temporal() -> None:
     assert extent.temporal == ("2023-12-31T22:00:00Z", "2024-01-02T00:00:00Z")
     crossing = Extent(spatial=[170, 0, -170, 10])
     assert crossing.crosses_antimeridian
+    crossing_union = Extent.union([crossing, Extent(spatial=[175, 2, 179, 8])])
+    assert crossing_union is not None
+    assert crossing_union.spatial == (170.0, 0.0, -170.0, 10.0)
     merged = Extent.union([extent, Extent(spatial=[20, 0, 30, 40], temporal=["2025-01-01", "2025-06-01"])])
     assert merged.spatial == (-10.0, -5.0, 30.0, 40.0)
     assert merged.temporal == ("2023-12-31T22:00:00Z", "2025-06-01T00:00:00Z")
@@ -67,3 +76,15 @@ def test_collection_from_dict_requires_contract() -> None:
                 "tasks": ["t"],
             }
         )
+
+
+def test_collection_rejects_reserved_and_non_string_json_keys(collection: taco.Collection) -> None:
+    data = collection.to_dict()
+    data["taco:unknown"] = True
+    with pytest.raises(CollectionError, match="unknown reserved"):
+        taco.Collection.from_dict(data)
+
+    data = collection.to_dict()
+    data[1] = "bad"
+    with pytest.raises(CollectionError, match="keys must be strings"):
+        taco.Collection.from_dict(data)

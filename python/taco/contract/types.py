@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping, Sequence
 from datetime import date, datetime
+from decimal import Decimal
 
 import pyarrow as pa
 
@@ -108,7 +110,9 @@ def parse_type(spec: str | pa.DataType) -> pa.DataType:
         if head in {"time32", "time64", "duration", "date32", "date64"} and square is not None:
             return pa.type_for_alias(f"{head}[{square.strip()}]")
         if head in {"list", "large_list"} and (angle is not None or square is not None):
-            args = _split_top_level(angle if angle is not None else square)  # type: ignore[arg-type]
+            contents = angle if angle is not None else square
+            assert contents is not None
+            args = _split_top_level(contents)
             if len(args) != 1:
                 raise TypeSpecError(f"{head} takes exactly one type in {spec!r}")
             inner = parse_type(_strip_label(args[0]))
@@ -204,7 +208,10 @@ def _check_scalar(value: object, dtype: pa.DataType) -> None:
             if isinstance(value, float) and value.is_integer():
                 return
             _reject(value, dtype, "expected an integer")
-    elif pa.types.is_floating(dtype) or pa.types.is_decimal(dtype):
+    elif pa.types.is_decimal(dtype):
+        if isinstance(value, bool) or not isinstance(value, (int, Decimal)):
+            _reject(value, dtype, "expected an int or Decimal")
+    elif pa.types.is_floating(dtype):
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             _reject(value, dtype, "expected a number")
     elif pa.types.is_string(dtype) or pa.types.is_large_string(dtype):
@@ -217,7 +224,7 @@ def _check_scalar(value: object, dtype: pa.DataType) -> None:
         if isinstance(value, bool) or not isinstance(value, (datetime, int)):
             _reject(value, dtype, "expected a datetime or an integer epoch value")
     elif pa.types.is_date(dtype):
-        if not isinstance(value, date):
+        if isinstance(value, datetime) or not isinstance(value, date):
             _reject(value, dtype, "expected a date")
     elif pa.types.is_list(dtype) or pa.types.is_large_list(dtype) or pa.types.is_fixed_size_list(dtype):
         if not isinstance(value, (list, tuple)):
@@ -226,11 +233,28 @@ def _check_scalar(value: object, dtype: pa.DataType) -> None:
             for item in value:
                 _check_scalar(item, dtype.value_type)
     elif pa.types.is_struct(dtype):
-        if not isinstance(value, dict):
+        if not isinstance(value, Mapping):
             _reject(value, dtype, "expected a dict")
         else:
+            unexpected = set(value) - set(dtype.names)
+            if unexpected:
+                _reject(value, dtype, f"unexpected struct fields {sorted(unexpected)}")
             for field in dtype:
                 _check_scalar(value.get(field.name), field.type)
+    elif pa.types.is_map(dtype):
+        if isinstance(value, Mapping):
+            items: Sequence[object] = list(value.items())
+        elif isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+            items = value
+        else:
+            _reject(value, dtype, "expected a mapping or key-value pairs")
+            return
+        for item in items:
+            if not isinstance(item, Sequence) or isinstance(item, (str, bytes, bytearray)) or len(item) != 2:
+                _reject(value, dtype, "expected key-value pairs")
+            key, mapped = item
+            _check_scalar(key, dtype.key_type)
+            _check_scalar(mapped, dtype.item_type)
 
 
 def coerce_value(value: object, dtype: pa.DataType) -> object:

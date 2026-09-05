@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-import os
 import struct
 import zipfile
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Iterator
 from dataclasses import dataclass, field
+from os import PathLike
 from pathlib import Path
-from typing import Any, Literal
+from typing import BinaryIO, Literal
 
 import pyarrow as pa
 
@@ -89,7 +89,7 @@ class _Collector:
         self.report.issues.append(Issue("warning", code, message))
 
 
-def validate(path: str | os.PathLike[str], *, check_data: bool = True) -> ValidationReport:
+def validate(path: str | PathLike[str], *, check_data: bool = True) -> ValidationReport:
     """Validate a dataset and return a report; it never raises for findings.
 
     ``check_data`` compares the metadata against the actual files or ZIP
@@ -160,7 +160,8 @@ def _split_by_source(dataset: DatasetView) -> dict[str, dict[str, pa.Table]]:
         subset: dict[str, pa.Table] = {}
         for level, table in dataset.tables.items():
             if SOURCE_FILE in table.column_names:
-                subset[level] = table.filter(pc.equal(table.column(SOURCE_FILE), source))  # type: ignore[attr-defined]
+                mask = pc.equal(table.column(SOURCE_FILE), source)  # type: ignore[attr-defined]
+                subset[level] = table.filter(mask)
         result[source] = subset
     return result
 
@@ -175,7 +176,6 @@ def _check_levels(
     contract = dataset.contract
     sample_count = tables[COLLECTION_LEVEL].num_rows if COLLECTION_LEVEL in tables else 0
     parent_rows: dict[str, int] = {}
-    parent_tables: dict[tuple[str, ...], str] = {(): COLLECTION_LEVEL}
     for level in contract.levels:
         table = tables.get(level)
         if table is None:
@@ -196,14 +196,32 @@ def _check_levels(
             continue
 
         folder = level_folder(level)
-        parent_level = parent_tables.get(folder)
-        parent_tables[folder] = level
-        if parent_level is None or PARENT_ID not in table.column_names or RELATIVE_PATH not in table.column_names:
+        parent_level = COLLECTION_LEVEL if not folder else contract.level_of_folder(folder[:-1])
+        if PARENT_ID not in table.column_names or RELATIVE_PATH not in table.column_names:
+            continue
+        parent_table = tables.get(parent_level)
+        if parent_table is None:
             continue
         parent_count = parent_rows.get(parent_level, 0)
+        if folder:
+            current_ids = parent_table.column(CURRENT_ID).to_pylist()
+            parent_paths = parent_table.column(RELATIVE_PATH).to_pylist()
+            valid_parents = {
+                current_id
+                for current_id, relative_path in zip(current_ids, parent_paths, strict=True)
+                if isinstance(current_id, int)
+                and isinstance(relative_path, str)
+                and tuple(relative_path.split("/")[1:]) == folder
+            }
+        else:
+            valid_parents = set(range(parent_count))
         parent_ids = table.column(PARENT_ID).to_pylist()
         paths = table.column(RELATIVE_PATH).to_pylist()
-        bad_parent = [index for index, value in enumerate(parent_ids) if value is None or value >= parent_count]
+        bad_parent = [
+            index
+            for index, value in enumerate(parent_ids)
+            if not isinstance(value, int) or isinstance(value, bool) or value not in valid_parents
+        ]
         if bad_parent:
             collector.error(
                 "parent_id",
@@ -212,6 +230,9 @@ def _check_levels(
         prefix_ok = True
         children: dict[int, list[str]] = defaultdict(list)
         for parent_id, relative_path in zip(parent_ids, paths, strict=True):
+            if not isinstance(relative_path, str):
+                prefix_ok = False
+                continue
             parts = relative_path.split("/")
             expected_depth = 2 + len(folder)
             if len(parts) != expected_depth or not parts[0].isdigit() or int(parts[0]) >= sample_count:
@@ -220,13 +241,14 @@ def _check_levels(
             if tuple(parts[1:-1]) != folder:
                 prefix_ok = False
                 continue
-            children[parent_id].append(parts[-1])
+            if isinstance(parent_id, int) and not isinstance(parent_id, bool):
+                children[parent_id].append(parts[-1])
         if not prefix_ok:
             collector.error(
                 "relative_path",
                 f"{label}{level}: internal:relative_path entries do not follow '<sample>/{'/'.join(folder) or ''}<name>'",
             )
-        _check_children(contract, level, folder, children, parent_count, collector, label=label)
+        _check_children(contract, level, folder, children, valid_parents, collector, label=label)
 
 
 def _check_children(
@@ -234,7 +256,7 @@ def _check_children(
     level: str,
     folder: tuple[str, ...],
     children: dict[int, list[str]],
-    parent_count: int,
+    parent_ids: set[int],
     collector: _Collector,
     *,
     label: str = "",
@@ -245,7 +267,7 @@ def _check_children(
     }
     variables = [item for kind, item in entries if kind == "leaf" and item.variable]
     problems = 0
-    for parent in range(parent_count):
+    for parent in parent_ids:
         names = children.get(parent, [])
         seen = set(names)
         if len(seen) != len(names):
@@ -284,12 +306,21 @@ def _check_schema(dataset: DatasetView, level: str, table: pa.Table, collector: 
     reference = level_schema(contract, level, with_offsets=dataset.container != "folder")
     for field_ in reference:
         if field_.name in actual:
+            column = table.column(field_.name)
             actual_type = table.schema.field(field_.name).type
             if type_name(actual_type) != type_name(field_.type):
                 collector.error(
                     "schema",
                     f"{level}: column {field_.name!r} is {type_name(actual_type)}, contract says {type_name(field_.type)}",
                 )
+            if not field_.nullable and column.null_count:
+                collector.error("schema", f"{level}: column {field_.name!r} contains null values")
+    if dataset.container == "tacocat" and SOURCE_FILE in actual:
+        source_column = table.column(SOURCE_FILE)
+        if not pa.types.is_string(source_column.type):
+            collector.error("schema", f"{level}: column {SOURCE_FILE!r} must be string")
+        if source_column.null_count:
+            collector.error("schema", f"{level}: column {SOURCE_FILE!r} contains null values")
     for name in (OFFSET, SIZE):
         if name in actual and dataset.container != "folder":
             values = table.column(name).to_pylist()
@@ -304,7 +335,7 @@ def _check_schema(dataset: DatasetView, level: str, table: pa.Table, collector: 
                     break
 
 
-def _local_data_offsets(zf: zipfile.ZipFile, stream: Any) -> Iterator[tuple[str, int, int, zipfile.ZipInfo]]:
+def _local_data_offsets(zf: zipfile.ZipFile, stream: BinaryIO) -> Iterator[tuple[str, int, int, zipfile.ZipInfo]]:
     for info in zf.infolist():
         stream.seek(info.header_offset)
         header = stream.read(30)
@@ -330,6 +361,9 @@ def _check_zip(dataset: DatasetView, collector: _Collector, *, check_data: bool)
             if archive.comment:
                 collector.error("zip", "archive comment must be empty")
             names = [info.filename for info in archive.infolist()]
+            duplicates = sorted(name for name, count in Counter(names).items() if count > 1)
+            if duplicates:
+                collector.error("zip", f"duplicate ZIP entries are forbidden (first: {duplicates[0]})")
             if not names or names[0] != INDEX_NAME:
                 collector.error("zip", "__cozip__ must be the first entry")
             block = names[-len(expected) :] if len(names) >= len(expected) else []
@@ -400,9 +434,20 @@ def _check_tacocat(dataset: DatasetView, collector: _Collector) -> None:
         collector.warning("sources", "COLLECTION.json has no taco:sources")
         listed: list[str] = []
     else:
-        listed = list(sources.get("files", []))
+        files = sources.get("files")
+        if not isinstance(files, list) or not all(isinstance(name, str) for name in files):
+            collector.error("sources", "taco:sources.files must be a list of file names")
+            listed = []
+        else:
+            listed = files
+            if sources.get("count") != len(listed):
+                collector.error("sources", "taco:sources.count does not match the number of files")
+            if len(set(listed)) != len(listed):
+                collector.error("sources", "taco:sources.files contains duplicate names")
         for name in listed:
-            if not (dataset.path.parent / name).is_file():
+            if Path(name).name != name:
+                collector.error("sources", f"partition name must not contain a directory: {name!r}")
+            elif not (dataset.path.parent / name).is_file():
                 collector.warning("sources", f"partition {name!r} is not next to the .tacocat directory")
     for level, table in dataset.tables.items():
         if SOURCE_FILE not in table.column_names:

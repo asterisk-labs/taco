@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
-import os
+import tempfile
 from collections.abc import Mapping, Sequence
+from contextlib import ExitStack
+from os import PathLike
 from pathlib import Path
 from typing import Any
 
@@ -10,10 +12,11 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from ._parquet import parquet_writer_options
+from ._publish import publish_many
 from ._view import DatasetView, open_view
 from .contract.collection import Extent
-from .contract.naming import COLLECTION_FILENAME, SOURCE_FILE, TACOCAT_DIR, level_to_filename
-from .errors import ConsolidationError
+from .contract.naming import COLLECTION_FILENAME, SOURCE_FILE, TACOCAT_DIR, level_to_filename, validate_component
+from .errors import ConsolidationError, ContractError
 
 __all__ = ["consolidate"]
 
@@ -25,24 +28,56 @@ def _common_parent(paths: Sequence[Path]) -> Path:
     return parents.pop()
 
 
+def _check_partition(dataset: DatasetView, reference: DatasetView) -> None:
+    if dataset.container != "zip":
+        raise ConsolidationError(f"TACOCAT consolidates archive partitions, got {dataset.container}: {dataset.path}")
+    if dataset.contract != reference.contract:
+        raise ConsolidationError(f"{dataset.path.name} was built with a different contract than {reference.path.name}")
+
+
+def _ordered_table(dataset: DatasetView, reference: DatasetView, level: str) -> pa.Table:
+    table = dataset.level(level)
+    expected = reference.level(level)
+    if set(table.column_names) == set(expected.column_names):
+        table = table.select(expected.column_names)
+    if not table.schema.equals(expected.schema, check_metadata=False):
+        raise ConsolidationError(
+            f"level {level!r} in {dataset.path.name} has a different schema than {reference.path.name}"
+        )
+    return table
+
+
+def _source_entry(dataset: DatasetView) -> dict[str, Any]:
+    entry: dict[str, Any] = {"file": dataset.path.name, "samples": dataset.sample_count}
+    extent = dataset.collection.extent
+    if extent is not None:
+        entry["spatial"] = list(extent.spatial)
+        if extent.temporal is not None:
+            entry["temporal"] = list(extent.temporal)
+    return entry
+
+
 def consolidate(
-    archives: Sequence[str | os.PathLike[str]],
-    output: str | os.PathLike[str] | None = None,
+    archives: Sequence[str | PathLike[str]],
+    output: str | PathLike[str] | None = None,
     *,
     name: str = TACOCAT_DIR,
     overwrite: bool = False,
     row_group_size: int = 65_536,
     parquet_options: Mapping[str, Any] | None = None,
 ) -> Path:
-    """Merge the METADATA of several partitions into ``<output>/.tacocat``.
-
-    Every partition must share the same contract. Each merged Parquet gains
-    an ``internal:source_file`` column, and the merged ``COLLECTION.json``
-    carries the global extent plus ``taco:sources`` for query routing.
-    Returns the path of the ``.tacocat`` directory.
-    """
+    """Merge the metadata of several archive partitions into a TACOCAT."""
     if not archives:
         raise ConsolidationError("no partitions to consolidate")
+    if not isinstance(name, str) or "/" in name or "\\" in name:
+        raise ConsolidationError("name must be one portable directory name")
+    try:
+        validate_component(name, context="TACOCAT directory")
+    except ContractError as exc:
+        raise ConsolidationError("name must be one portable directory name") from exc
+    if row_group_size < 1:
+        raise ValueError("row_group_size must be positive")
+
     paths = [Path(item).expanduser().resolve() for item in archives]
     if len({path.name for path in paths}) != len(paths):
         raise ConsolidationError("partition file names must be unique")
@@ -53,64 +88,54 @@ def consolidate(
             raise ConsolidationError(f"{target} already exists (set overwrite=True)")
         if not target.is_dir():
             raise ConsolidationError(f"{target} is not a directory")
-        for entry in target.iterdir():
-            if entry.suffix == ".parquet" or entry.name == COLLECTION_FILENAME:
-                entry.unlink()
-    target.mkdir(parents=True, exist_ok=True)
 
-    datasets: list[DatasetView] = []
-    for path in paths:
-        dataset = open_view(path)
-        if dataset.container != "zip":
-            raise ConsolidationError(f"TACOCAT consolidates archive partitions, got {dataset.container}: {path}")
-        datasets.append(dataset)
-    reference = datasets[0]
-    for dataset in datasets[1:]:
-        if dataset.contract != reference.contract:
-            raise ConsolidationError(
-                f"{dataset.path.name} was built with a different contract than {reference.path.name}"
-            )
-
+    reference = open_view(paths[0])
+    _check_partition(reference, reference)
     writer_options = parquet_writer_options(parquet_options)
-    for level in reference.levels:
-        tables = []
-        for dataset in datasets:
-            table = dataset.level(level)
-            reference_names = reference.level(level).column_names
-            if set(table.column_names) == set(reference_names):
-                table = table.select(reference_names)
-            if not table.schema.equals(reference.level(level).schema, check_metadata=False):
-                raise ConsolidationError(
-                    f"level {level!r} in {dataset.path.name} has a different schema than {reference.path.name}"
-                )
-            source = pa.array([dataset.path.name] * table.num_rows, type=pa.string())
-            tables.append(table.append_column(pa.field(SOURCE_FILE, pa.string(), nullable=False), source))
-        merged = pa.concat_tables(tables, promote_options="none")
-        with pq.ParquetWriter(target / level_to_filename(level), merged.schema, **writer_options) as writer:
-            if merged.num_rows:
-                writer.write_table(merged, row_group_size=row_group_size)
-            else:
-                writer.write_table(merged)
-
-    collection = dict(reference.collection_json)
-    extents = [dataset.collection.extent for dataset in datasets if dataset.collection.extent is not None]
-    merged_extent = Extent.union(extents)
-    if merged_extent is not None:
-        collection["extent"] = merged_extent.to_dict()
-    sources: list[dict[str, Any]] = []
-    for dataset in datasets:
-        source_entry: dict[str, Any] = {"file": dataset.path.name, "samples": dataset.sample_count}
-        if dataset.collection.extent is not None:
-            source_entry["spatial"] = list(dataset.collection.extent.spatial)
-            if dataset.collection.extent.temporal is not None:
-                source_entry["temporal"] = list(dataset.collection.extent.temporal)
-        sources.append(source_entry)
-    collection["taco:sources"] = {
-        "count": len(datasets),
-        "files": [dataset.path.name for dataset in datasets],
-        "extents": sources,
+    output_schemas = {
+        level: reference.level(level).schema.append(pa.field(SOURCE_FILE, pa.string(), nullable=False))
+        for level in reference.levels
     }
-    (target / COLLECTION_FILENAME).write_text(
-        json.dumps(collection, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-    )
+    collection = dict(reference.collection_json)
+    extents: list[Extent] = []
+    sources: list[dict[str, Any]] = []
+
+    directory.mkdir(parents=True, exist_ok=True)
+    prefix = f".{name.lstrip('.') or 'tacocat'}-build-"
+    with tempfile.TemporaryDirectory(prefix=prefix, dir=directory) as temporary:
+        build = Path(temporary) / name
+        build.mkdir()
+        with ExitStack() as stack:
+            writers = {
+                level: stack.enter_context(pq.ParquetWriter(build / level_to_filename(level), schema, **writer_options))
+                for level, schema in output_schemas.items()
+            }
+            for index, path in enumerate(paths):
+                dataset = reference if index == 0 else open_view(path)
+                _check_partition(dataset, reference)
+                if dataset.collection.extent is not None:
+                    extents.append(dataset.collection.extent)
+                sources.append(_source_entry(dataset))
+                for level in reference.levels:
+                    table = _ordered_table(dataset, reference, level)
+                    source = pa.array([dataset.path.name] * table.num_rows, type=pa.string())
+                    table = table.append_column(output_schemas[level].field(SOURCE_FILE), source)
+                    if table.num_rows:
+                        writers[level].write_table(table, row_group_size=row_group_size)
+                    else:
+                        writers[level].write_table(table)
+
+        merged_extent = Extent.union(extents)
+        if merged_extent is not None:
+            collection["extent"] = merged_extent.to_dict()
+        collection["taco:sources"] = {
+            "count": len(sources),
+            "files": [entry["file"] for entry in sources],
+            "extents": sources,
+        }
+        (build / COLLECTION_FILENAME).write_text(
+            json.dumps(collection, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        publish_many([(build, target)], overwrite=overwrite)
     return target

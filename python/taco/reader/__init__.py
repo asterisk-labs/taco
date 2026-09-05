@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import json
-import os
+from collections.abc import Sequence
+from os import PathLike, fspath
 from typing import Any
 
 import pyarrow as pa
@@ -23,11 +24,14 @@ __all__ = [
 ]
 
 
-def _text(path: str | os.PathLike[str]) -> str:
-    return os.fspath(path)
+Index = int | Sequence[int] | None
 
 
-def _scalar(query: str, arguments: list[Any]) -> Any:
+def _text(path: str | PathLike[str]) -> str:
+    return fspath(path)
+
+
+def _scalar(query: str, arguments: list[object]) -> object:
     """Run a one-row, one-column query. The extension always returns a row."""
     row = connect().execute(query, arguments).fetchone()
     if row is None:
@@ -35,7 +39,7 @@ def _scalar(query: str, arguments: list[Any]) -> Any:
     return row[0]
 
 
-def _idx(value: int | list[int] | tuple[int, int] | None) -> str | None:
+def _idx(value: Index) -> str | None:
     """``read_taco`` takes idx as an integer or a two-element range."""
     if value is None:
         return None
@@ -50,12 +54,12 @@ def _idx(value: int | list[int] | tuple[int, int] | None) -> str | None:
 
 
 def read(
-    path: str | os.PathLike[str],
+    path: str | PathLike[str],
     *,
-    idx: int | list[int] | tuple[int, int] | None = None,
+    idx: Index = None,
     level: str | None = None,
     pivoted: bool = True,
-    files: list[str] | None = None,
+    files: Sequence[str] | None = None,
     gdal_vsi: bool = True,
 ) -> pa.Table:
     """Read a dataset through ``read_taco()``.
@@ -71,45 +75,71 @@ def read(
         connect()
         .execute(
             "SELECT * FROM read_taco(?, idx := ?, level := ?, pivoted := ?, files := ?, gdal_vsi := ?)",
-            [_text(path), _idx(idx), level, pivoted, files, gdal_vsi],
+            [_text(path), _idx(idx), level, pivoted, None if files is None else list(files), gdal_vsi],
         )
         .to_arrow_table()
     )
 
 
-def contract(path: str | os.PathLike[str]) -> pa.Table:
+def contract(path: str | PathLike[str]) -> pa.Table:
     """The contract as rows of ``kind`` and ``value``."""
     return connect().execute("SELECT * FROM taco_contract(?)", [_text(path)]).to_arrow_table()
 
 
-def structure(path: str | os.PathLike[str]) -> list[str]:
+def _string_list(query: str, path: str | PathLike[str]) -> list[str]:
+    value = _scalar(query, [_text(path)])
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        raise ContainerError(f"the cozip extension returned an invalid string list for {path!r}")
+    return value
+
+
+def structure(path: str | PathLike[str]) -> list[str]:
     """``taco:structure``, empty when the contract declares none."""
-    return _scalar("SELECT taco_structure(?)", [_text(path)])
+    return _string_list("SELECT taco_structure(?)", path)
 
 
-def levels(path: str | os.PathLike[str]) -> list[str]:
+def levels(path: str | PathLike[str]) -> list[str]:
     """The metadata levels, parents before children."""
-    return _scalar("SELECT taco_levels(?)", [_text(path)])
+    return _string_list("SELECT taco_levels(?)", path)
 
 
-def collection(path: str | os.PathLike[str]) -> dict[str, Any]:
+def collection(path: str | PathLike[str]) -> dict[str, Any]:
     """``COLLECTION.json``, parsed."""
-    return json.loads(_scalar("SELECT taco_collection(?)", [_text(path)]))
+    value = _scalar("SELECT taco_collection(?)", [_text(path)])
+    if not isinstance(value, (str, bytes, bytearray)):
+        raise ContainerError(f"the cozip extension returned invalid COLLECTION.json for {path!r}")
+    data = json.loads(value)
+    if not isinstance(data, dict):
+        raise ContainerError(f"the cozip extension returned a non-object COLLECTION.json for {path!r}")
+    return data
 
 
-def profile(path: str | os.PathLike[str]) -> str:
+def _string_scalar(query: str, path: str | PathLike[str]) -> str:
+    value = _scalar(query, [_text(path)])
+    if not isinstance(value, str):
+        raise ContainerError(f"the cozip extension returned an invalid string for {path!r}")
+    return value
+
+
+def profile(path: str | PathLike[str]) -> str:
     """The cozip profile of an archive: ``none``, ``flat`` or ``taco``."""
-    return _scalar("SELECT cozip_profile(?)", [_text(path)])
+    return _string_scalar("SELECT cozip_profile(?)", path)
 
 
 def sql(
-    path: str | os.PathLike[str],
+    path: str | PathLike[str],
     *,
-    idx: int | list[int] | tuple[int, int] | None = None,
+    idx: Index = None,
     level: str | None = None,
     pivoted: bool = True,
-    files: list[str] | None = None,
+    files: Sequence[str] | None = None,
     gdal_vsi: bool = True,
 ) -> str:
     """The query ``read_taco()`` would run, for debugging."""
-    return str(_scalar("SELECT taco_sql(?, ?, ?, ?, ?, ?)", [_text(path), _idx(idx), level, pivoted, files, gdal_vsi]))
+    value = _scalar(
+        "SELECT taco_sql(?, ?, ?, ?, ?, ?)",
+        [_text(path), _idx(idx), level, pivoted, None if files is None else list(files), gdal_vsi],
+    )
+    if not isinstance(value, str):
+        raise ContainerError(f"the cozip extension returned invalid SQL for {path!r}")
+    return value

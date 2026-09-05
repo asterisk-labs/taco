@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from datetime import datetime
+from decimal import Decimal
+
 import pyarrow as pa
 import pytest
 
@@ -91,7 +94,7 @@ def test_coerce_value_rejects_lossy_conversions() -> None:
         coerce_value(b"x", pa.string())
     with pytest.raises(TypeError):
         coerce_value("x", pa.binary())
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="cannot store"):
         coerce_value(300, pa.int8())
     with pytest.raises(TypeError):
         coerce_value("2024-01-01", pa.timestamp("us"))
@@ -104,3 +107,19 @@ def test_coerce_value_normalizes() -> None:
     assert coerce_value([1, 2], pa.list_(pa.int32())) == [1, 2]
     assert coerce_value({"a": 1}, pa.struct([("a", pa.int32())])) == {"a": 1}
     assert coerce_value(1_700_000_000_000_000, pa.timestamp("us")).year == 2023
+    assert coerce_value(Decimal("1.25"), pa.decimal128(4, 2)) == Decimal("1.25")
+
+
+@pytest.mark.parametrize(
+    ("value", "dtype", "match"),
+    [
+        ({"a": 1.5}, pa.struct([("a", pa.int32())]), "integer"),
+        ({"a": 1, "extra": 2}, pa.struct([("a", pa.int32())]), "unexpected struct"),
+        ({"a": 1.5}, pa.map_(pa.string(), pa.int32()), "integer"),
+        (datetime(2024, 1, 1), pa.date32(), "date"),
+        (1.25, pa.decimal128(4, 2), "Decimal"),
+    ],
+)
+def test_coerce_value_checks_nested_and_lossy_values(value, dtype: pa.DataType, match: str) -> None:
+    with pytest.raises(TypeError, match=match):
+        coerce_value(value, dtype)

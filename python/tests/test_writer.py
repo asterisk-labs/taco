@@ -39,7 +39,9 @@ def test_run_builds_tacozip_once(tmp_path: Path, collection, make_sample) -> Non
             writer.add(make_sample(3))
     assert first is second
     assert first.path.name == "dataset.zip"
-    assert first.samples == 3 and first.data_files == 14 and first.metadata_files == 4
+    assert first.samples == 3
+    assert first.data_files == 14
+    assert first.metadata_files == 4
     assert not first.partitioned
     assert writer.state is WriterState.SUCCEEDED
 
@@ -58,13 +60,15 @@ def test_archive_layout_and_index(archive: Path) -> None:
     if "__cozip_padding__" in names:
         assert names.index("__cozip_padding__") < names.index("COLLECTION.json")
     raw = archive.read_bytes()
-    assert raw[-22:-18] == b"PK\x05\x06" and raw[-2:] == b"\x00\x00"
+    assert raw[-22:-18] == b"PK\x05\x06"
+    assert raw[-2:] == b"\x00\x00"
     assert struct.unpack_from("<Q", raw, 43)[0] != 0
 
 
 def test_metadata_tables_and_offsets(archive: Path, tmp_path: Path) -> None:
     dataset = open_dataset(archive)
-    assert dataset.container == "zip" and dataset.sample_count == 4
+    assert dataset.container == "zip"
+    assert dataset.sample_count == 4
     collection = dataset.level("collection")
     assert collection.column_names[:2] == ["internal:current_id", "internal:relative_path"]
     assert collection.column("internal:relative_path").to_pylist() == ["0", "1", "2", "3"]
@@ -84,8 +88,10 @@ def test_metadata_tables_and_offsets(archive: Path, tmp_path: Path) -> None:
     # 3 fixed children + variable extras (0, 1, 2, 0)
     assert sample.num_rows == 4 * 3 + 0 + 1 + 2 + 0
     rows = sample.to_pylist()
-    assert rows[0]["internal:relative_path"] == "0/before" and rows[0]["internal:offset"] is None
-    assert rows[2]["internal:relative_path"] == "0/mask.tif" and rows[2]["internal:offset"] is not None
+    assert rows[0]["internal:relative_path"] == "0/before"
+    assert rows[0]["internal:offset"] is None
+    assert rows[2]["internal:relative_path"] == "0/mask.tif"
+    assert rows[2]["internal:offset"] is not None
     assert [row["internal:parent_id"] for row in rows[:3]] == [0, 0, 0]
     assert rows[3]["internal:parent_id"] == 1
 
@@ -198,7 +204,10 @@ def test_add_rejects_bad_sources(tmp_path: Path, collection, make_sample) -> Non
 def test_output_rules(tmp_path: Path, collection, make_sample) -> None:
     with pytest.raises(ValueError, match=r"end in \.zip"):
         taco.open_writer(collection, tmp_path / "dataset.cozip")
-    assert taco.open_writer(collection, tmp_path / "dataset").output.name == "dataset.zip"
+    with taco.open_writer(collection, tmp_path / "dataset") as writer:
+        assert writer.output.name == "dataset.zip"
+    with pytest.raises(TypeError, match="staging_dir"):
+        taco.open_writer(collection, tmp_path / "dataset", staging_dir=tmp_path)
     output = tmp_path / "exists.zip"
     output.write_bytes(b"old")
     with taco.open_writer(collection, output) as writer:

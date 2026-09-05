@@ -3,10 +3,12 @@ from __future__ import annotations
 import pickle
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Any
+from typing import Generic, TypeVar, cast
+
+T = TypeVar("T")
 
 
-class Journal:
+class Journal(Generic[T]):
     """Pickle stream on disk; keeps writer memory flat for huge datasets."""
 
     def __init__(self, path: Path) -> None:
@@ -18,7 +20,7 @@ class Journal:
     def count(self) -> int:
         return self._count
 
-    def append(self, item: Any) -> None:
+    def append(self, item: T) -> None:
         pickle.dump(item, self._file, protocol=pickle.HIGHEST_PROTOCOL)
         self._count += 1
 
@@ -31,11 +33,11 @@ class Journal:
             self._file.flush()
             self._file.close()
 
-    def __iter__(self) -> Iterator[Any]:
+    def __iter__(self) -> Iterator[T]:
         self.flush()
         with self.path.open("rb") as stream:
             while True:
                 try:
-                    yield pickle.load(stream)
+                    yield cast(T, pickle.load(stream))
                 except EOFError:
                     return

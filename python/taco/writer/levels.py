@@ -84,7 +84,7 @@ class LevelTableWriter:
         self._schemas = {level: level_schema(contract, level, with_offsets=with_offsets) for level in contract.levels}
         self._buffers: dict[str, list[dict[str, Any]]] = {level: [] for level in contract.levels}
         self._writers: dict[str, pq.ParquetWriter] = {}
-        self._next_id: dict[str, int] = {level: 0 for level in contract.levels}
+        self._next_id: dict[str, int] = dict.fromkeys(contract.levels, 0)
         self.paths: dict[str, Path] = {level: directory / level_to_filename(level) for level in contract.levels}
         directory.mkdir(parents=True, exist_ok=True)
 
@@ -114,7 +114,8 @@ class LevelTableWriter:
             RELATIVE_PATH: str(sample_index),
         }
         if contract.is_null and self.with_offsets:
-            offset, size = locate(f"{DATA_DIR}/{sample_index}")  # type: ignore[misc]
+            assert locate is not None
+            offset, size = locate(f"{DATA_DIR}/{sample_index}")
             collection_row[OFFSET] = offset
             collection_row[SIZE] = size
         collection_row.update(sample.metadata[COLLECTION_LEVEL])
@@ -143,7 +144,8 @@ class LevelTableWriter:
                         row[OFFSET] = None
                         row[SIZE] = None
                 elif self.with_offsets:
-                    offset, size = locate(f"{DATA_DIR}/{relative_path}")  # type: ignore[misc]
+                    assert locate is not None
+                    offset, size = locate(f"{DATA_DIR}/{relative_path}")
                     row[OFFSET] = offset
                     row[SIZE] = size
                 row.update(level_metadata[node.name])

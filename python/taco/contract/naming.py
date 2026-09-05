@@ -64,7 +64,7 @@ def validate_component(component: str, *, context: str, allow_glob: bool = False
         raise ContractError(f"{context} component {component!r} contains forbidden characters {bad}")
     if LEVEL_SEPARATOR in component:
         raise ContractError(f"{context} component {component!r} must not contain '__'")
-    if component.endswith(" ") or component.endswith("."):
+    if component.endswith((" ", ".")):
         raise ContractError(f"{context} component {component!r} must not end with a space or dot")
 
 
@@ -124,7 +124,9 @@ def parse_size(value: int | str) -> int:
         if value <= 0:
             raise ValueError("size must be positive")
         return value
-    match = _SIZE_PATTERN.match(str(value))
+    if not isinstance(value, str):
+        raise TypeError("size must be an int or a string")
+    match = _SIZE_PATTERN.fullmatch(value)
     if match is None:
         raise ValueError(f"invalid size {value!r}; use e.g. '4GB', '512MB', '1024KB'")
     number = float(match.group(1))

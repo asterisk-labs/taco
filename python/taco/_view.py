@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import os
 from collections.abc import Iterator
 from dataclasses import dataclass
+from os import PathLike
 from pathlib import Path
 from typing import Any, Literal
 
@@ -65,7 +65,7 @@ class DatasetView:
 
     @property
     def sample_count(self) -> int:
-        return self.tables[COLLECTION_LEVEL].num_rows
+        return int(self.tables[COLLECTION_LEVEL].num_rows)
 
     def level(self, name: str) -> pa.Table:
         try:
@@ -91,6 +91,8 @@ class DatasetView:
             for batch in table.select(columns).to_batches():
                 for position, record in enumerate(batch.to_pylist()):
                     relative_path = record[RELATIVE_PATH]
+                    if not isinstance(relative_path, str):
+                        continue
                     if self.is_leaf_level_row(level, relative_path):
                         yield DataRow(
                             level=level,
@@ -117,9 +119,9 @@ def detect_container(path: Path) -> Container:
     raise ContainerError(f"dataset not found: {path}")
 
 
-def open_view(path: str | os.PathLike[str]) -> DatasetView:
+def open_view(path: str | PathLike[str]) -> DatasetView:
     """Assemble the metadata view of a container from the thin reader."""
-    location = Path(path).expanduser()
+    location = Path(path).expanduser().resolve()
     container = detect_container(location)
     try:
         data = read_collection(location)

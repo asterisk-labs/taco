@@ -16,9 +16,10 @@ export COZIP_EXTENSION
 
 python:
 	$(PYTHON) -m pip install -q -e python --no-deps
+	$(PYTHON) -m ruff format --check --config python/pyproject.toml python/taco python/tests python/examples
 	$(PYTHON) -m ruff check --config python/pyproject.toml python/taco python/tests python/examples demo.py tools
 	$(PYTHON) -m mypy --config-file python/pyproject.toml python/taco
-	$(PYTHON) -m pytest -q python
+	$(PYTHON) -m pytest python --cov=taco --cov-config=python/pyproject.toml --cov-report=term-missing
 	rm -rf python/dist && cd python && (command -v uv >/dev/null && uv build -q || $(PYTHON) -m pip wheel -q --no-deps -w dist .) && ls dist
 
 deck:

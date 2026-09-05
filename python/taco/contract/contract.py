@@ -5,7 +5,7 @@ import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
-from typing import Any
+from typing import Any, TypeAlias
 
 import pyarrow as pa
 
@@ -20,8 +20,8 @@ _VARIABLE_LEAF = re.compile(
     r"^(?P<prefix>[^*\[\]]+)\*\[(?P<minimum>\d+)\s*,\s*(?P<maximum>\d+)\](?P<suffix>[^*\[\]]*)$"
 )
 
-FieldSpec = "Sequence[str] | str | pa.DataType"
-MetadataSchema = "Mapping[str, Mapping[str, FieldSpec]]"
+FieldSpec: TypeAlias = Sequence[str] | str | pa.DataType
+MetadataSchema: TypeAlias = Mapping[str, Mapping[str, FieldSpec]]
 
 COLLECTION_LEVEL = "collection"
 SAMPLE_LEVEL = "sample"
@@ -120,7 +120,7 @@ class Contract:
         self,
         *,
         structure: Iterable[str] | None,
-        metadata: Mapping[str, Mapping[str, Any]] | None = None,
+        metadata: MetadataSchema | None = None,
     ) -> None:
         if structure is None:
             declarations: tuple[str, ...] | None = None
@@ -149,8 +149,6 @@ class Contract:
         object.__setattr__(self, "folders", folders)
         object.__setattr__(self, "_children", children)
         object.__setattr__(self, "_types", types)
-
-    # ------------------------------------------------------------------ parsing
 
     @staticmethod
     def _parse_leaf(declaration: str) -> Leaf:
@@ -227,7 +225,8 @@ class Contract:
             for second in variables:
                 if first is second or first.suffix != second.suffix:
                     continue
-                assert first.prefix is not None and second.prefix is not None
+                assert first.prefix is not None
+                assert second.prefix is not None
                 if second.prefix.startswith(first.prefix) and second.prefix[len(first.prefix) :].isdigit():
                     raise ContractError(
                         f"variable leaves {first.declaration!r} and {second.declaration!r} overlap under {where}"
@@ -243,9 +242,7 @@ class Contract:
         return (COLLECTION_LEVEL, SAMPLE_LEVEL, *(SAMPLE_LEVEL + "/" + "/".join(folder) for folder in folders))
 
     @staticmethod
-    def _normalize_metadata(
-        metadata: Mapping[str, Mapping[str, Any]], levels: tuple[str, ...]
-    ) -> dict[str, dict[str, tuple[str, str]]]:
+    def _normalize_metadata(metadata: MetadataSchema, levels: tuple[str, ...]) -> dict[str, dict[str, tuple[str, str]]]:
         if not isinstance(metadata, Mapping):
             raise ContractError("metadata must be a mapping keyed by level")
         extra = sorted(set(metadata) - set(levels))
@@ -255,7 +252,7 @@ class Contract:
             )
         result: dict[str, dict[str, tuple[str, str]]] = {}
         for level in levels:
-            declared = metadata.get(level) or {}
+            declared = metadata.get(level, {})
             if not isinstance(declared, Mapping):
                 raise ContractError(f"metadata for level {level!r} must be a mapping of fields")
             fields: dict[str, tuple[str, str]] = {}
@@ -264,8 +261,6 @@ class Contract:
                 fields[name] = _normalize_field_spec(name, spec, level=level)
             result[level] = fields
         return result
-
-    # ------------------------------------------------------------------ queries
 
     @property
     def is_null(self) -> bool:
@@ -299,8 +294,6 @@ class Contract:
                     return item, index
         return None
 
-    # --------------------------------------------------------------- expansion
-
     def expand(self, assets: Sequence[Asset]) -> dict[tuple[str, ...], list[Node]]:
         """Resolve assets against the structure and return children per folder."""
         if self.is_null:
@@ -331,7 +324,7 @@ class Contract:
             nodes: list[Node] = []
             for kind, item in entries:
                 if kind == "folder":
-                    nodes.append(Node(item, True))
+                    nodes.append(Node(name=item, is_folder=True))
                     continue
                 leaf: Leaf = item
                 matches: list[tuple[int, str, Asset]] = []
@@ -351,14 +344,16 @@ class Contract:
                             f"got {indexes}"
                         )
                     for index, name, asset in matches:
-                        nodes.append(Node(name, False, asset, leaf, index))
-                        consumed.add(asset.path)  # type: ignore[arg-type]
+                        nodes.append(Node(name=name, is_folder=False, asset=asset, leaf=leaf, index=index))
+                        assert asset.path is not None
+                        consumed.add(asset.path)
                 else:
                     if len(matches) != 1:
                         raise SampleError(f"required asset {leaf.declaration!r} is missing")
                     _, name, asset = matches[0]
-                    nodes.append(Node(name, False, asset, leaf, 0))
-                    consumed.add(asset.path)  # type: ignore[arg-type]
+                    nodes.append(Node(name=name, is_folder=False, asset=asset, leaf=leaf, index=0))
+                    assert asset.path is not None
+                    consumed.add(asset.path)
             tree[folder] = nodes
 
         unexpected = sorted(set(by_path) - consumed)
@@ -375,8 +370,6 @@ class Contract:
                 if node.asset is not None:
                     ordered.append(node.asset)
         return tuple(ordered)
-
-    # -------------------------------------------------------------- validation
 
     def validate_sample(self, sample: Sample) -> Sample:
         """Return a normalized copy of ``sample`` or raise :class:`SampleError`."""
@@ -450,8 +443,6 @@ class Contract:
             except (TypeError, ValueError) as exc:
                 raise SampleError(f"invalid value for {where}.{name}: {exc}") from exc
         return result
-
-    # ------------------------------------------------------------ serialization
 
     def to_dict(self) -> dict[str, Any]:
         return {

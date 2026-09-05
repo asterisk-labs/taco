@@ -1,17 +1,17 @@
 from __future__ import annotations
 
-import os
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from os import PathLike
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeAlias
 
 from ..errors import SampleError
 from .naming import normalize_relative_path
 
 __all__ = ["Asset", "Sample", "SourceLike"]
 
-SourceLike = "str | os.PathLike[str] | bytes | bytearray | memoryview"
+SourceLike: TypeAlias = str | PathLike[str] | bytes | bytearray | memoryview
 
 
 @dataclass(frozen=True)
@@ -30,7 +30,7 @@ class Asset:
     path: str | None
     source: Path | bytes
 
-    def __init__(self, path: str | None, source: Any) -> None:
+    def __init__(self, path: str | None, source: SourceLike) -> None:
         if path is not None:
             try:
                 path = normalize_relative_path(path, context="asset path")
@@ -38,10 +38,8 @@ class Asset:
                 raise SampleError(str(exc)) from exc
         if isinstance(source, (bytes, bytearray, memoryview)):
             normalized: Path | bytes = bytes(source)
-        elif isinstance(source, (str, os.PathLike)):
-            normalized = Path(source).expanduser()
-            if not normalized.is_absolute():
-                normalized = normalized.resolve()
+        elif isinstance(source, (str, PathLike)):
+            normalized = Path(source).expanduser().resolve()
         else:
             raise SampleError(f"asset source must be a path or bytes, got {type(source).__name__}")
         object.__setattr__(self, "path", path)
@@ -61,10 +59,13 @@ class Asset:
         return Asset(self.path, source)
 
 
-def _coerce_assets(assets: Any) -> tuple[Asset, ...]:
+AssetInput: TypeAlias = SourceLike | Asset | Mapping[str, SourceLike] | Sequence[Asset | tuple[str, SourceLike]]
+
+
+def _coerce_assets(assets: AssetInput) -> tuple[Asset, ...]:
     if isinstance(assets, Asset):
         return (assets,)
-    if isinstance(assets, (str, bytes, bytearray, memoryview, os.PathLike)):
+    if isinstance(assets, (str, bytes, bytearray, memoryview, PathLike)):
         return (Asset(None, assets),)
     if isinstance(assets, Mapping):
         return tuple(Asset(path, source) for path, source in assets.items())
@@ -95,7 +96,7 @@ class Sample:
     assets: tuple[Asset, ...]
     metadata: dict[str, Any]
 
-    def __init__(self, *, assets: Any, metadata: Mapping[str, Any] | None = None) -> None:
+    def __init__(self, *, assets: AssetInput, metadata: Mapping[str, Any] | None = None) -> None:
         normalized = _coerce_assets(assets)
         if not normalized:
             raise SampleError("a sample needs at least one asset")
@@ -113,6 +114,3 @@ class Sample:
 
     def replace_assets(self, assets: Sequence[Asset]) -> Sample:
         return Sample(assets=tuple(assets), metadata=self.metadata)
-
-    def total_size(self) -> int:
-        return sum(asset.size() for asset in self.assets)

@@ -15,6 +15,7 @@ __all__ = [
     "collection",
     "connect",
     "contract",
+    "derived",
     "levels",
     "profile",
     "read",
@@ -101,6 +102,22 @@ def structure(path: str | PathLike[str]) -> list[str]:
 def levels(path: str | PathLike[str]) -> list[str]:
     """The metadata levels, parents before children."""
     return _string_list("SELECT taco_levels(?)", path)
+
+
+def derived(path: str | PathLike[str]) -> dict[str, Any]:
+    """The serialized ``taco:derived`` declarations."""
+    values = _string_list("SELECT taco_derived(?)", path)
+    if not values:
+        return {}
+    if len(values) != 1:
+        raise ContainerError(f"the cozip extension returned invalid taco:derived for {path!r}")
+    try:
+        data = json.loads(values[0])
+    except json.JSONDecodeError as exc:
+        raise ContainerError(f"the cozip extension returned invalid taco:derived for {path!r}") from exc
+    if not isinstance(data, dict):
+        raise ContainerError(f"the cozip extension returned invalid taco:derived for {path!r}")
+    return data
 
 
 def collection(path: str | PathLike[str]) -> dict[str, Any]:

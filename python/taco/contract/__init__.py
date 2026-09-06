@@ -1,10 +1,10 @@
 from .collection import KNOWN_TASKS, Collection, Curator, Extent, Provider
-from .contract import COLLECTION_LEVEL, SAMPLE_LEVEL, Contract, Leaf, Node
-from .sample import Asset, Sample
+from .contract import CHILDREN_LEVEL, SAMPLE_LEVEL, Contract, Leaf, Node
+from .sample import Asset, Folder, Sample
 from .types import coerce_value, parse_type, type_name
 
 __all__ = [
-    "COLLECTION_LEVEL",
+    "CHILDREN_LEVEL",
     "KNOWN_TASKS",
     "SAMPLE_LEVEL",
     "Asset",
@@ -12,6 +12,7 @@ __all__ = [
     "Contract",
     "Curator",
     "Extent",
+    "Folder",
     "Leaf",
     "Node",
     "Provider",

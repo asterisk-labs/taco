@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 from collections.abc import Mapping, Sequence
 from contextlib import ExitStack
@@ -57,8 +58,9 @@ def _ordered_table(dataset: DatasetView, reference: DatasetView, level: str) -> 
     return table
 
 
-def _source_entry(dataset: DatasetView) -> dict[str, Any]:
-    entry: dict[str, Any] = {"file": dataset.path.name, "samples": dataset.sample_count}
+def _source_entry(dataset: DatasetView, directory: Path) -> dict[str, Any]:
+    source = Path(os.path.relpath(dataset.path, directory)).as_posix()
+    entry: dict[str, Any] = {"file": source, "samples": dataset.sample_count}
     extent = dataset.collection.extent
     if extent is not None:
         entry["spatial"] = list(extent.spatial)
@@ -89,9 +91,10 @@ def consolidate(
         raise ValueError("row_group_size must be positive")
 
     paths = [Path(item).expanduser().resolve() for item in archives]
-    if len({path.name for path in paths}) != len(paths):
-        raise ConsolidationError("partition file names must be unique")
     directory = Path(output).expanduser().resolve() if output is not None else _common_parent(paths)
+    source_names = [Path(os.path.relpath(path, directory)).as_posix() for path in paths]
+    if len(source_names) != len(set(source_names)):
+        raise ConsolidationError("partition paths must be unique")
     target = directory / name
     if target.exists():
         if not overwrite:
@@ -127,10 +130,11 @@ def consolidate(
                 _check_partition(dataset, reference)
                 if dataset.collection.extent is not None:
                     extents.append(dataset.collection.extent)
-                sources.append(_source_entry(dataset))
+                source_entry = _source_entry(dataset, directory)
+                sources.append(source_entry)
                 for level in reference.levels:
                     table = _ordered_table(dataset, reference, level)
-                    source = pa.array([dataset.path.name] * table.num_rows, type=pa.string())
+                    source = pa.array([source_entry["file"]] * table.num_rows, type=pa.string())
                     table = table.append_column(output_schemas[level].field(SOURCE_FILE), source)
                     table = pa.Table.from_arrays(table.columns, schema=output_schemas[level])
                     if table.num_rows:
@@ -142,9 +146,8 @@ def consolidate(
         if merged_extent is not None:
             collection["extent"] = merged_extent.to_dict()
         collection["taco:sources"] = {
-            "count": len(sources),
-            "files": [entry["file"] for entry in sources],
-            "extents": sources,
+            "samples": sum(entry["samples"] for entry in sources),
+            "partitions": sources,
         }
         (build / COLLECTION_FILENAME).write_text(
             json.dumps(collection, ensure_ascii=False, indent=2) + "\n",

@@ -196,9 +196,11 @@ def _reject(value: object, dtype: pa.DataType, reason: str) -> None:
     raise TypeError(f"{reason} (expected {type_name(dtype)}, got {type(value).__name__})")
 
 
-def _check_scalar(value: object, dtype: pa.DataType) -> None:
+def _check_scalar(value: object, dtype: pa.DataType, *, nullable: bool = True) -> None:
     """Reject Python values that pyarrow would silently truncate or convert."""
     if value is None:
+        if not nullable:
+            _reject(value, dtype, "null is not allowed")
         return
     if pa.types.is_boolean(dtype):
         if not isinstance(value, bool):
@@ -237,7 +239,7 @@ def _check_scalar(value: object, dtype: pa.DataType) -> None:
             _reject(value, dtype, "expected a list")
         else:
             for item in value:
-                _check_scalar(item, dtype.value_type)
+                _check_scalar(item, dtype.value_type, nullable=dtype.value_field.nullable)
     elif pa.types.is_struct(dtype):
         if not isinstance(value, Mapping):
             _reject(value, dtype, "expected a dict")
@@ -246,7 +248,7 @@ def _check_scalar(value: object, dtype: pa.DataType) -> None:
             if unexpected:
                 _reject(value, dtype, f"unexpected struct fields {sorted(unexpected)}")
             for field in dtype:
-                _check_scalar(value.get(field.name), field.type)
+                _check_scalar(value.get(field.name), field.type, nullable=field.nullable)
     elif pa.types.is_map(dtype):
         if isinstance(value, Mapping):
             items: Sequence[object] = list(value.items())
@@ -259,17 +261,17 @@ def _check_scalar(value: object, dtype: pa.DataType) -> None:
             if not isinstance(item, Sequence) or isinstance(item, (str, bytes, bytearray)) or len(item) != 2:
                 _reject(value, dtype, "expected key-value pairs")
             key, mapped = item
-            _check_scalar(key, dtype.key_type)
-            _check_scalar(mapped, dtype.item_type)
+            _check_scalar(key, dtype.key_type, nullable=dtype.key_field.nullable)
+            _check_scalar(mapped, dtype.item_type, nullable=dtype.item_field.nullable)
 
 
-def coerce_value(value: object, dtype: pa.DataType) -> object:
+def coerce_value(value: object, dtype: pa.DataType, *, nullable: bool = True) -> object:
     """Validate ``value`` against ``dtype`` and return its normalized Python form.
 
     Raises :class:`TypeError` or :class:`ValueError` when the value cannot be
     stored losslessly in a column of type ``dtype``.
     """
-    _check_scalar(value, dtype)
+    _check_scalar(value, dtype, nullable=nullable)
     try:
         array = pa.array([value], type=dtype)
     except (pa.ArrowException, TypeError, ValueError, OverflowError) as exc:

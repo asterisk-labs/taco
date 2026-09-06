@@ -26,7 +26,7 @@ LEVEL_SEPARATOR = "__"
 
 # Windows forbids these in file names; TACO reserves ':' (namespaces) and
 # '__' (level separator) on top of that. '/' is the path separator.
-_FORBIDDEN_IN_COMPONENT = frozenset('<>:"\\|?*')
+_FORBIDDEN_IN_COMPONENT = frozenset('<>:"\\|?*[]')
 _SIZE_PATTERN = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*([KMGT]?I?B?)\s*$", re.I)
 _SIZE_UNITS = {
     "": 1,
@@ -58,7 +58,7 @@ def validate_component(component: str, *, context: str, allow_glob: bool = False
         raise ContractError(f"{context} component {component!r} must be printable ASCII")
     forbidden = _FORBIDDEN_IN_COMPONENT
     if allow_glob:
-        forbidden = forbidden - {"*"}
+        forbidden = forbidden - {"*", "[", "]"}
     bad = sorted(set(component) & forbidden)
     if bad:
         raise ContractError(f"{context} component {component!r} contains forbidden characters {bad}")
@@ -77,9 +77,91 @@ def normalize_relative_path(value: str, *, context: str, allow_glob: bool = Fals
     path = PurePosixPath(value)
     if path.is_absolute() or str(path) != value or value.endswith("/"):
         raise ContractError(f"{context} must be a normalized relative POSIX path: {value!r}")
-    for part in path.parts:
-        validate_component(part, context=context, allow_glob=allow_glob)
+    for index, part in enumerate(path.parts):
+        validate_component(part, context=context, allow_glob=allow_glob and index == len(path.parts) - 1)
     return value
+
+
+_VariableSequence = tuple[str, str, int]
+
+
+def _variable_width(sequence: _VariableSequence, length: int) -> int | None:
+    prefix, suffix, maximum = sequence
+    width = length - len(prefix) - len(suffix)
+    if width < 1 or width > len(str(maximum - 1)):
+        return None
+    if width > 1 and 10 ** (width - 1) >= maximum:
+        return None
+    return width
+
+
+def _variable_token(sequence: _VariableSequence, width: int, position: int) -> tuple[str | None, int | None]:
+    prefix, suffix, _ = sequence
+    if position < len(prefix):
+        return prefix[position], None
+    digit = position - len(prefix)
+    if digit < width:
+        return None, digit
+    return suffix[position - len(prefix) - width], None
+
+
+def variable_sequences_overlap(first: _VariableSequence, second: _VariableSequence) -> bool:
+    first_prefix, first_suffix, first_maximum = first
+    second_prefix, second_suffix, second_maximum = second
+    first_digits = len(str(first_maximum - 1))
+    second_digits = len(str(second_maximum - 1))
+    minimum = max(len(first_prefix) + len(first_suffix) + 1, len(second_prefix) + len(second_suffix) + 1)
+    maximum = min(
+        len(first_prefix) + len(first_suffix) + first_digits,
+        len(second_prefix) + len(second_suffix) + second_digits,
+    )
+    for length in range(minimum, maximum + 1):
+        first_width = _variable_width(first, length)
+        second_width = _variable_width(second, length)
+        if first_width is None or second_width is None:
+            continue
+        first_limit = str(first_maximum - 1)
+        second_limit = str(second_maximum - 1)
+        states = {(first_width == len(first_limit), second_width == len(second_limit))}
+        for position in range(length):
+            left_char, left_digit = _variable_token(first, first_width, position)
+            right_char, right_digit = _variable_token(second, second_width, position)
+            choices: tuple[str, ...]
+            if left_char is not None and right_char is not None:
+                choices = (left_char,) if left_char == right_char else ()
+            elif left_char is not None:
+                choices = (left_char,) if left_char.isdigit() else ()
+            elif right_char is not None:
+                choices = (right_char,) if right_char.isdigit() else ()
+            else:
+                choices = tuple("0123456789")
+            if left_digit == 0 and first_width > 1:
+                choices = tuple(value for value in choices if value != "0")
+            if right_digit == 0 and second_width > 1:
+                choices = tuple(value for value in choices if value != "0")
+
+            next_states = set()
+            for first_tight, second_tight in states:
+                for value in choices:
+                    next_first = first_tight
+                    next_second = second_tight
+                    if left_digit is not None and first_tight:
+                        limit = first_limit[left_digit]
+                        if value > limit:
+                            continue
+                        next_first = value == limit
+                    if right_digit is not None and second_tight:
+                        limit = second_limit[right_digit]
+                        if value > limit:
+                            continue
+                        next_second = value == limit
+                    next_states.add((next_first, next_second))
+            states = next_states
+            if not states:
+                break
+        if states:
+            return True
+    return False
 
 
 def validate_field_name(name: str, *, context: str) -> None:
@@ -97,20 +179,14 @@ def level_to_filename(level: str) -> str:
     return level.replace("/", LEVEL_SEPARATOR) + ".parquet"
 
 
-def filename_to_level(filename: str) -> str:
-    stem = filename[: -len(".parquet")] if filename.endswith(".parquet") else filename
-    return stem.replace(LEVEL_SEPARATOR, "/")
-
-
 def level_folder(level: str) -> tuple[str, ...]:
-    """Return the sample-relative folder addressed by a metadata level key."""
-    if level in {"collection", "sample"}:
+    if level in {"sample", "children"}:
         return ()
     return tuple(level.split("/")[1:])
 
 
 def sanitize_filename(value: str) -> str:
-    """Make ``value`` safe for use inside a file name (legacy tacotoolbox rule)."""
+    """Make a partition value safe to use in a file name."""
     sanitized = re.sub(r'[/\\:*?"<>|\']', "_", str(value))
     sanitized = re.sub(r"[_\s]+", "_", sanitized).strip("_")
     return sanitized or "group"

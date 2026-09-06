@@ -9,7 +9,7 @@ from typing import Any
 
 from .._publish import publish_file, publish_many
 from ..contract.collection import Collection
-from ..contract.contract import COLLECTION_LEVEL
+from ..contract.contract import SAMPLE_LEVEL
 from ..contract.naming import (
     COLLECTION_FILENAME,
     DATA_DIR,
@@ -18,14 +18,12 @@ from ..contract.naming import (
     parse_size,
     sanitize_filename,
 )
-from ..contract.sample import Sample
+from ..contract.sample import _PreparedSample
 from ..cozip import cozip_plan, cozip_write
 from ..errors import WriterError
-from ._base import BuildResult, StagedWriter
+from ._base import _BuildResult, _Writer
 from .journal import Journal
 from .levels import LevelTableWriter
-
-__all__ = ["TacoWriter", "open_writer"]
 
 logger = logging.getLogger("taco")
 
@@ -36,9 +34,7 @@ _ARCHIVE_SUFFIX = ".zip"
 
 def _normalize_output(output: str | os.PathLike[str]) -> Path:
     path = Path(output).expanduser()
-    if path.suffix == "":
-        path = path.with_name(path.name + _ARCHIVE_SUFFIX)
-    elif path.suffix != _ARCHIVE_SUFFIX:
+    if path.suffix != _ARCHIVE_SUFFIX:
         raise ValueError("TACO archive output must end in .zip")
     return path.resolve()
 
@@ -50,7 +46,7 @@ def _priority_names(collection: Collection) -> list[str]:
     ]
 
 
-def _data_entries(sample_index: int, sample: Sample) -> list[tuple[str, Path]]:
+def _data_entries(sample_index: int, sample: _PreparedSample) -> list[tuple[str, Path]]:
     entries: list[tuple[str, Path]] = []
     for asset in sample.assets:
         if not isinstance(asset.source, Path):
@@ -60,15 +56,7 @@ def _data_entries(sample_index: int, sample: Sample) -> list[tuple[str, Path]]:
     return entries
 
 
-class TacoWriter(StagedWriter):
-    """Collect samples cheaply, then materialize one archive with ``run()``.
-
-    ``partition_size`` (for example ``"4GB"``) or ``partition_by`` (a
-    collection-level field) split the samples across several archives named
-    ``<stem>_part0001.zip`` / ``<stem>_<value>.zip`` and consolidate
-    their metadata into a ``.tacocat`` directory next to them.
-    """
-
+class _ArchiveWriter(_Writer):
     def __init__(
         self,
         collection: Collection,
@@ -87,10 +75,10 @@ class TacoWriter(StagedWriter):
         if partition_size is not None and partition_by is not None:
             raise ValueError("use either partition_size or partition_by, not both")
         parsed_partition_size = None if partition_size is None else parse_size(partition_size)
-        if partition_by is not None and partition_by not in collection.contract.metadata[COLLECTION_LEVEL]:
+        if partition_by is not None and partition_by not in collection.contract.metadata[SAMPLE_LEVEL]:
             raise ValueError(
-                f"partition_by field {partition_by!r} is not a collection-level field; "
-                f"available: {list(collection.contract.metadata[COLLECTION_LEVEL])}"
+                f"partition_by field {partition_by!r} is not sample metadata; "
+                f"available: {list(collection.contract.metadata[SAMPLE_LEVEL])}"
             )
         super().__init__(
             collection,
@@ -103,7 +91,7 @@ class TacoWriter(StagedWriter):
         self.partition_size = parsed_partition_size
         self.partition_by = partition_by
 
-    def _build(self) -> BuildResult:
+    def _build(self) -> _BuildResult:
         if self.partition_size is None and self.partition_by is None:
             return self._run_single()
         return self._run_partitioned()
@@ -115,21 +103,21 @@ class TacoWriter(StagedWriter):
             if not output.is_file():
                 raise WriterError(f"output exists and is not a file: {output}")
 
-    def _run_single(self) -> BuildResult:
+    def _run_single(self) -> _BuildResult:
         self._check_destination(self.output)
         return self._build_archive(self.output, lambda: ((index, sample) for index, sample, _ in self._records()))
 
-    def _partitions(self) -> list[tuple[str, Journal[tuple[Sample, int]]]]:
+    def _partitions(self) -> list[tuple[str, Journal[tuple[_PreparedSample, int]]]]:
         directory = self._stage / "partitions"
         directory.mkdir()
-        partitions: list[tuple[str, Journal[tuple[Sample, int]]]] = []
+        partitions: list[tuple[str, Journal[tuple[_PreparedSample, int]]]] = []
         labels: dict[str, Any] = {}
 
         try:
             if self.partition_by is not None:
-                journals: dict[str, Journal[tuple[Sample, int]]] = {}
-                for _, sample, size in self._records():
-                    value = sample.metadata[COLLECTION_LEVEL][self.partition_by]
+                journals: dict[str, Journal[tuple[_PreparedSample, int]]] = {}
+                for sample, size in self._partition_records():
+                    value = sample.metadata[self.partition_by]
                     label = sanitize_filename(str(value))
                     if label in labels and labels[label] != value:
                         raise WriterError(
@@ -137,13 +125,13 @@ class TacoWriter(StagedWriter):
                         )
                     labels[label] = value
                     if label not in journals:
-                        journal: Journal[tuple[Sample, int]] = Journal(directory / f"{len(journals)}.journal")
+                        journal: Journal[tuple[_PreparedSample, int]] = Journal(directory / f"{len(journals)}.journal")
                         journals[label] = journal
                         partitions.append((label, journal))
                     journals[label].append((sample, size))
             else:
                 assert self.partition_size is not None
-                current: Journal[tuple[Sample, int]] | None = None
+                current: Journal[tuple[_PreparedSample, int]] | None = None
                 current_size = 0
                 for _, sample, size in self._records():
                     if current is None or (current.count and current_size + size > self.partition_size):
@@ -161,7 +149,34 @@ class TacoWriter(StagedWriter):
             journal.close()
         return partitions
 
-    def _run_partitioned(self) -> BuildResult:
+    def _partition_records(self) -> Iterator[tuple[_PreparedSample, int]]:
+        assert self.partition_by is not None
+        derived = any(
+            self.partition_by in descriptor["produces"]
+            for descriptor in self.contract.derived.get(SAMPLE_LEVEL, {}).values()
+        )
+        if not derived:
+            for _, sample, size in self._records():
+                yield sample, size
+            return
+
+        batch: list[tuple[_PreparedSample, int]] = []
+        for _, sample, size in self._records():
+            batch.append((sample, size))
+            if len(batch) == self.batch_size:
+                yield from self._derive_partition_batch(batch)
+                batch = []
+        yield from self._derive_partition_batch(batch)
+
+    def _derive_partition_batch(
+        self, batch: list[tuple[_PreparedSample, int]]
+    ) -> Iterator[tuple[_PreparedSample, int]]:
+        rows = [dict(sample.metadata) for sample, _ in batch]
+        self.contract.apply_derived(SAMPLE_LEVEL, rows)
+        for (sample, size), metadata in zip(batch, rows, strict=True):
+            yield sample.replace_metadata(metadata), size
+
+    def _run_partitioned(self) -> _BuildResult:
         from ..tacocat import consolidate
 
         partitions = self._partitions()
@@ -183,12 +198,12 @@ class TacoWriter(StagedWriter):
         parent.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(prefix=f".{stem}.release-", dir=parent) as name:
             release = Path(name)
-            results: list[BuildResult] = []
+            results: list[_BuildResult] = []
             for output, (label, journal) in zip(outputs, partitions, strict=True):
 
                 def samples(
-                    journal: Journal[tuple[Sample, int]] = journal,
-                ) -> Iterator[tuple[int, Sample]]:
+                    journal: Journal[tuple[_PreparedSample, int]] = journal,
+                ) -> Iterator[tuple[int, _PreparedSample]]:
                     for index, (sample, _) in enumerate(journal):
                         yield index, sample
 
@@ -204,7 +219,7 @@ class TacoWriter(StagedWriter):
             replacements = [(result.path, output) for result, output in zip(results, outputs, strict=True)]
             replacements.append((tacocat, tacocat_dir))
             publish_many(replacements, overwrite=self.overwrite)
-        return BuildResult(
+        return _BuildResult(
             path=tacocat_dir,
             samples=sum(item.samples for item in results),
             data_files=sum(item.data_files for item in results),
@@ -216,8 +231,8 @@ class TacoWriter(StagedWriter):
     def _build_archive(
         self,
         output: Path,
-        samples: Callable[[], Iterator[tuple[int, Sample]]],
-    ) -> BuildResult:
+        samples: Callable[[], Iterator[tuple[int, _PreparedSample]]],
+    ) -> _BuildResult:
         temporary_output: Path | None = None
         with tempfile.TemporaryDirectory(prefix="build-", dir=self._stage) as name:
             stage = Path(name)
@@ -265,7 +280,7 @@ class TacoWriter(StagedWriter):
                 temporary_output.chmod(0o666 & ~umask)
                 publish_file(temporary_output, output, overwrite=self.overwrite)
                 temporary_output = None
-                return BuildResult(
+                return _BuildResult(
                     path=output,
                     samples=sample_count,
                     data_files=len(files),
@@ -277,7 +292,7 @@ class TacoWriter(StagedWriter):
                     temporary_output.unlink(missing_ok=True)
 
 
-def open_writer(
+def _open_archive(
     collection: Collection,
     output: str | os.PathLike[str],
     *,
@@ -287,9 +302,8 @@ def open_writer(
     parquet_options: Mapping[str, Any] | None = None,
     partition_size: int | str | None = None,
     partition_by: str | None = None,
-) -> TacoWriter:
-    """Open a staged writer that publishes one immutable cozip profile-2 archive."""
-    return TacoWriter(
+) -> _ArchiveWriter:
+    return _ArchiveWriter(
         collection,
         output,
         overwrite=overwrite,

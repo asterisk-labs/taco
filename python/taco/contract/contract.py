@@ -1,129 +1,102 @@
 from __future__ import annotations
 
 import json
-import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from pathlib import PurePosixPath
-from typing import Any, TypeAlias
+from pathlib import Path, PurePosixPath
+from typing import Any, cast
 
 import pyarrow as pa
 
 from ..errors import ContractError, SampleError
-from .naming import level_folder, normalize_relative_path, validate_component, validate_field_name
-from .sample import Asset, Sample
+from ..schema import Field, Group, Metadata, MetadataSchema, validate_qualified_field
+from .naming import level_folder
+from .sample import Asset, Folder, Sample, _PreparedAsset, _PreparedNode, _PreparedSample
+from .structure import Leaf, Node, build_tree, parse_leaf
 from .types import coerce_value, parse_type, type_name
 
-__all__ = ["Contract", "FieldSpec", "Leaf", "MetadataSchema", "Node"]
-
-_VARIABLE_LEAF = re.compile(
-    r"^(?P<prefix>[^*\[\]]+)\*\[(?P<minimum>\d+)\s*,\s*(?P<maximum>\d+)\](?P<suffix>[^*\[\]]*)$"
-)
-
-FieldSpec: TypeAlias = Sequence[str] | str | pa.DataType
-MetadataSchema: TypeAlias = Mapping[str, Mapping[str, FieldSpec]]
-
-COLLECTION_LEVEL = "collection"
 SAMPLE_LEVEL = "sample"
+CHILDREN_LEVEL = "children"
 
 
-@dataclass(frozen=True)
-class Leaf:
-    """One entry of ``taco:structure``: a fixed file or a variable family."""
-
-    declaration: str
-    folder: tuple[str, ...]
-    name: str
-    prefix: str | None = None
-    minimum: int = 1
-    maximum: int = 1
-    suffix: str = ""
-
-    @property
-    def variable(self) -> bool:
-        return self.prefix is not None
-
-    @property
-    def identifier(self) -> str:
-        """Sibling-unique identifier: literal name, or the variable prefix."""
-        return self.prefix if self.prefix is not None else self.name
-
-    def instance_name(self, index: int) -> str:
-        if not self.variable:
-            return self.name
-        return f"{self.prefix}{index}{self.suffix}"
-
-    def match_index(self, basename: str) -> int | None:
-        """Return the cardinal index if ``basename`` instantiates this leaf."""
-        if not self.variable:
-            return 0 if basename == self.name else None
-        assert self.prefix is not None
-        if not basename.startswith(self.prefix) or not basename.endswith(self.suffix):
-            return None
-        stop = len(basename) - len(self.suffix)
-        middle = basename[len(self.prefix) : stop]
-        if not middle.isdigit() or (len(middle) > 1 and middle[0] == "0"):
-            return None
-        return int(middle)
-
-
-@dataclass(frozen=True)
-class Node:
-    """A child of a folder inside one concrete sample."""
-
-    name: str
-    is_folder: bool
-    asset: Asset | None = None
-    leaf: Leaf | None = None
-    index: int | None = None
-
-    @property
-    def path(self) -> str | None:
-        return None if self.asset is None else self.asset.path
-
-
-def _normalize_field_spec(name: str, spec: Any, *, level: str) -> tuple[str, str]:
-    if isinstance(spec, (str, pa.DataType)):
-        type_spec, description = spec, ""
-    elif isinstance(spec, Sequence) and not isinstance(spec, (bytes, bytearray)) and len(spec) == 2:
+def _raw_field(name: str, spec: Any, *, level: str) -> Field:
+    if isinstance(spec, Mapping):
+        extra = sorted(set(spec) - {"type", "nullable", "description"})
+        if extra:
+            raise ContractError(f"field {level}.{name} has unknown properties {extra}")
+        if "type" not in spec or "nullable" not in spec:
+            raise ContractError(f"field {level}.{name} needs type and nullable")
+        type_spec = spec["type"]
+        nullable = spec["nullable"]
+        description = spec.get("description", "")
+    elif isinstance(spec, (str, pa.DataType)):
+        type_spec, nullable, description = spec, False, ""
+    elif isinstance(spec, Sequence) and not isinstance(spec, (str, bytes)) and len(spec) == 2:
         type_spec, description = spec
+        nullable = True
     else:
-        raise ContractError(f"field {level}.{name} must be declared as [type, description], got {spec!r}")
+        raise ContractError(f"invalid field declaration for {level}.{name}")
+    if not isinstance(nullable, bool):
+        raise ContractError(f"nullable of {level}.{name} must be a boolean")
     if not isinstance(description, str):
         raise ContractError(f"description of {level}.{name} must be a string")
     try:
         dtype = parse_type(type_spec)
     except ContractError as exc:
         raise ContractError(f"field {level}.{name}: {exc}") from exc
-    return type_name(dtype), description
+    return Field(type_name(dtype), nullable, description)
+
+
+def _configuration(value: Mapping[str, Any], *, namespace: str) -> dict[str, Any]:
+    try:
+        return cast(dict[str, Any], json.loads(json.dumps(dict(value), allow_nan=False)))
+    except (TypeError, ValueError) as exc:
+        raise ContractError(f"derived group {namespace!r} configuration must be JSON serializable") from exc
+
+
+def _check_derived_descriptors(
+    level: str,
+    groups: Mapping[str, Mapping[str, Any]],
+    fields: Mapping[str, Field],
+) -> None:
+    produced = [name for descriptor in groups.values() for name in descriptor["produces"]]
+    if len(produced) != len(set(produced)):
+        raise ContractError(f"derived metadata at {level!r} produces a field more than once")
+    available = set(fields) - set(produced)
+    pending = dict(groups)
+    while pending:
+        ready = [name for name, descriptor in pending.items() if set(descriptor["requires"]).issubset(available)]
+        if not ready:
+            required = {name for descriptor in pending.values() for name in descriptor["requires"]}
+            missing = sorted(required - set(fields))
+            if missing:
+                raise ContractError(f"derived metadata at {level!r} requires missing fields {missing}")
+            raise ContractError(f"derived metadata at {level!r} contains a dependency cycle")
+        for name in ready:
+            available.update(pending.pop(name)["produces"])
 
 
 @dataclass(frozen=True, init=False, eq=False)
 class Contract:
-    """Immutable ``taco:structure`` plus ``taco:metadata``.
-
-    ``structure`` is a list of sample-relative leaf paths (or ``None`` when
-    each sample is a single file). ``metadata`` maps every non-leaf level
-    (``collection``, ``sample``, ``sample/<folder>``) to ``{field: [type,
-    description]}``. Levels without fields may be omitted.
-    """
-
     structure: tuple[str, ...] | None
-    metadata: dict[str, dict[str, tuple[str, str]]]
+    metadata: dict[str, dict[str, Field]]
+    derived: dict[str, dict[str, dict[str, Any]]]
     levels: tuple[str, ...]
     leaves: tuple[Leaf, ...]
     folders: frozenset[tuple[str, ...]]
     _children: dict[tuple[str, ...], tuple[tuple[str, Any], ...]] = field(repr=False)
     _types: dict[str, dict[str, pa.DataType]] = field(repr=False)
+    _groups: dict[str, tuple[Group, ...]] = field(repr=False)
 
     def __init__(
         self,
         *,
         structure: Iterable[str] | None,
-        metadata: MetadataSchema | None = None,
+        metadata: MetadataSchema | Mapping[str, Mapping[str, Any]] | None = None,
+        derived: Mapping[str, Mapping[str, Mapping[str, Any]]] | None = None,
     ) -> None:
         if structure is None:
-            declarations: tuple[str, ...] | None = None
+            declarations = None
             leaves: tuple[Leaf, ...] = ()
         else:
             if isinstance(structure, (str, bytes)):
@@ -131,150 +104,216 @@ class Contract:
             declarations = tuple(structure)
             if not declarations:
                 raise ContractError("structure must contain at least one leaf, or be None")
-            leaves = tuple(self._parse_leaf(item) for item in declarations)
+            leaves = tuple(parse_leaf(item) for item in declarations)
 
-        children = self._build_tree(leaves)
+        children = build_tree(leaves)
         folders = frozenset(folder for folder in children if folder)
-        levels = self._derive_levels(children)
-        normalized = self._normalize_metadata(metadata or {}, levels)
-        types = {
-            level: {name: parse_type(type_spec) for name, (type_spec, _) in fields.items()}
-            for level, fields in normalized.items()
-        }
+        levels = self._derive_levels(children, structure is None)
+        if isinstance(metadata, MetadataSchema):
+            normalized, types_, groups, derived_ = self._from_models(metadata, levels, children)
+        else:
+            normalized = self._from_mapping(metadata or {}, levels)
+            types_ = {
+                level: {name: parse_type(spec.type) for name, spec in fields.items()}
+                for level, fields in normalized.items()
+            }
+            groups = dict.fromkeys(levels, ())
+            derived_ = self._normalize_derived(derived or {}, levels, normalized)
 
         object.__setattr__(self, "structure", declarations)
         object.__setattr__(self, "metadata", normalized)
+        object.__setattr__(self, "derived", derived_)
         object.__setattr__(self, "levels", levels)
         object.__setattr__(self, "leaves", leaves)
         object.__setattr__(self, "folders", folders)
         object.__setattr__(self, "_children", children)
-        object.__setattr__(self, "_types", types)
+        object.__setattr__(self, "_types", types_)
+        object.__setattr__(self, "_groups", groups)
 
     @staticmethod
-    def _parse_leaf(declaration: str) -> Leaf:
-        if not isinstance(declaration, str):
-            raise ContractError(f"structure entries must be strings, got {declaration!r}")
-        declaration = normalize_relative_path(declaration, context="structure path", allow_glob=True)
-        parts = PurePosixPath(declaration).parts
-        folder, basename = parts[:-1], parts[-1]
-        for component in folder:
-            validate_component(component, context="structure folder")
-
-        match = _VARIABLE_LEAF.match(basename)
-        if match is None:
-            if any(char in basename for char in "*[]"):
-                raise ContractError(f"malformed variable leaf {declaration!r}; expected prefix*[min,max].ext")
-            validate_component(basename, context="structure file")
-            return Leaf(declaration, folder, basename)
-
-        prefix = match.group("prefix")
-        suffix = match.group("suffix")
-        minimum = int(match.group("minimum"))
-        maximum = int(match.group("maximum"))
-        validate_component(prefix, context="variable leaf prefix")
-        if suffix:
-            validate_component("x" + suffix, context="variable leaf suffix")
-        if minimum > maximum:
-            raise ContractError(f"variable leaf {declaration!r} has min > max")
-        if maximum == 0:
-            raise ContractError(f"variable leaf {declaration!r} can never produce a file")
-        return Leaf(declaration, folder, basename, prefix=prefix, minimum=minimum, maximum=maximum, suffix=suffix)
-
-    @staticmethod
-    def _build_tree(leaves: tuple[Leaf, ...]) -> dict[tuple[str, ...], tuple[tuple[str, Any], ...]]:
-        """Return ordered children per folder: ("folder", name) or ("leaf", Leaf)."""
-        children: dict[tuple[str, ...], list[tuple[str, Any]]] = {(): []}
-        declarations: set[str] = set()
-
-        for leaf in leaves:
-            if leaf.declaration in declarations:
-                raise ContractError(f"structure declares {leaf.declaration!r} twice")
-            declarations.add(leaf.declaration)
-            for depth, name in enumerate(leaf.folder):
-                parent = leaf.folder[:depth]
-                entries = children.setdefault(parent, [])
-                if ("folder", name) not in entries:
-                    entries.append(("folder", name))
-                children.setdefault(leaf.folder[: depth + 1], [])
-            children.setdefault(leaf.folder, []).append(("leaf", leaf))
-
-        for folder, entries in children.items():
-            identifiers: dict[str, str] = {}
-            for kind, item in entries:
-                identifier = item if kind == "folder" else item.identifier
-                if identifier in identifiers:
-                    where = "/".join(folder) or "the sample root"
-                    raise ContractError(f"sibling identifier {identifier!r} is declared twice under {where}")
-                identifiers[identifier] = kind
-            Contract._check_ambiguity(folder, [item for kind, item in entries if kind == "leaf"])
-
-        return {folder: tuple(entries) for folder, entries in children.items()}
-
-    @staticmethod
-    def _check_ambiguity(folder: tuple[str, ...], leaves: list[Leaf]) -> None:
-        """Reject leaf families whose instances could match two declarations."""
-        where = "/".join(folder) or "the sample root"
-        variables = [leaf for leaf in leaves if leaf.variable]
-        for fixed in (leaf for leaf in leaves if not leaf.variable):
-            for variable in variables:
-                if variable.match_index(fixed.name) is not None:
-                    raise ContractError(
-                        f"fixed leaf {fixed.declaration!r} matches variable leaf {variable.declaration!r} under {where}"
-                    )
-        for first in variables:
-            for second in variables:
-                if first is second or first.suffix != second.suffix:
-                    continue
-                assert first.prefix is not None
-                assert second.prefix is not None
-                if second.prefix.startswith(first.prefix) and second.prefix[len(first.prefix) :].isdigit():
-                    raise ContractError(
-                        f"variable leaves {first.declaration!r} and {second.declaration!r} overlap under {where}"
-                    )
-
-    @staticmethod
-    def _derive_levels(children: Mapping[tuple[str, ...], Any]) -> tuple[str, ...]:
+    def _derive_levels(children: Mapping[tuple[str, ...], Any], null_structure: bool) -> tuple[str, ...]:
+        if null_structure:
+            return (SAMPLE_LEVEL,)
         folders = [folder for folder in children if folder]
         order = {folder: index for index, folder in enumerate(folders)}
         folders.sort(key=lambda item: (len(item), order[item]))
-        if not children or (len(children) == 1 and () in children and not children[()]):
-            return (COLLECTION_LEVEL,)
-        return (COLLECTION_LEVEL, SAMPLE_LEVEL, *(SAMPLE_LEVEL + "/" + "/".join(folder) for folder in folders))
+        return (SAMPLE_LEVEL, CHILDREN_LEVEL, *(CHILDREN_LEVEL + "/" + "/".join(folder) for folder in folders))
 
     @staticmethod
-    def _normalize_metadata(metadata: MetadataSchema, levels: tuple[str, ...]) -> dict[str, dict[str, tuple[str, str]]]:
+    def _from_mapping(
+        metadata: Mapping[str, Mapping[str, Any]], levels: tuple[str, ...]
+    ) -> dict[str, dict[str, Field]]:
         if not isinstance(metadata, Mapping):
-            raise ContractError("metadata must be a mapping keyed by level")
+            raise ContractError("metadata must be a mapping or MetadataSchema")
         extra = sorted(set(metadata) - set(levels))
         if extra:
-            raise ContractError(
-                f"metadata declares levels that do not exist in the structure: {extra}; valid levels are {list(levels)}"
-            )
-        result: dict[str, dict[str, tuple[str, str]]] = {}
+            raise ContractError(f"metadata has unknown levels {extra}; valid levels are {list(levels)}")
+        result = {}
         for level in levels:
-            declared = metadata.get(level, {})
-            if not isinstance(declared, Mapping):
-                raise ContractError(f"metadata for level {level!r} must be a mapping of fields")
-            fields: dict[str, tuple[str, str]] = {}
-            for name, spec in declared.items():
-                validate_field_name(name, context=level)
-                fields[name] = _normalize_field_spec(name, spec, level=level)
+            values = metadata.get(level, {})
+            if not isinstance(values, Mapping):
+                raise ContractError(f"metadata for {level!r} must be an object")
+            fields = {}
+            for name, spec in values.items():
+                validate_qualified_field(name)
+                fields[name] = _raw_field(name, spec, level=level)
             result[level] = fields
+        return result
+
+    @classmethod
+    def _from_models(
+        cls,
+        schema: MetadataSchema,
+        levels: tuple[str, ...],
+        children: Mapping[tuple[str, ...], tuple[tuple[str, Any], ...]],
+    ) -> tuple[
+        dict[str, dict[str, Field]],
+        dict[str, dict[str, pa.DataType]],
+        dict[str, tuple[Group, ...]],
+        dict[str, dict[str, dict[str, Any]]],
+    ]:
+        declared = {level.name: level for level in schema}
+        extra = sorted(set(declared) - set(levels))
+        if extra:
+            raise ContractError(f"metadata has unknown levels {extra}; valid levels are {list(levels)}")
+        metadata: dict[str, dict[str, Field]] = {}
+        types_: dict[str, dict[str, pa.DataType]] = {}
+        groups: dict[str, tuple[Group, ...]] = {}
+        derived: dict[str, dict[str, dict[str, Any]]] = {}
+        for level in levels:
+            bindings = declared[level].groups if level in declared else ()
+            cls._check_scopes(level, bindings, children)
+            level_fields: dict[str, Field] = {}
+            level_types: dict[str, pa.DataType] = {}
+            level_derived: dict[str, dict[str, Any]] = {}
+            for group in bindings:
+                for _, arrow_field in group.fields:
+                    if arrow_field.name in level_fields:
+                        raise ContractError(f"metadata field {arrow_field.name!r} is declared twice at {level}")
+                    description = ""
+                    if arrow_field.metadata and b"description" in arrow_field.metadata:
+                        description = arrow_field.metadata[b"description"].decode()
+                    level_fields[arrow_field.name] = Field(
+                        type_name(arrow_field.type), arrow_field.nullable, description
+                    )
+                    level_types[arrow_field.name] = arrow_field.type
+                if group.derived is not None:
+                    for required in group.derived.requires:
+                        validate_qualified_field(required)
+                    level_derived[group.namespace] = {
+                        "requires": list(group.derived.requires),
+                        "produces": [field.name for _, field in group.fields],
+                        "configuration": _configuration(group.derived.configuration(), namespace=group.namespace),
+                    }
+            cls._order_derived(level, bindings, level_fields)
+            metadata[level] = level_fields
+            types_[level] = level_types
+            groups[level] = bindings
+            if level_derived:
+                derived[level] = level_derived
+        return metadata, types_, groups, derived
+
+    @staticmethod
+    def _check_scopes(
+        level: str,
+        groups: Sequence[Group],
+        children: Mapping[tuple[str, ...], tuple[tuple[str, Any], ...]],
+    ) -> None:
+        if level == SAMPLE_LEVEL:
+            possible = {"sample"}
+        else:
+            folder = level_folder(level)
+            possible = {"folder" if kind == "folder" else "asset" for kind, _ in children[folder]}
+        for group in groups:
+            target = group.model if group.model is not None else type(group.derived)
+            scopes: frozenset[str] = getattr(target, "__taco_scopes__", frozenset())
+            valid = possible.issubset(scopes) if not group.optional else bool(scopes.intersection(possible))
+            if scopes and not valid:
+                raise ContractError(f"{target.__name__} cannot be used at metadata level {level!r}")
+
+    @staticmethod
+    def _order_derived(level: str, groups: Sequence[Group], fields: Mapping[str, Field]) -> None:
+        available = {
+            field for group in groups if group.derived is None for _, item in group.fields for field in [item.name]
+        }
+        pending = [group for group in groups if group.derived is not None]
+        while pending:
+            ready = [
+                group
+                for group in pending
+                if group.derived is not None and set(group.derived.requires).issubset(available)
+            ]
+            if not ready:
+                missing = sorted(
+                    {
+                        required
+                        for group in pending
+                        if group.derived is not None
+                        for required in group.derived.requires
+                        if required not in fields
+                    }
+                )
+                if missing:
+                    raise ContractError(f"derived metadata at {level!r} requires missing fields {missing}")
+                raise ContractError(f"derived metadata at {level!r} contains a dependency cycle")
+            for group in ready:
+                available.update(field.name for _, field in group.fields)
+                pending.remove(group)
+
+    @staticmethod
+    def _normalize_derived(
+        derived: Mapping[str, Mapping[str, Mapping[str, Any]]],
+        levels: tuple[str, ...],
+        metadata: Mapping[str, Mapping[str, Field]],
+    ) -> dict[str, dict[str, dict[str, Any]]]:
+        if not isinstance(derived, Mapping):
+            raise ContractError("taco:derived must be an object")
+        extra = sorted(set(derived) - set(levels))
+        if extra:
+            raise ContractError(f"derived metadata has unknown levels {extra}")
+        result: dict[str, dict[str, dict[str, Any]]] = {}
+        for level, groups in derived.items():
+            if not isinstance(groups, Mapping):
+                raise ContractError(f"derived metadata for {level!r} must be an object")
+            result[level] = {}
+            for namespace, descriptor in groups.items():
+                validate_qualified_field(f"{namespace}:value")
+                if not isinstance(descriptor, Mapping):
+                    raise ContractError(f"derived group {namespace!r} must be an object")
+                extra = sorted(set(descriptor) - {"requires", "produces", "configuration"})
+                if extra:
+                    raise ContractError(f"derived group {namespace!r} has unknown properties {extra}")
+                requires = descriptor.get("requires")
+                produces = descriptor.get("produces")
+                configuration = descriptor.get("configuration", {})
+                if not isinstance(requires, list) or not all(isinstance(item, str) for item in requires):
+                    raise ContractError(f"derived group {namespace!r} needs a requires list")
+                if not isinstance(produces, list) or not all(isinstance(item, str) for item in produces):
+                    raise ContractError(f"derived group {namespace!r} needs a produces list")
+                if not produces:
+                    raise ContractError(f"derived group {namespace!r} must produce at least one field")
+                for name in [*requires, *produces]:
+                    validate_qualified_field(name)
+                if any(not name.startswith(f"{namespace}:") for name in produces):
+                    raise ContractError(f"derived group {namespace!r} must produce fields in its own namespace")
+                if not set(produces).issubset(metadata[level]):
+                    raise ContractError(f"derived group {namespace!r} produces fields absent from taco:metadata")
+                if not isinstance(configuration, Mapping):
+                    raise ContractError(f"derived group {namespace!r} configuration must be an object")
+                result[level][namespace] = {
+                    "requires": list(requires),
+                    "produces": list(produces),
+                    "configuration": _configuration(configuration, namespace=namespace),
+                }
+            _check_derived_descriptors(level, result[level], metadata[level])
         return result
 
     @property
     def is_null(self) -> bool:
-        """True when ``taco:structure`` is ``null`` (one file per sample)."""
         return self.structure is None
-
-    def fields(self, level: str) -> dict[str, tuple[str, str]]:
-        return self.metadata[level]
 
     def arrow_types(self, level: str) -> dict[str, pa.DataType]:
         return self._types[level]
-
-    def arrow_type(self, level: str, name: str) -> pa.DataType:
-        return self._types[level][name]
 
     def children(self, folder: tuple[str, ...]) -> tuple[tuple[str, Any], ...]:
         return self._children[folder]
@@ -283,204 +322,247 @@ class Contract:
         return (*folder, name) in self.folders
 
     def level_of_folder(self, folder: tuple[str, ...]) -> str:
-        return SAMPLE_LEVEL if not folder else SAMPLE_LEVEL + "/" + "/".join(folder)
+        return CHILDREN_LEVEL if not folder else CHILDREN_LEVEL + "/" + "/".join(folder)
 
-    def leaf_for(self, folder: tuple[str, ...], name: str) -> tuple[Leaf, int] | None:
-        """Return the leaf (and instance index) that a file name instantiates."""
-        for kind, item in self._children.get(folder, ()):
-            if kind == "leaf":
-                index = item.match_index(name)
-                if index is not None:
-                    return item, index
-        return None
-
-    def expand(self, assets: Sequence[Asset]) -> dict[tuple[str, ...], list[Node]]:
-        """Resolve assets against the structure and return children per folder."""
+    def _resolve_assets(self, assets: Sequence[Asset]) -> tuple[Asset, ...]:
         if self.is_null:
             if len(assets) != 1 or assets[0].path is not None:
-                raise SampleError(
-                    "this contract has no structure (taco:structure = null); "
-                    "each sample is exactly one source without a contract path"
-                )
-            return {(): []}
-
-        by_path: dict[str, Asset] = {}
+                raise SampleError("a contract without structure accepts one asset without a path")
+            return tuple(assets)
+        resolved = []
         for asset in assets:
-            if asset.path is None:
-                raise SampleError("every asset needs a contract path for this structure")
-            if asset.path in by_path:
-                raise SampleError(f"duplicate asset path {asset.path!r}")
-            by_path[asset.path] = asset
+            if asset.path is not None:
+                resolved.append(asset)
+                continue
+            if not isinstance(asset.source, Path):
+                raise SampleError("inline assets need an explicit contract path")
+            matches = [
+                leaf for leaf in self.leaves if not leaf.folder and leaf.match_index(asset.source.name) is not None
+            ]
+            if len(matches) != 1:
+                raise SampleError(f"cannot infer a unique contract path from {asset.source.name!r}; pass path=")
+            resolved.append(asset.replace(path=asset.source.name))
+        return tuple(resolved)
 
-        grouped: dict[tuple[str, ...], dict[str, Asset]] = {}
-        for path, asset in by_path.items():
-            parts = PurePosixPath(path).parts
-            grouped.setdefault(parts[:-1], {})[parts[-1]] = asset
+    def expand(self, assets: Sequence[Asset], folders: Sequence[Folder] = ()) -> dict[tuple[str, ...], list[Node]]:
+        assets = self._resolve_assets(assets)
+        if self.is_null:
+            return {(): []}
+        folder_metadata = {PurePosixPath(item.path).parts: item.metadata for item in folders}
+        unknown_folders = sorted("/".join(path) for path in set(folder_metadata) - set(self.folders))
+        if unknown_folders:
+            raise SampleError(f"sample names folders absent from the contract: {unknown_folders}")
+        by_folder: dict[tuple[str, ...], dict[str, Asset]] = {}
+        for asset in assets:
+            assert asset.path is not None
+            parts = PurePosixPath(asset.path).parts
+            bucket = by_folder.setdefault(parts[:-1], {})
+            if parts[-1] in bucket:
+                raise SampleError(f"duplicate asset path {asset.path!r}")
+            bucket[parts[-1]] = asset
 
         consumed: set[str] = set()
-        tree: dict[tuple[str, ...], list[Node]] = {}
+        tree = {}
         for folder, entries in self._children.items():
-            available = grouped.get(folder, {})
-            nodes: list[Node] = []
+            available = by_folder.get(folder, {})
+            nodes = []
             for kind, item in entries:
                 if kind == "folder":
-                    nodes.append(Node(name=item, is_folder=True))
+                    path = (*folder, item)
+                    nodes.append(Node(item, True, folder_metadata.get(path, Metadata())))
                     continue
                 leaf: Leaf = item
-                matches: list[tuple[int, str, Asset]] = []
-                for name, asset in available.items():
-                    index = leaf.match_index(name)
-                    if index is not None:
-                        matches.append((index, name, asset))
-                matches.sort()
-                location = "/".join(folder) or "the sample root"
+                matches = sorted(
+                    (index, name, asset)
+                    for name, asset in available.items()
+                    if (index := leaf.match_index(name)) is not None
+                )
                 if leaf.variable:
                     indexes = [index for index, _, _ in matches]
-                    count = len(matches)
-                    if indexes != list(range(count)) or not (leaf.minimum <= count <= leaf.maximum):
+                    if indexes != list(range(len(indexes))) or not leaf.minimum <= len(indexes) <= leaf.maximum:
                         raise SampleError(
-                            f"variable leaf {leaf.declaration!r} under {location} requires "
-                            f"contiguous indexes 0..k-1 with {leaf.minimum} <= k <= {leaf.maximum}; "
-                            f"got {indexes}"
+                            f"{leaf.declaration!r} requires contiguous indexes with "
+                            f"{leaf.minimum} <= count <= {leaf.maximum}; got {indexes}"
                         )
-                    for index, name, asset in matches:
-                        nodes.append(Node(name=name, is_folder=False, asset=asset, leaf=leaf, index=index))
-                        assert asset.path is not None
-                        consumed.add(asset.path)
-                else:
-                    if len(matches) != 1:
-                        raise SampleError(f"required asset {leaf.declaration!r} is missing")
-                    _, name, asset = matches[0]
-                    nodes.append(Node(name=name, is_folder=False, asset=asset, leaf=leaf, index=0))
+                elif len(matches) != 1:
+                    raise SampleError(f"required asset {leaf.declaration!r} is missing")
+                for index, name, asset in matches:
+                    nodes.append(Node(name, False, asset.metadata, asset, leaf, index))
                     assert asset.path is not None
                     consumed.add(asset.path)
             tree[folder] = nodes
-
-        unexpected = sorted(set(by_path) - consumed)
+        unexpected = sorted(asset.path for asset in assets if asset.path is not None and asset.path not in consumed)
         if unexpected:
             raise SampleError(f"assets do not match the structure: {unexpected}")
+        unused_folders = sorted("/".join(path) for path in set(folder_metadata) if not folder_metadata[path])
+        if unused_folders:
+            raise SampleError(f"empty folder metadata is unnecessary: {unused_folders}")
         return tree
 
-    @staticmethod
-    def ordered_assets(tree: Mapping[tuple[str, ...], Sequence[Node]]) -> tuple[Asset, ...]:
-        """Flatten a tree into assets in structure order (parents first)."""
-        ordered: list[Asset] = []
-        for folder in tree:
-            for node in tree[folder]:
-                if node.asset is not None:
-                    ordered.append(node.asset)
-        return tuple(ordered)
-
     def validate_sample(self, sample: Sample) -> Sample:
-        """Return a normalized copy of ``sample`` or raise :class:`SampleError`."""
         if not isinstance(sample, Sample):
             raise SampleError(f"expected a Sample, got {type(sample).__name__}")
-        tree = self.expand(sample.assets)
+        assets = self._resolve_assets(sample.assets)
+        tree = self.expand(assets, sample.folders)
+        self.flatten_metadata(SAMPLE_LEVEL, sample.metadata, scope="sample")
+        if not self.is_null:
+            for folder, nodes in tree.items():
+                level = self.level_of_folder(folder)
+                for node in nodes:
+                    self.flatten_metadata(level, node.metadata, scope="folder" if node.is_folder else "asset")
+        ordered = tuple(node.asset for nodes in tree.values() for node in nodes if node.asset is not None)
+        return Sample(assets=assets if self.is_null else ordered, metadata=sample.metadata, folders=sample.folders)
 
-        unknown = sorted(set(sample.metadata) - set(self.levels))
-        if unknown:
-            raise SampleError(f"sample metadata uses unknown levels {unknown}; valid levels are {list(self.levels)}")
-
-        normalized: dict[str, Any] = {}
-        for level in self.levels:
-            schema = self.metadata[level]
-            provided = sample.metadata.get(level)
-            if level == COLLECTION_LEVEL:
-                normalized[level] = self._validate_values(level, provided, schema)
-                continue
-
-            folder = level_folder(level)
-            expected = [node.name for node in tree[folder]]
-            if provided is None:
-                provided = {}
-            if not isinstance(provided, Mapping):
-                raise SampleError(f"metadata for {level!r} must be a mapping keyed by child name")
-            if schema:
-                if list(provided) != expected and set(provided) != set(expected):
-                    missing = [name for name in expected if name not in provided]
-                    extra = sorted(set(provided) - set(expected))
-                    raise SampleError(
-                        f"metadata children for {level!r} must be {expected}; missing={missing}, unexpected={extra}"
+    def prepare_sample(self, sample: Sample) -> _PreparedSample:
+        sample = self.validate_sample(sample)
+        rows: dict[str, tuple[_PreparedNode, ...]] = {}
+        if not self.is_null:
+            tree = self.expand(sample.assets, sample.folders)
+            for folder, nodes in tree.items():
+                level = self.level_of_folder(folder)
+                rows[level] = tuple(
+                    _PreparedNode(
+                        node.name,
+                        node.is_folder,
+                        self.flatten_metadata(
+                            level,
+                            node.metadata,
+                            scope="folder" if node.is_folder else "asset",
+                        ),
                     )
-            else:
-                extra = sorted(set(provided) - set(expected))
-                if extra:
-                    raise SampleError(f"metadata for {level!r} names unknown children {extra}")
-            normalized[level] = {
-                name: self._validate_values(level, provided.get(name), schema, child=name) for name in expected
-            }
+                    for node in nodes
+                )
+        return _PreparedSample(
+            tuple(_PreparedAsset(asset.source, asset.path) for asset in sample.assets),
+            self.flatten_metadata(SAMPLE_LEVEL, sample.metadata, scope="sample"),
+            rows,
+        )
 
-        if self.is_null:
-            assets: tuple[Asset, ...] = sample.assets
-        else:
-            assets = self.ordered_assets(tree)
-        return Sample(assets=assets, metadata=normalized)
-
-    def _validate_values(
-        self,
-        level: str,
-        values: Any,
-        schema: Mapping[str, tuple[str, str]],
-        *,
-        child: str | None = None,
-    ) -> dict[str, Any]:
-        where = f"{level}[{child!r}]" if child is not None else level
-        if values is None:
-            if schema:
-                raise SampleError(f"metadata for {where} is missing; fields {list(schema)} are required")
-            return {}
-        if not isinstance(values, Mapping):
-            raise SampleError(f"metadata for {where} must be a mapping of fields")
-        if set(values) != set(schema):
-            missing = [name for name in schema if name not in values]
-            extra = sorted(set(values) - set(schema))
-            raise SampleError(f"fields for {where} must be {list(schema)}; missing={missing}, unexpected={extra}")
+    def flatten_metadata(self, level: str, metadata: Metadata, *, scope: str) -> dict[str, Any]:
+        groups = self._groups[level]
+        if not groups and metadata.groups:
+            raise SampleError(f"metadata is not declared for {level!r}")
+        expected = {group.namespace: group for group in groups if group.derived is None}
+        derived = {group.namespace for group in groups if group.derived is not None}
+        unexpected = sorted(set(metadata.groups) - set(expected))
+        if unexpected:
+            if set(unexpected) & derived:
+                raise SampleError(f"derived metadata groups cannot be supplied: {sorted(set(unexpected) & derived)}")
+            raise SampleError(f"metadata groups at {level!r} are not declared: {unexpected}")
         result: dict[str, Any] = {}
-        types = self._types[level]
-        for name in schema:
+        for namespace, group in expected.items():
+            model = metadata.groups.get(namespace)
+            if model is None:
+                if not group.optional:
+                    raise SampleError(f"metadata group {namespace!r} is required at {level!r}")
+                result.update((field.name, None) for _, field in group.fields)
+                continue
+            assert group.model is not None
+            if not isinstance(model, group.model):
+                raise SampleError(
+                    f"metadata group {namespace!r} at {level!r} must be {group.model.__name__}, "
+                    f"got {type(model).__name__}"
+                )
+            scopes: frozenset[str] = getattr(type(model), "__taco_scopes__", frozenset())
+            if scopes and scope not in scopes:
+                raise SampleError(f"{type(model).__name__} cannot describe a {scope}")
+            dumped = model.model_dump(mode="python")
             try:
-                result[name] = coerce_value(values[name], types[name])
-            except (TypeError, ValueError) as exc:
-                raise SampleError(f"invalid value for {where}.{name}: {exc}") from exc
+                values = {name: dumped[name] for name, _ in group.fields}
+            except KeyError as exc:
+                raise SampleError(f"{type(model).__name__} no longer matches the contract") from exc
+            for name, arrow_field in group.fields:
+                try:
+                    result[arrow_field.name] = coerce_value(
+                        values[name], arrow_field.type, nullable=arrow_field.nullable
+                    )
+                except (TypeError, ValueError) as exc:
+                    raise SampleError(f"invalid {arrow_field.name} at {level!r}: {exc}") from exc
         return result
 
+    def apply_derived(self, level: str, rows: list[dict[str, Any]]) -> None:
+        if not rows:
+            return
+        pending = [group for group in self._groups[level] if group.derived is not None]
+        while pending:
+            complete = [
+                group
+                for group in pending
+                if all({field.name for _, field in group.fields}.issubset(row) for row in rows)
+            ]
+            for group in complete:
+                pending.remove(group)
+            if not pending:
+                return
+            available = set(rows[0])
+            ready = [
+                group
+                for group in pending
+                if group.derived is not None and set(group.derived.requires).issubset(available)
+            ]
+            if not ready:
+                raise RuntimeError(f"cannot resolve derived metadata at {level!r}")
+            for group in ready:
+                assert group.derived is not None
+                inputs = {name: [row.get(name) for row in rows] for name in group.derived.requires}
+                output = group.derived.compute(inputs)
+                expected = {name for name, _ in group.fields}
+                if set(output) != expected:
+                    raise SampleError(
+                        f"derived group {group.namespace!r} returned {sorted(output)}, expected {sorted(expected)}"
+                    )
+                for name, arrow_field in group.fields:
+                    values = list(output[name])
+                    if len(values) != len(rows):
+                        raise SampleError(f"derived field {arrow_field.name!r} returned the wrong number of rows")
+                    for row, value in zip(rows, values, strict=True):
+                        row[arrow_field.name] = coerce_value(value, arrow_field.type, nullable=arrow_field.nullable)
+                pending.remove(group)
+
     def to_dict(self) -> dict[str, Any]:
-        return {
+        result: dict[str, Any] = {
             "taco:structure": None if self.structure is None else list(self.structure),
             "taco:metadata": {
-                level: {name: [type_spec, description] for name, (type_spec, description) in fields.items()}
+                level: {name: spec.to_dict() for name, spec in fields.items()}
                 for level, fields in self.metadata.items()
             },
         }
+        if self.derived:
+            result["taco:derived"] = self.derived
+        return result
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> Contract:
         if "taco:structure" not in data or "taco:metadata" not in data:
             raise ContractError("COLLECTION.json must declare taco:structure and taco:metadata")
-        return cls(structure=data["taco:structure"], metadata=data["taco:metadata"])
+        metadata = data["taco:metadata"]
+        if not isinstance(metadata, Mapping):
+            raise ContractError("taco:metadata must be an object")
+        for level, fields in metadata.items():
+            if not isinstance(fields, Mapping):
+                raise ContractError(f"metadata for {level!r} must be an object")
+            for name, declaration in fields.items():
+                if not isinstance(declaration, Mapping) or set(declaration) != {
+                    "type",
+                    "nullable",
+                    "description",
+                }:
+                    raise ContractError(f"serialized field {level}.{name} must declare type, nullable, and description")
+        contract = cls(
+            structure=data["taco:structure"],
+            metadata=metadata,
+            derived=data.get("taco:derived"),
+        )
+        missing = sorted(set(contract.levels) - set(metadata))
+        if missing:
+            raise ContractError(f"taco:metadata is missing levels {missing}")
+        return contract
 
     def __eq__(self, other: object) -> bool:
-        if not isinstance(other, Contract):
-            return NotImplemented
-        return self.to_dict() == other.to_dict()
+        return isinstance(other, Contract) and self.to_dict() == other.to_dict()
 
     def __hash__(self) -> int:
         return hash(json.dumps(self.to_dict(), sort_keys=True))
 
-    def describe(self) -> str:
-        """Human-readable summary of the structure and every level's fields."""
-        lines = ["structure:"]
-        if self.structure is None:
-            lines.append("  (null: one file per sample)")
-        else:
-            lines.extend(f"  {item}" for item in self.structure)
-        lines.append("metadata:")
-        for level in self.levels:
-            lines.append(f"  {level}:")
-            fields = self.metadata[level]
-            if not fields:
-                lines.append("    (no fields)")
-            for name, (type_spec, description) in fields.items():
-                suffix = f"  # {description}" if description else ""
-                lines.append(f"    {name}: {type_spec}{suffix}")
-        return "\n".join(lines)
+
+__all__ = ["CHILDREN_LEVEL", "SAMPLE_LEVEL", "Contract", "Field", "Leaf", "Node"]

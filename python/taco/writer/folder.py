@@ -9,22 +9,25 @@ from typing import TYPE_CHECKING, Any
 
 from .._publish import publish_many
 from ..contract.collection import Collection
-from ..contract.naming import COLLECTION_FILENAME, DATA_DIR, METADATA_DIR, level_to_filename
+from ..contract.naming import COLLECTION_FILENAME, DATA_DIR, METADATA_DIR
 from ..errors import WriterError
-from ._base import BuildResult, StagedWriter
+from ._base import _BuildResult, _Writer
 from .levels import LevelTableWriter
 
 if TYPE_CHECKING:
     from .._view import DatasetView
 
-__all__ = ["FolderWriter", "open_folder"]
-
 
 def _looks_like_taco_folder(path: Path) -> bool:
-    return (path / COLLECTION_FILENAME).is_file() and (path / METADATA_DIR).is_dir()
+    return (path / COLLECTION_FILENAME).is_file() and (path / DATA_DIR).is_dir() and (path / METADATA_DIR).is_dir()
 
 
-class FolderWriter(StagedWriter):
+def _version_core(value: str) -> tuple[int, int, int]:
+    major, minor, patch = value.split("+", 1)[0].split("-", 1)[0].split(".")
+    return int(major), int(minor), int(patch)
+
+
+class _FolderWriter(_Writer):
     """Write (or append to) a FOLDER-mode TACO dataset.
 
     ``append=True`` opens an existing folder built with the same contract and
@@ -46,7 +49,7 @@ class FolderWriter(StagedWriter):
         parquet_options: Mapping[str, Any] | None = None,
     ) -> None:
         output = Path(directory).expanduser().resolve()
-        if output.suffix.lower() in {".zip", ".tacozip"}:
+        if output.suffix.lower() == ".zip":
             raise WriterError("a FOLDER dataset is a directory, not an archive name")
         if append and overwrite:
             raise ValueError("append and overwrite are mutually exclusive")
@@ -71,8 +74,14 @@ class FolderWriter(StagedWriter):
             existing = open_view(directory)
             if existing.container != "folder":
                 raise WriterError(f"{directory} is not a FOLDER dataset")
+            if existing.collection.id != self.collection.id:
+                raise WriterError("append cannot change the dataset id")
             if existing.contract != self.contract:
                 raise WriterError("the existing dataset was built with a different contract")
+            old_major, old_minor, _ = _version_core(existing.collection.dataset_version)
+            new_major, new_minor, _ = _version_core(self.collection.dataset_version)
+            if new_major != old_major or new_minor <= old_minor:
+                raise WriterError("append needs a higher minor dataset version with the same major version")
             return existing
         if directory.exists():
             if not directory.is_dir():
@@ -93,7 +102,7 @@ class FolderWriter(StagedWriter):
         shutil.copyfile(source, target)
         return target.stat().st_size
 
-    def _build(self) -> BuildResult:
+    def _build(self) -> _BuildResult:
         existing = self._existing_dataset()
         if existing is not None:
             return self._write_dataset(self.directory, existing)
@@ -112,14 +121,15 @@ class FolderWriter(StagedWriter):
             raise FileExistsError(f"directory is not empty (set overwrite=True): {self.directory}")
         publish_many([(source, self.directory)], overwrite=self.directory.exists())
 
-    def _write_dataset(self, directory: Path, existing: DatasetView | None) -> BuildResult:
+    def _write_dataset(self, directory: Path, existing: DatasetView | None) -> _BuildResult:
         start = existing.sample_count if existing is not None else 0
         data_dir = directory / DATA_DIR
         data_dir.mkdir(exist_ok=True)
         created: list[Path] = []
         copied_files = 0
         copied_bytes = 0
-        temp_metadata = Path(tempfile.mkdtemp(prefix=".taco-", dir=directory))
+        transaction = Path(tempfile.mkdtemp(prefix=".taco-", dir=directory))
+        temp_metadata = transaction / METADATA_DIR
         try:
             tables = LevelTableWriter(
                 self.contract,
@@ -148,18 +158,20 @@ class FolderWriter(StagedWriter):
                         copied_bytes += self._place(asset.source, target)
                         copied_files += 1
                     tables.add_sample(index, sample)
-                paths = tables.close()
+                tables.close()
             except BaseException:
                 tables.abort()
                 raise
 
-            metadata_dir = directory / METADATA_DIR
-            metadata_dir.mkdir(exist_ok=True)
-            temp_collection = temp_metadata / COLLECTION_FILENAME
+            temp_collection = transaction / COLLECTION_FILENAME
             temp_collection.write_text(self.collection.to_json(), encoding="utf-8")
-            replacements = [(paths[level], metadata_dir / level_to_filename(level)) for level in self.contract.levels]
-            replacements.append((temp_collection, directory / COLLECTION_FILENAME))
-            publish_many(replacements, overwrite=True)
+            publish_many(
+                [
+                    (temp_metadata, directory / METADATA_DIR),
+                    (temp_collection, directory / COLLECTION_FILENAME),
+                ],
+                overwrite=True,
+            )
         except BaseException:
             for path in created:
                 if path.is_dir():
@@ -168,9 +180,9 @@ class FolderWriter(StagedWriter):
                     path.unlink(missing_ok=True)
             raise
         finally:
-            shutil.rmtree(temp_metadata, ignore_errors=True)
+            shutil.rmtree(transaction, ignore_errors=True)
 
-        return BuildResult(
+        return _BuildResult(
             path=self.directory,
             samples=start + self._journal.count,
             data_files=copied_files,
@@ -179,7 +191,7 @@ class FolderWriter(StagedWriter):
         )
 
 
-def open_folder(
+def _open_folder_writer(
     collection: Collection,
     directory: str | PathLike[str],
     *,
@@ -189,9 +201,8 @@ def open_folder(
     row_group_size: int = 65_536,
     batch_size: int = 10_000,
     parquet_options: Mapping[str, Any] | None = None,
-) -> FolderWriter:
-    """Open a FOLDER-mode writer (appendable, spec section 7.4)."""
-    return FolderWriter(
+) -> _FolderWriter:
+    return _FolderWriter(
         collection,
         directory,
         append=append,

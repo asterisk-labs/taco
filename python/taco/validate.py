@@ -13,7 +13,7 @@ import pyarrow as pa
 
 from ._view import DatasetView, open_view
 from .contract.collection import KNOWN_TASKS
-from .contract.contract import COLLECTION_LEVEL, Contract
+from .contract.contract import CHILDREN_LEVEL, SAMPLE_LEVEL, Contract
 from .contract.naming import (
     COLLECTION_FILENAME,
     CURRENT_ID,
@@ -122,11 +122,11 @@ def validate(path: str | PathLike[str], *, check_data: bool = True) -> Validatio
 
 def _check_collection(dataset: DatasetView, collector: _Collector) -> None:
     collection = dataset.collection
+    if dataset.container != "tacocat" and collection.sources is not None:
+        collector.error("sources", "taco:sources is only valid in TACOCAT")
     unknown = [task for task in collection.tasks if task not in KNOWN_TASKS]
     if unknown:
         collector.warning("tasks", f"unrecognized task types {unknown}")
-    if not collection.title:
-        collector.warning("title", "COLLECTION.json has no title")
 
 
 def _expected_schema_names(contract: Contract, level: str, container: str) -> list[str]:
@@ -145,6 +145,16 @@ def _check_metadata_files(dataset: DatasetView, collector: _Collector) -> None:
             collector.error("metadata", f"missing METADATA file for level {level!r} ({level_to_filename(level)})")
         else:
             _check_schema(dataset, level, table, collector)
+    if dataset.container == "folder":
+        directory = dataset.path / METADATA_DIR
+    elif dataset.container == "tacocat":
+        directory = dataset.path
+    else:
+        return
+    expected = {level_to_filename(level) for level in contract.levels}
+    extra = sorted(path.name for path in directory.glob("*.parquet") if path.name not in expected)
+    if extra:
+        collector.error("metadata", f"unexpected Parquet files {extra}")
 
 
 def _split_by_source(dataset: DatasetView) -> dict[str, dict[str, pa.Table]]:
@@ -174,7 +184,7 @@ def _check_levels(
     label: str = "",
 ) -> None:
     contract = dataset.contract
-    sample_count = tables[COLLECTION_LEVEL].num_rows if COLLECTION_LEVEL in tables else 0
+    sample_count = tables[SAMPLE_LEVEL].num_rows if SAMPLE_LEVEL in tables else 0
     parent_rows: dict[str, int] = {}
     for level in contract.levels:
         table = tables.get(level)
@@ -186,17 +196,15 @@ def _check_levels(
             ids = table.column(CURRENT_ID).to_pylist()
             if ids != list(range(rows)):
                 collector.error("current_id", f"{label}{level}: internal:current_id must equal the row position")
-        if level == COLLECTION_LEVEL:
+        if level == SAMPLE_LEVEL:
             if RELATIVE_PATH in table.column_names:
                 paths = table.column(RELATIVE_PATH).to_pylist()
                 if paths != [str(index) for index in range(rows)]:
-                    collector.error(
-                        "relative_path", f"{label}collection: internal:relative_path must be the sample index"
-                    )
+                    collector.error("relative_path", f"{label}sample: internal:relative_path must be the sample index")
             continue
 
         folder = level_folder(level)
-        parent_level = COLLECTION_LEVEL if not folder else contract.level_of_folder(folder[:-1])
+        parent_level = SAMPLE_LEVEL if level == CHILDREN_LEVEL else contract.level_of_folder(folder[:-1])
         if PARENT_ID not in table.column_names or RELATIVE_PATH not in table.column_names:
             continue
         parent_table = tables.get(parent_level)
@@ -235,7 +243,13 @@ def _check_levels(
                 continue
             parts = relative_path.split("/")
             expected_depth = 2 + len(folder)
-            if len(parts) != expected_depth or not parts[0].isdigit() or int(parts[0]) >= sample_count:
+            if (
+                len(parts) != expected_depth
+                or not parts[0].isascii()
+                or not parts[0].isdigit()
+                or (len(parts[0]) > 1 and parts[0].startswith("0"))
+                or int(parts[0]) >= sample_count
+            ):
                 prefix_ok = False
                 continue
             if tuple(parts[1:-1]) != folder:
@@ -295,6 +309,9 @@ def _check_children(
 
 def _check_schema(dataset: DatasetView, level: str, table: pa.Table, collector: _Collector) -> None:
     contract = dataset.contract
+    schema_metadata = table.schema.metadata or {}
+    if schema_metadata.get(b"taco:level") != level.encode():
+        collector.error("schema", f"{level}: Parquet schema must declare taco:level={level!r}")
     expected = _expected_schema_names(contract, level, dataset.container)
     actual = table.column_names
     missing = [name for name in expected if name not in actual]
@@ -307,18 +324,28 @@ def _check_schema(dataset: DatasetView, level: str, table: pa.Table, collector: 
     for field_ in reference:
         if field_.name in actual:
             column = table.column(field_.name)
-            actual_type = table.schema.field(field_.name).type
+            actual_field = table.schema.field(field_.name)
+            actual_type = actual_field.type
             if type_name(actual_type) != type_name(field_.type):
                 collector.error(
                     "schema",
                     f"{level}: column {field_.name!r} is {type_name(actual_type)}, contract says {type_name(field_.type)}",
                 )
+            if actual_field.nullable != field_.nullable:
+                collector.error("schema", f"{level}: column {field_.name!r} nullability does not match the contract")
+            expected_description = (field_.metadata or {}).get(b"description")
+            actual_description = (actual_field.metadata or {}).get(b"description")
+            if actual_description != expected_description:
+                collector.error("schema", f"{level}: column {field_.name!r} description does not match the contract")
             if not field_.nullable and column.null_count:
                 collector.error("schema", f"{level}: column {field_.name!r} contains null values")
     if dataset.container == "tacocat" and SOURCE_FILE in actual:
+        source_field = table.schema.field(SOURCE_FILE)
         source_column = table.column(SOURCE_FILE)
         if not pa.types.is_string(source_column.type):
             collector.error("schema", f"{level}: column {SOURCE_FILE!r} must be string")
+        if source_field.nullable:
+            collector.error("schema", f"{level}: column {SOURCE_FILE!r} must not be nullable")
         if source_column.null_count:
             collector.error("schema", f"{level}: column {SOURCE_FILE!r} contains null values")
     for name in (OFFSET, SIZE):
@@ -329,6 +356,9 @@ def _check_schema(dataset: DatasetView, level: str, table: pa.Table, collector: 
                 is_leaf = dataset.is_leaf_level_row(level, relative_path)
                 if is_leaf and value is None:
                     collector.error("offsets", f"{level}: file row {relative_path!r} has no {name}")
+                    break
+                if is_leaf and name == SIZE and value is not None and value == 0:
+                    collector.error("offsets", f"{level}: file row {relative_path!r} has zero size")
                     break
                 if not is_leaf and value is not None:
                     collector.error("offsets", f"{level}: folder row {relative_path!r} must not carry {name}")
@@ -346,10 +376,15 @@ def _local_data_offsets(zf: zipfile.ZipFile, stream: BinaryIO) -> Iterator[tuple
 
 
 def _check_zip(dataset: DatasetView, collector: _Collector, *, check_data: bool) -> None:
-    # Opening the dataset already ran the reader, which enforces the cozip
-    # layer: the byte-0 header, ASCII and reserved names, the integrity hash
-    # and every declared byte range. What is left is TACO's own contract with
-    # the archive around it.
+    from .reader import levels
+
+    try:
+        indexed_levels = levels(dataset.path)
+        if set(indexed_levels) != set(dataset.levels):
+            collector.error("cozip", "the CoZIP index does not match taco:metadata")
+    except Exception as exc:
+        collector.error("cozip", str(exc))
+
     expected = {COLLECTION_FILENAME, *(f"{METADATA_DIR}/{level_to_filename(level)}" for level in dataset.levels)}
     expected_data = {row.archive_name: (row.offset, row.size) for row in dataset.iter_data_rows()} if check_data else {}
     seen_data: dict[str, tuple[int, int]] = {}
@@ -366,6 +401,15 @@ def _check_zip(dataset: DatasetView, collector: _Collector, *, check_data: bool)
             block = names[-len(expected) :] if len(names) >= len(expected) else []
             if set(block) != expected:
                 collector.error("zip", "priority files must form the final contiguous entry block")
+            metadata_entries = {
+                name.removeprefix(METADATA_DIR + "/")
+                for name in names
+                if name.startswith(METADATA_DIR + "/") and name.endswith(".parquet")
+            }
+            expected_metadata = {level_to_filename(level) for level in dataset.levels}
+            extra_metadata = sorted(metadata_entries - expected_metadata)
+            if extra_metadata:
+                collector.error("metadata", f"unexpected Parquet files {extra_metadata}")
             for name, data_offset, size, info in _local_data_offsets(archive, stream):
                 if info.compress_type != zipfile.ZIP_STORED:
                     collector.error("zip", f"entry {name!r} is not STORE")
@@ -401,9 +445,11 @@ def _check_zip(dataset: DatasetView, collector: _Collector, *, check_data: bool)
 
 
 def _check_folder(dataset: DatasetView, collector: _Collector, *, check_data: bool) -> None:
+    data_root = dataset.path / DATA_DIR
+    if not data_root.is_dir():
+        collector.error("data", f"missing {DATA_DIR}/ directory")
     if not check_data:
         return
-    data_root = dataset.path / DATA_DIR
     expected = {row.relative_path for row in dataset.iter_data_rows()}
     missing = 0
     empty = 0
@@ -418,7 +464,7 @@ def _check_folder(dataset: DatasetView, collector: _Collector, *, check_data: bo
     if missing:
         collector.error("data", f"{missing} data files referenced by metadata are missing (first: {first_missing})")
     if empty:
-        collector.warning("data", f"{empty} data files are empty; they cannot be packed into an archive")
+        collector.error("data", f"{empty} data files are empty")
     if data_root.is_dir():
         present = {file.relative_to(data_root).as_posix() for file in data_root.rglob("*") if file.is_file()}
         extra = sorted(present - expected)
@@ -430,25 +476,36 @@ def _check_folder(dataset: DatasetView, collector: _Collector, *, check_data: bo
 
 def _check_tacocat(dataset: DatasetView, collector: _Collector) -> None:
     sources = dataset.collection_json.get("taco:sources")
-    if not isinstance(sources, dict) or "files" not in sources:
-        collector.warning("sources", "COLLECTION.json has no taco:sources")
+    if not isinstance(sources, dict) or "partitions" not in sources:
+        collector.error("sources", "COLLECTION.json has no taco:sources.partitions")
         listed: list[str] = []
     else:
-        files = sources.get("files")
-        if not isinstance(files, list) or not all(isinstance(name, str) for name in files):
-            collector.error("sources", "taco:sources.files must be a list of file names")
+        partitions = sources.get("partitions")
+        if not isinstance(partitions, list) or not all(isinstance(item, dict) for item in partitions):
+            collector.error("sources", "taco:sources.partitions must be a list of objects")
             listed = []
         else:
-            listed = files
-            if sources.get("count") != len(listed):
-                collector.error("sources", "taco:sources.count does not match the number of files")
+            listed = [item.get("file") for item in partitions if isinstance(item.get("file"), str)]
+            if len(listed) != len(partitions):
+                collector.error("sources", "every partition needs a file")
             if len(set(listed)) != len(listed):
-                collector.error("sources", "taco:sources.files contains duplicate names")
+                collector.error("sources", "taco:sources contains duplicate files")
+            counts = [item.get("samples") for item in partitions]
+            if not all(isinstance(value, int) and value >= 0 for value in counts):
+                collector.error("sources", "every partition needs a non-negative sample count")
+            elif sources.get("samples") != sum(counts):
+                collector.error("sources", "taco:sources.samples does not match its partitions")
+            sample_table = dataset.tables.get(SAMPLE_LEVEL)
+            if sample_table is not None and SOURCE_FILE in sample_table.column_names:
+                actual = Counter(sample_table.column(SOURCE_FILE).to_pylist())
+                expected = {item["file"]: item["samples"] for item in partitions if "file" in item}
+                if actual != expected:
+                    collector.error("sources", "partition sample counts do not match sample.parquet")
         for name in listed:
-            if Path(name).name != name:
-                collector.error("sources", f"partition name must not contain a directory: {name!r}")
+            if Path(name).is_absolute():
+                collector.error("sources", f"partition path must be relative: {name!r}")
             elif not (dataset.path.parent / name).is_file():
-                collector.warning("sources", f"partition {name!r} is not next to the .tacocat directory")
+                collector.warning("sources", f"partition {name!r} cannot be found")
     for level, table in dataset.tables.items():
         if SOURCE_FILE not in table.column_names:
             collector.error("source_file", f"{level}: TACOCAT tables need internal:source_file")

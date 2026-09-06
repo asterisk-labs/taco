@@ -1,116 +1,151 @@
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from os import PathLike
 from pathlib import Path
-from typing import Any, TypeAlias
+from typing import TypeAlias, cast
 
 from ..errors import SampleError
+from ..schema import Metadata
 from .naming import normalize_relative_path
-
-__all__ = ["Asset", "Sample", "SourceLike"]
 
 SourceLike: TypeAlias = str | PathLike[str] | bytes | bytearray | memoryview
 
 
-@dataclass(frozen=True)
+def _source(value: SourceLike) -> Path | bytes:
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return bytes(value)
+    if isinstance(value, (str, PathLike)):
+        return Path(value).expanduser().resolve()
+    raise SampleError(f"source must be a path or bytes, got {type(value).__name__}")
+
+
+@dataclass(frozen=True, init=False)
 class Asset:
-    """One file of a sample.
-
-    ``path`` is the contract-relative location inside the sample (for example
-    ``before/B02.tif``). It is ``None`` only for contracts whose
-    ``taco:structure`` is ``null``, where the sample itself is the file.
-
-    ``source`` is where the bytes live right now: a local file path, or the
-    raw bytes. Inline bytes are materialized into the writer's staging
-    directory when the sample is added.
-    """
-
-    path: str | None
     source: Path | bytes
+    path: str | None
+    metadata: Metadata
 
-    def __init__(self, path: str | None, source: SourceLike) -> None:
+    def __init__(
+        self,
+        source: SourceLike,
+        *,
+        path: str | None = None,
+        metadata: Metadata | None = None,
+    ) -> None:
         if path is not None:
             try:
                 path = normalize_relative_path(path, context="asset path")
             except ValueError as exc:
                 raise SampleError(str(exc)) from exc
-        if isinstance(source, (bytes, bytearray, memoryview)):
-            normalized: Path | bytes = bytes(source)
-        elif isinstance(source, (str, PathLike)):
-            normalized = Path(source).expanduser().resolve()
-        else:
-            raise SampleError(f"asset source must be a path or bytes, got {type(source).__name__}")
+        if metadata is not None and not isinstance(metadata, Metadata):
+            raise SampleError("asset metadata must be taco.Metadata")
+        object.__setattr__(self, "source", _source(source))
         object.__setattr__(self, "path", path)
-        object.__setattr__(self, "source", normalized)
+        object.__setattr__(self, "metadata", metadata or Metadata())
 
     @property
     def is_inline(self) -> bool:
         return isinstance(self.source, bytes)
 
-    def size(self) -> int:
-        """Return the payload size in bytes (stat for paths, len for bytes)."""
-        if isinstance(self.source, bytes):
-            return len(self.source)
-        return self.source.stat().st_size
-
-    def with_source(self, source: Path) -> Asset:
-        return Asset(self.path, source)
+    def replace(self, *, source: Path | bytes | None = None, path: str | None = None) -> Asset:
+        actual_source = self.source if source is None else source
+        actual_path = self.path if path is None else path
+        return Asset(actual_source, path=actual_path, metadata=self.metadata)
 
 
-AssetInput: TypeAlias = SourceLike | Asset | Mapping[str, SourceLike] | Sequence[Asset | tuple[str, SourceLike]]
+@dataclass(frozen=True, init=False)
+class Folder:
+    path: str
+    metadata: Metadata
+
+    def __init__(self, path: str, *, metadata: Metadata) -> None:
+        try:
+            normalized = normalize_relative_path(path, context="folder path")
+        except ValueError as exc:
+            raise SampleError(str(exc)) from exc
+        if not isinstance(metadata, Metadata):
+            raise SampleError("folder metadata must be taco.Metadata")
+        object.__setattr__(self, "path", normalized)
+        object.__setattr__(self, "metadata", metadata)
 
 
-def _coerce_assets(assets: AssetInput) -> tuple[Asset, ...]:
-    if isinstance(assets, Asset):
-        return (assets,)
-    if isinstance(assets, (str, bytes, bytearray, memoryview, PathLike)):
-        return (Asset(None, assets),)
-    if isinstance(assets, Mapping):
-        return tuple(Asset(path, source) for path, source in assets.items())
-    if isinstance(assets, Sequence):
-        result = []
-        for item in assets:
-            if isinstance(item, Asset):
-                result.append(item)
-            elif isinstance(item, (tuple, list)) and len(item) == 2:
-                result.append(Asset(item[0], item[1]))
-            else:
-                raise SampleError("assets sequence items must be Asset or (path, source) pairs")
-        return tuple(result)
-    raise SampleError("assets must be a mapping {path: source}, a sequence of Asset, or a single source")
+AssetInput: TypeAlias = SourceLike | Asset | Sequence[Asset | SourceLike]
+
+
+def _assets(values: AssetInput) -> tuple[Asset, ...]:
+    if isinstance(values, Asset):
+        return (values,)
+    if isinstance(values, (str, bytes, bytearray, memoryview, PathLike)):
+        return (Asset(values),)
+    if isinstance(values, Sequence):
+        return tuple(item if isinstance(item, Asset) else Asset(cast(SourceLike, item)) for item in values)
+    raise SampleError("assets must be an Asset, a source, or a sequence of them")
 
 
 @dataclass(frozen=True, init=False)
 class Sample:
-    """A unit waiting to be validated and appended to a writer.
-
-    ``assets`` maps contract paths to sources. For ``taco:structure = null``
-    contracts pass a single source instead. ``metadata`` is keyed by contract
-    level (``"collection"``, ``"sample"``, ``"sample/<folder>"``); the
-    ``collection`` level holds one flat mapping of fields, deeper levels are
-    keyed by child name.
-    """
-
     assets: tuple[Asset, ...]
-    metadata: dict[str, Any]
+    metadata: Metadata
+    folders: tuple[Folder, ...]
 
-    def __init__(self, *, assets: AssetInput, metadata: Mapping[str, Any] | None = None) -> None:
-        normalized = _coerce_assets(assets)
-        if not normalized:
-            raise SampleError("a sample needs at least one asset")
-        if metadata is None:
-            metadata = {}
-        if not isinstance(metadata, Mapping):
-            raise SampleError("sample metadata must be a mapping keyed by level")
-        object.__setattr__(self, "assets", normalized)
-        object.__setattr__(self, "metadata", dict(metadata))
-
-    @property
-    def single(self) -> bool:
-        """True when the sample is one file without internal structure."""
-        return len(self.assets) == 1 and self.assets[0].path is None
+    def __init__(
+        self,
+        *,
+        assets: AssetInput | Sequence[Asset] = (),
+        metadata: Metadata | None = None,
+        folders: Sequence[Folder] = (),
+    ) -> None:
+        if metadata is not None and not isinstance(metadata, Metadata):
+            raise SampleError("sample metadata must be taco.Metadata")
+        if isinstance(folders, (str, bytes)) or not isinstance(folders, Sequence):
+            raise SampleError("folders must be a sequence of taco.Folder")
+        normalized_folders = tuple(folders)
+        if not all(isinstance(folder, Folder) for folder in normalized_folders):
+            raise SampleError("folders must contain taco.Folder objects")
+        paths = [folder.path for folder in normalized_folders]
+        if len(paths) != len(set(paths)):
+            raise SampleError("a folder appears more than once")
+        object.__setattr__(self, "assets", _assets(assets))
+        object.__setattr__(self, "metadata", metadata or Metadata())
+        object.__setattr__(self, "folders", normalized_folders)
 
     def replace_assets(self, assets: Sequence[Asset]) -> Sample:
-        return Sample(assets=tuple(assets), metadata=self.metadata)
+        return Sample(assets=assets, metadata=self.metadata, folders=self.folders)
+
+
+@dataclass(frozen=True)
+class _PreparedAsset:
+    source: Path | bytes
+    path: str | None
+
+    @property
+    def is_inline(self) -> bool:
+        return isinstance(self.source, bytes)
+
+    def replace_source(self, source: Path) -> _PreparedAsset:
+        return _PreparedAsset(source, self.path)
+
+
+@dataclass(frozen=True)
+class _PreparedNode:
+    name: str
+    is_folder: bool
+    metadata: dict[str, object]
+
+
+@dataclass(frozen=True)
+class _PreparedSample:
+    assets: tuple[_PreparedAsset, ...]
+    metadata: dict[str, object]
+    rows: dict[str, tuple[_PreparedNode, ...]]
+
+    def replace_assets(self, assets: Sequence[_PreparedAsset]) -> _PreparedSample:
+        return _PreparedSample(tuple(assets), self.metadata, self.rows)
+
+    def replace_metadata(self, metadata: dict[str, object]) -> _PreparedSample:
+        return _PreparedSample(self.assets, metadata, self.rows)
+
+
+__all__ = ["Asset", "Folder", "Sample", "SourceLike"]

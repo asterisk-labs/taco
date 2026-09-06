@@ -1,10 +1,7 @@
-from pathlib import Path
+import taco
 
-from taco import Collection, Contract, Sample, open_writer, validate
-from taco.reader import read
-
-collection = Collection(
-    contract=Contract(structure=None),
+collection = taco.Collection(
+    contract=taco.Contract(structure=None),
     id="minimal",
     dataset_version="1.0.0",
     description="Minimal TACO dataset",
@@ -12,9 +9,8 @@ collection = Collection(
     providers=["me"],
     tasks=["other"],
 )
-with open_writer(collection, Path("minimal.zip"), overwrite=True) as writer:
-    writer.add(Sample(assets=b"hello"))
-    archive = writer.run().path
+with taco.open_writer(collection, "minimal.zip", overwrite=True) as writer:
+    writer.add(taco.Sample(assets=b"hello"))
+    writer.run()
 
-print(validate(archive))
-print(read(archive))
+assert taco.reader.read("minimal.zip").num_rows == 1

@@ -2,213 +2,238 @@ from __future__ import annotations
 
 import io
 import json
-import struct
 import zipfile
-from datetime import datetime
 from pathlib import Path
 
 import pyarrow.parquet as pq
 import pytest
+from pydantic import BaseModel
 
 import taco
-from taco._view import open_view as open_dataset
+from taco._view import open_view
 from taco.errors import SampleError, WriterError
-from taco.reader.engine import connect
-from taco.writer import WriterState
-
-PRIORITY = [
-    "COLLECTION.json",
-    "METADATA/collection.parquet",
-    "METADATA/sample.parquet",
-    "METADATA/sample__before.parquet",
-    "METADATA/sample__after.parquet",
-]
 
 
-def test_run_builds_tacozip_once(tmp_path: Path, collection, make_sample) -> None:
-    with taco.open_writer(collection, tmp_path / "dataset") as writer:
-        assert writer.state is WriterState.OPEN
+def test_zip_end_to_end(tmp_path: Path, collection: taco.Collection, make_sample) -> None:
+    output = tmp_path / "data.zip"
+    with taco.open_writer(collection, output, batch_size=2) as writer:
         assert writer.add(make_sample(0)) == 0
-        assert writer.extend([make_sample(1), make_sample(2, 2)]) == 3
-        assert writer.sample_count == 3
-        assert not list(writer._stage.rglob("*.parquet"))
-        first = writer.run()
-        second = writer.run()
-        assert writer.state is WriterState.SUCCEEDED
-        with pytest.raises(WriterError):
-            writer.add(make_sample(3))
-    assert first is second
-    assert first.path.name == "dataset.zip"
-    assert first.samples == 3
-    assert first.data_files == 14
-    assert first.metadata_files == 4
-    assert not first.partitioned
-    assert writer.state is WriterState.SUCCEEDED
+        assert writer.extend([make_sample(1, 1), make_sample(2, 2)]) == 3
+        result = writer.run()
+        assert writer.run() is result
+    assert result.path == output.resolve()
+    assert result.samples == 3
+    assert result.data_files == 15
+    assert taco.validate(output).ok
+
+    dataset = open_view(output)
+    assert dataset.levels == ("sample", "children", "children/before", "children/after")
+    assert dataset.sample_count == 3
+    assert dataset.level("sample").column("majortom:code").null_count == 0
+    assert dataset.level("children").num_rows == 3 * 3 + 3
 
 
-def test_archive_layout_and_index(archive: Path) -> None:
-    # The reader is the authority on the cozip layer, so the profile and the
-    # priority set are checked through it rather than by a second parser.
-    assert connect().execute("SELECT cozip_profile(?)", [str(archive)]).fetchone()[0] == "taco"
-    with zipfile.ZipFile(archive) as zf:
-        names = zf.namelist()
-        infos = zf.infolist()
-    assert names[0] == "__cozip__"
-    assert names[-len(PRIORITY) :] == PRIORITY
-    assert all(info.compress_type == zipfile.ZIP_STORED for info in infos)
-    assert not any(info.is_dir() for info in infos)
-    if "__cozip_padding__" in names:
-        assert names.index("__cozip_padding__") < names.index("COLLECTION.json")
-    raw = archive.read_bytes()
-    assert raw[-22:-18] == b"PK\x05\x06"
-    assert raw[-2:] == b"\x00\x00"
-    assert struct.unpack_from("<Q", raw, 43)[0] != 0
-
-
-def test_metadata_tables_and_offsets(archive: Path, tmp_path: Path) -> None:
-    dataset = open_dataset(archive)
-    assert dataset.container == "zip"
-    assert dataset.sample_count == 4
-    collection = dataset.level("collection")
-    assert collection.column_names[:2] == ["internal:current_id", "internal:relative_path"]
-    assert collection.column("internal:relative_path").to_pylist() == ["0", "1", "2", "3"]
-    # Field descriptions and the taco:level tag live in the Parquet schema and
-    # in COLLECTION.json; DuckDB does not surface Parquet key-value metadata,
-    # so the reader cannot return them.
-    assert collection.schema.metadata is None
-
-    sample = dataset.level("sample")
-    assert sample.column_names[:5] == [
-        "internal:current_id",
-        "internal:parent_id",
-        "internal:relative_path",
-        "internal:offset",
-        "internal:size",
-    ]
-    # 3 fixed children + variable extras (0, 1, 2, 0)
-    assert sample.num_rows == 4 * 3 + 0 + 1 + 2 + 0
-    rows = sample.to_pylist()
-    assert rows[0]["internal:relative_path"] == "0/before"
-    assert rows[0]["internal:offset"] is None
-    assert rows[2]["internal:relative_path"] == "0/mask.tif"
-    assert rows[2]["internal:offset"] is not None
-    assert [row["internal:parent_id"] for row in rows[:3]] == [0, 0, 0]
-    assert rows[3]["internal:parent_id"] == 1
-
-    before = dataset.level("sample/before")
-    before_rows = before.to_pylist()
-    assert before.num_rows == 8
-    # parent is the row id of "<i>/before" in sample.parquet
-    parent_of_first = before_rows[0]["internal:parent_id"]
-    assert rows[parent_of_first]["internal:relative_path"] == "0/before"
-    assert before_rows[0]["resolution"] == 10
+def test_zip_layout_and_offsets(archive: Path) -> None:
+    with zipfile.ZipFile(archive) as zipped:
+        names = zipped.namelist()
+        assert names[0] == "__cozip__"
+        assert names[-5:] == [
+            "COLLECTION.json",
+            "METADATA/sample.parquet",
+            "METADATA/children.parquet",
+            "METADATA/children__before.parquet",
+            "METADATA/children__after.parquet",
+        ]
+        collection = json.loads(zipped.read("COLLECTION.json"))
+        schema = pq.read_schema(io.BytesIO(zipped.read("METADATA/sample.parquet")))
+    assert collection["taco:version"] == "3.0.0"
+    assert collection["labels:num_classes"] == 2
+    assert schema.metadata == {b"taco:level": b"sample"}
+    assert schema.field("ml:cloud_cover").nullable
 
     raw = archive.read_bytes()
-    with zipfile.ZipFile(archive) as zf:
-        for row in dataset.iter_data_rows():
-            assert raw[row.offset : row.offset + row.size] == zf.read(row.archive_name)
-
-    collection_json = json.loads(zipfile.ZipFile(archive).read("COLLECTION.json"))
-    assert collection_json["id"] == "tiny-change"
-    assert collection_json["labels:num_classes"] == 2
-    assert "extent" not in collection_json
-
-
-def test_extent_is_only_what_the_collection_declares(tmp_path: Path, collection, make_sample) -> None:
-    with taco.open_writer(collection, tmp_path / "none.zip") as writer:
-        writer.add(make_sample(0))
-        result = writer.run()
-    assert open_dataset(result.path).collection.extent is None
-
-    fixed = collection.replace(extent={"spatial": [0, 0, 1, 1], "temporal": ["2024-01-01", "2024-06-01"]})
-    with taco.open_writer(fixed, tmp_path / "fixed.zip") as writer:
-        writer.add(make_sample(0))
-        result = writer.run()
-    extent = open_dataset(result.path).collection.extent
-    assert extent.spatial == (0.0, 0.0, 1.0, 1.0)
-    assert extent.temporal == ("2024-01-01T00:00:00Z", "2024-06-01T00:00:00Z")
-
-
-def test_inline_bytes_assets_are_materialized(tmp_path: Path) -> None:
-    contract = taco.Contract(structure=["a.bin", "b.bin"], metadata={"collection": {"n": "int32"}})
-    collection = taco.Collection(
-        contract=contract,
-        id="inline",
-        dataset_version="0.1.0",
-        description="d",
-        licenses=["MIT"],
-        providers=["p"],
-        tasks=["other"],
-    )
-    with taco.open_writer(collection, tmp_path / "inline.zip") as writer:
-        writer.add(taco.Sample(assets={"a.bin": b"aaaa", "b.bin": bytearray(b"bb")}, metadata={"collection": {"n": 1}}))
-        result = writer.run()
-    with zipfile.ZipFile(result.path) as zf:
-        assert zf.read("DATA/0/a.bin") == b"aaaa"
-        assert zf.read("DATA/0/b.bin") == b"bb"
-
-
-def test_null_structure_archive(tmp_path: Path) -> None:
-    contract = taco.Contract(structure=None, metadata={"collection": {"label": ["int8", "class id"]}})
-    collection = taco.Collection(
-        contract=contract,
-        id="null",
-        dataset_version="0.1.0",
-        description="d",
-        licenses=["MIT"],
-        providers=["p"],
-        tasks=["classification"],
-    )
-    with taco.open_writer(collection, tmp_path / "null.zip") as writer:
-        for index in range(3):
-            writer.add(taco.Sample(assets=b"payload-%d" % index * 4, metadata={"collection": {"label": index}}))
-        result = writer.run()
-    dataset = open_dataset(result.path)
-    assert dataset.levels == ("collection",)
-    table = dataset.level("collection")
-    assert table.column_names == [
-        "internal:current_id",
-        "internal:relative_path",
-        "internal:offset",
-        "internal:size",
-        "label",
-    ]
-    raw = result.path.read_bytes()
+    dataset = open_view(archive)
     for row in dataset.iter_data_rows():
-        assert raw[row.offset : row.offset + row.size] == b"payload-%d" % row.sample_index * 4
-    with zipfile.ZipFile(result.path) as zf:
-        assert "DATA/1" in zf.namelist()
+        with zipfile.ZipFile(archive) as zipped:
+            expected = zipped.read(row.archive_name)
+        assert raw[row.offset : row.offset + row.size] == expected
 
 
-def test_add_rejects_bad_sources(tmp_path: Path, collection, make_sample) -> None:
-    good = make_sample(0)
-    with taco.open_writer(collection, tmp_path / "bad.zip") as writer:
-        empty = tmp_path / "empty.tif"
-        empty.write_bytes(b"")
-        assets = {asset.path: asset.source for asset in good.assets}
-        assets["mask.tif"] = empty
+def test_folder_end_to_end(folder_dataset: Path) -> None:
+    dataset = open_view(folder_dataset)
+    assert dataset.container == "folder"
+    assert dataset.sample_count == 4
+    assert "internal:offset" not in dataset.level("children").column_names
+    assert (folder_dataset / "DATA/0/before/B02.tif").is_file()
+    assert taco.validate(folder_dataset).ok
+
+
+def test_folder_append(tmp_path: Path, collection: taco.Collection, make_sample) -> None:
+    output = tmp_path / "data"
+    with taco.open_writer(collection, output) as writer:
+        writer.add(make_sample(0))
+        writer.run()
+    updated = collection.replace(dataset_version="1.1.0")
+    with taco.open_writer(updated, output, append=True) as writer:
+        writer.extend([make_sample(1), make_sample(2)])
+        writer.run()
+    dataset = open_view(output)
+    assert dataset.sample_count == 3
+    assert dataset.collection.dataset_version == "1.1.0"
+    assert taco.validate(output).ok
+
+
+def test_failed_append_keeps_existing_dataset(
+    tmp_path: Path, collection: taco.Collection, make_sample, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    output = tmp_path / "data"
+    with taco.open_writer(collection, output) as writer:
+        writer.add(make_sample(0))
+        writer.run()
+    before = {path.relative_to(output): path.read_bytes() for path in output.rglob("*") if path.is_file()}
+
+    import taco.writer.folder as folder_module
+
+    def fail(*args, **kwargs) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(folder_module, "publish_many", fail)
+    with taco.open_writer(collection.replace(dataset_version="1.1.0"), output, append=True) as writer:
+        writer.add(make_sample(1))
+        with pytest.raises(OSError, match="disk full"):
+            writer.run()
+
+    after = {path.relative_to(output): path.read_bytes() for path in output.rglob("*") if path.is_file()}
+    assert after == before
+
+
+def test_writer_mode_is_selected_from_path(tmp_path: Path, collection: taco.Collection) -> None:
+    with taco.open_writer(collection, tmp_path / "folder") as writer:
+        assert writer.__class__.__name__ == "_FolderWriter"
+    with taco.open_writer(collection, tmp_path / "archive.zip") as writer:
+        assert writer.__class__.__name__ == "_ArchiveWriter"
+    with pytest.raises(ValueError, match="must end"):
+        taco.open_writer(collection, tmp_path / "archive.taco")
+    with pytest.raises(ValueError, match="immutable"):
+        taco.open_writer(collection, tmp_path / "archive.zip", append=True)
+
+
+def test_context_manager_does_not_build(tmp_path: Path, collection: taco.Collection, make_sample) -> None:
+    output = tmp_path / "data.zip"
+    with taco.open_writer(collection, output) as writer:
+        writer.add(make_sample(0))
+    assert not output.exists()
+    with pytest.raises(WriterError):
+        writer.run()
+
+
+def test_invalid_sources_are_rejected(tmp_path: Path, collection: taco.Collection, make_sample) -> None:
+    sample = make_sample(0)
+    empty = tmp_path / "empty"
+    empty.write_bytes(b"")
+    assets = list(sample.assets)
+    assets[-1] = taco.Asset(empty, path=assets[-1].path, metadata=assets[-1].metadata)
+    with taco.open_writer(collection, tmp_path / "data.zip") as writer:
         with pytest.raises(SampleError, match="zero-byte"):
-            writer.add(taco.Sample(assets=assets, metadata=good.metadata))
-        assets["mask.tif"] = tmp_path / "missing.tif"
-        with pytest.raises(FileNotFoundError):
-            writer.add(taco.Sample(assets=assets, metadata=good.metadata))
-        with pytest.raises(TypeError):
-            writer.add("nope")  # type: ignore[arg-type]
-        assert writer.sample_count == 0
+            writer.add(taco.Sample(assets=assets, metadata=sample.metadata, folders=sample.folders))
         with pytest.raises(WriterError, match="without samples"):
             writer.run()
-        assert writer.state is WriterState.OPEN
-    assert writer.state is WriterState.CLOSED
 
 
-def test_output_rules(tmp_path: Path, collection, make_sample) -> None:
-    with pytest.raises(ValueError, match=r"end in \.zip"):
-        taco.open_writer(collection, tmp_path / "dataset.cozip")
-    with taco.open_writer(collection, tmp_path / "dataset") as writer:
-        assert writer.output.name == "dataset.zip"
-    with pytest.raises(TypeError, match="staging_dir"):
-        taco.open_writer(collection, tmp_path / "dataset", staging_dir=tmp_path)
-    output = tmp_path / "exists.zip"
+def test_writer_rejects_tacocat_sources(tmp_path: Path, collection: taco.Collection) -> None:
+    with pytest.raises(ValueError, match="reserved for TACOCAT"):
+        taco.open_writer(collection.replace(sources={"samples": 0, "partitions": []}), tmp_path / "data.zip")
+
+
+def test_single_file_dataset(tmp_path: Path) -> None:
+    class Label(BaseModel):
+        value: int
+
+    contract = taco.Contract(
+        structure=None,
+        metadata=taco.MetadataSchema(taco.Level("sample", label=Label)),
+    )
+    collection = taco.Collection(
+        contract=contract,
+        id="single",
+        dataset_version="1.0.0",
+        description="Single files",
+        licenses=["MIT"],
+        providers=["me"],
+        tasks=["classification"],
+    )
+    output = tmp_path / "single.zip"
+    with taco.open_writer(collection, output) as writer:
+        writer.add(taco.Sample(assets=b"one", metadata=taco.Metadata(label=Label(value=1))))
+        writer.run()
+    table = open_view(output).level("sample")
+    assert table.column_names[:4] == [
+        "internal:current_id",
+        "internal:relative_path",
+        "internal:offset",
+        "internal:size",
+    ]
+    assert zipfile.ZipFile(output).read("DATA/0") == b"one"
+
+
+def test_optional_only_structure_can_have_no_data(tmp_path: Path) -> None:
+    collection = taco.Collection(
+        contract=taco.Contract(structure=["image*[0,2].tif"]),
+        id="empty-sample",
+        dataset_version="1.0.0",
+        description="Optional files",
+        licenses=["MIT"],
+        providers=["me"],
+        tasks=["other"],
+    )
+    output = tmp_path / "empty-sample.zip"
+    with taco.open_writer(collection, output) as writer:
+        writer.add(taco.Sample())
+        writer.run()
+    assert open_view(output).sample_count == 1
+    assert taco.validate(output).ok
+
+
+def test_partition_by_sample_metadata(tmp_path: Path, collection: taco.Collection, make_sample) -> None:
+    output = tmp_path / "parts.zip"
+    with taco.open_writer(collection, output, partition_by="ml:split") as writer:
+        writer.extend(make_sample(index) for index in range(4))
+        result = writer.run()
+    assert result.path == (tmp_path / ".tacocat").resolve()
+    assert {path.name for path in result.parts} == {"parts_train.zip", "parts_val.zip"}
+    assert taco.validate(result.path).ok
+
+
+def test_partition_by_derived_metadata(tmp_path: Path, collection: taco.Collection, make_sample) -> None:
+    output = tmp_path / "grid.zip"
+    with taco.open_writer(collection, output, partition_by="majortom:code", batch_size=2) as writer:
+        writer.extend(make_sample(index) for index in range(3))
+        result = writer.run()
+    assert len(result.parts) == 3
+    assert all(open_view(path).level("sample").column("majortom:code").null_count == 0 for path in result.parts)
+    assert taco.validate(result.path).ok
+
+
+def test_partition_by_size(tmp_path: Path, collection: taco.Collection, make_sample) -> None:
+    output = tmp_path / "parts.zip"
+    with taco.open_writer(collection, output, partition_size=1) as writer:
+        writer.extend(make_sample(index) for index in range(3))
+        result = writer.run()
+    assert len(result.parts) == 3
+    assert open_view(result.path).sample_count == 3
+
+
+def test_partition_options_are_checked(tmp_path: Path, collection: taco.Collection) -> None:
+    with pytest.raises(ValueError, match="either"):
+        taco.open_writer(collection, tmp_path / "a.zip", partition_size=1, partition_by="ml:split")
+    with pytest.raises(ValueError, match="sample metadata"):
+        taco.open_writer(collection, tmp_path / "a.zip", partition_by="missing:value")
+    with pytest.raises(ValueError, match="only valid for ZIP"):
+        taco.open_writer(collection, tmp_path / "folder", partition_size=1)
+
+
+def test_overwrite_zip(tmp_path: Path, collection: taco.Collection, make_sample) -> None:
+    output = tmp_path / "data.zip"
     output.write_bytes(b"old")
     with taco.open_writer(collection, output) as writer:
         writer.add(make_sample(0))
@@ -218,158 +243,71 @@ def test_output_rules(tmp_path: Path, collection, make_sample) -> None:
     with taco.open_writer(collection, output, overwrite=True) as writer:
         writer.add(make_sample(0))
         writer.run()
-    assert output.read_bytes()[:4] == b"PK\x03\x04"
-    assert not list(tmp_path.glob(".exists.zip.*"))
+    assert output.read_bytes().startswith(b"PK")
 
 
-def test_unicode_source_and_output_paths(tmp_path: Path, collection, make_sample) -> None:
+def test_folder_hardlinks(tmp_path: Path, collection: taco.Collection, make_sample) -> None:
     sample = make_sample(0)
-    assets = {asset.path: asset.source for asset in sample.assets}
-    source = tmp_path / "niño.tif"
-    source.write_bytes(b"pixels")
-    assets["mask.tif"] = source
-
-    with taco.open_writer(collection, tmp_path / "colección.zip") as writer:
-        writer.add(taco.Sample(assets=assets, metadata=sample.metadata))
-        result = writer.run()
-
-    assert result.path.read_bytes()[:4] == b"PK\x03\x04"
+    output = tmp_path / "linked"
+    with taco.open_writer(collection, output, link=True) as writer:
+        writer.add(sample)
+        writer.run()
+    source = sample.assets[0].source
+    assert isinstance(source, Path)
+    assert (output / "DATA/0/before/B02.tif").stat().st_ino == source.stat().st_ino
 
 
-def test_no_overwrite_closes_publish_race(
-    tmp_path: Path, collection, make_sample, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    import taco.writer.archive as archive_module
-
-    output = tmp_path / "race.zip"
-    native_write = archive_module.cozip_write
-
-    def write_while_another_process_publishes(*args, **kwargs) -> None:
-        native_write(*args, **kwargs)
-        output.write_bytes(b"other writer")
-
-    monkeypatch.setattr(archive_module, "cozip_write", write_while_another_process_publishes)
+def test_append_requires_same_contract(tmp_path: Path, collection: taco.Collection, make_sample) -> None:
+    output = tmp_path / "data"
     with taco.open_writer(collection, output) as writer:
         writer.add(make_sample(0))
-        with pytest.raises(FileExistsError, match="already exists"):
+        writer.run()
+    changed = collection.replace(contract=taco.Contract(structure=["a.bin"]), dataset_version="2.0.0")
+    with taco.open_writer(changed, output, append=True) as writer:
+        writer.add(taco.Sample(assets=[taco.Asset(b"x", path="a.bin")]))
+        with pytest.raises(WriterError, match="different contract"):
             writer.run()
 
-    assert output.read_bytes() == b"other writer"
-    assert not list(tmp_path.glob(".race.zip.*"))
+    renamed = collection.replace(id="other", dataset_version="1.1.0")
+    with taco.open_writer(renamed, output, append=True) as writer:
+        writer.add(make_sample(1))
+        with pytest.raises(WriterError, match="dataset id"):
+            writer.run()
+
+    for version in ("1.0.0", "2.0.0"):
+        with taco.open_writer(collection.replace(dataset_version=version), output, append=True) as writer:
+            writer.add(make_sample(1))
+            with pytest.raises(WriterError, match="higher minor"):
+                writer.run()
 
 
-def test_close_never_builds_implicitly(tmp_path: Path, collection, make_sample) -> None:
-    output = tmp_path / "not-built.zip"
-    with taco.open_writer(collection, output) as writer:
+def test_folder_destination_checks(tmp_path: Path, collection: taco.Collection, make_sample) -> None:
+    file = tmp_path / "file"
+    file.write_bytes(b"x")
+    with taco.open_writer(collection, file) as writer:
         writer.add(make_sample(0))
-    assert not output.exists()
-    assert writer.state is WriterState.CLOSED
-    with pytest.raises(WriterError):
-        writer.run()
+        with pytest.raises(WriterError, match="not a directory"):
+            writer.run()
+
+    directory = tmp_path / "directory"
+    directory.mkdir()
+    (directory / "mine.txt").write_text("keep")
+    with taco.open_writer(collection, directory) as writer:
+        writer.add(make_sample(0))
+        with pytest.raises(FileExistsError, match="not empty"):
+            writer.run()
+    with taco.open_writer(collection, directory, overwrite=True) as writer:
+        writer.add(make_sample(0))
+        with pytest.raises(WriterError, match="refusing"):
+            writer.run()
 
 
-def test_mapping_samples_and_timestamps(tmp_path: Path) -> None:
-    contract = taco.Contract(structure=["a.bin"], metadata={"collection": {"t": "timestamp[us]", "d": "date32"}})
-    collection = taco.Collection(
-        contract=contract,
-        id="ts",
-        dataset_version="0.1.0",
-        description="d",
-        licenses=["MIT"],
-        providers=["p"],
-        tasks=["other"],
-    )
-    with taco.open_writer(collection, tmp_path / "ts.zip", row_group_size=1, batch_size=1) as writer:
-        writer.add(
-            {
-                "assets": {"a.bin": b"x"},
-                "metadata": {"collection": {"t": datetime(2024, 5, 6, 7, 8), "d": datetime(2024, 5, 6).date()}},
-            }
-        )
-        writer.add({"assets": {"a.bin": b"y"}, "metadata": {"collection": {"t": 1_700_000_000_000_000, "d": None}}})
-        result = writer.run()
-    with zipfile.ZipFile(result.path) as zf:
-        table = pq.read_table(io.BytesIO(zf.read("METADATA/collection.parquet")))
-    assert table.num_rows == 2
-    assert (
-        pq.ParquetFile(io.BytesIO(zipfile.ZipFile(result.path).read("METADATA/collection.parquet"))).num_row_groups == 2
-    )
-    assert table.column("t").to_pylist()[0] == datetime(2024, 5, 6, 7, 8)
-    assert table.column("d").to_pylist()[1] is None
-
-
-def test_deeply_nested_structure_parent_links(tmp_path: Path) -> None:
-    contract = taco.Contract(
-        structure=["s2/bands/B02.tif", "s2/bands/B03.tif", "s2/cloud*[0,2].tif", "label.tif"],
-        metadata={
-            "sample": {"role": "string"},
-            "sample/s2": {"n": "int32"},
-            "sample/s2/bands": {"wavelength": "double"},
-        },
-    )
-    collection = taco.Collection(
-        contract=contract,
-        id="deep",
-        dataset_version="0.1.0",
-        description="d",
-        licenses=["MIT"],
-        providers=["p"],
-        tasks=["other"],
-    )
-    assert contract.levels == ("collection", "sample", "sample/s2", "sample/s2/bands")
-
-    def sample(index: int, clouds: int) -> taco.Sample:
-        assets = {"s2/bands/B02.tif": b"b02" * (index + 1), "s2/bands/B03.tif": b"b03", "label.tif": b"lbl"}
-        assets.update({f"s2/cloud{k}.tif": b"cloud" for k in range(clouds)})
-        return taco.Sample(
-            assets=assets,
-            metadata={
-                "sample": {"s2": {"role": "imagery"}, "label.tif": {"role": "label"}},
-                "sample/s2": {"bands": {"n": 2}, **{f"cloud{k}.tif": {"n": k} for k in range(clouds)}},
-                "sample/s2/bands": {"B02.tif": {"wavelength": 490.0}, "B03.tif": {"wavelength": 560.0}},
-            },
-        )
-
-    with taco.open_writer(collection, tmp_path / "deep.zip", batch_size=2) as writer:
-        writer.add(sample(0, 2))
-        writer.add(sample(1, 0))
-        writer.add(sample(2, 1))
-        result = writer.run()
-
-    dataset = open_dataset(result.path)
-    level1 = dataset.level("sample").to_pylist()
-    level2 = dataset.level("sample/s2").to_pylist()
-    level3 = dataset.level("sample/s2/bands").to_pylist()
-    assert [row["internal:relative_path"] for row in level1] == [
-        "0/s2",
-        "0/label.tif",
-        "1/s2",
-        "1/label.tif",
-        "2/s2",
-        "2/label.tif",
-    ]
-    assert [row["internal:relative_path"] for row in level2] == [
-        "0/s2/bands",
-        "0/s2/cloud0.tif",
-        "0/s2/cloud1.tif",
-        "1/s2/bands",
-        "2/s2/bands",
-        "2/s2/cloud0.tif",
-    ]
-    assert [row["internal:parent_id"] for row in level2] == [0, 0, 0, 2, 4, 4]
-    assert [row["internal:relative_path"] for row in level3] == [
-        "0/s2/bands/B02.tif",
-        "0/s2/bands/B03.tif",
-        "1/s2/bands/B02.tif",
-        "1/s2/bands/B03.tif",
-        "2/s2/bands/B02.tif",
-        "2/s2/bands/B03.tif",
-    ]
-    assert [row["internal:parent_id"] for row in level3] == [0, 0, 3, 3, 4, 4]
-    assert all(row["internal:offset"] is None for row in level2 if row["internal:relative_path"].endswith("bands"))
-    assert all(row["internal:offset"] is not None for row in level3)
-    report = taco.validate(result.path)
-    assert report.ok, report
-    raw = result.path.read_bytes()
-    first = next(row for row in dataset.iter_data_rows() if row.relative_path == "0/s2/bands/B02.tif")
-    assert raw[first.offset : first.offset + first.size] == b"b02"
+def test_append_options_are_checked(tmp_path: Path, collection: taco.Collection, make_sample) -> None:
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        taco.open_writer(collection, tmp_path / "folder", append=True, overwrite=True)
+    with taco.open_writer(collection, tmp_path / "missing", append=True) as writer:
+        writer.add(make_sample(0))
+        with pytest.raises(WriterError, match="existing FOLDER"):
+            writer.run()
+    with pytest.raises(ValueError, match="only valid"):
+        taco.open_writer(collection, tmp_path / "data.zip", link=True)

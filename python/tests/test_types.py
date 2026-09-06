@@ -104,8 +104,12 @@ def test_coerce_value_normalizes() -> None:
     assert coerce_value(3, pa.float64()) == 3.0
     assert coerce_value(3.0, pa.int64()) == 3
     assert coerce_value(None, pa.int64()) is None
+    with pytest.raises(TypeError, match="null is not allowed"):
+        coerce_value(None, pa.int64(), nullable=False)
     assert coerce_value([1, 2], pa.list_(pa.int32())) == [1, 2]
     assert coerce_value({"a": 1}, pa.struct([("a", pa.int32())])) == {"a": 1}
+    with pytest.raises(TypeError, match="null is not allowed"):
+        coerce_value({}, pa.struct([pa.field("a", pa.int32(), nullable=False)]))
     assert coerce_value(1_700_000_000_000_000, pa.timestamp("us")).year == 2023
     assert coerce_value(Decimal("1.25"), pa.decimal128(4, 2)) == Decimal("1.25")
 

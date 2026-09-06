@@ -53,99 +53,91 @@ figcaption b{color:var(--fg);font-style:normal}
 <div class="meta"><b>Version</b> 3.0.0 · <b>Status</b> Draft</div>
 </header>
 
-<h2><span class="sn">1.</span> Version and Schema</h2>
-<p>This is the draft of version 3.0.0 of the TACO specification. The specification uses Semantic Versioning. Implementations have their own release versions and declare which specification version they support.</p>
-<p>This version is NOT backward compatible with v2 datasets. See Section 9 for migration details.</p>
+<h2><span class="sn">1.</span> Version</h2>
+<p>This document defines version 3.0.0 of the TACO specification. The specification follows Semantic Versioning. Implementations are versioned separately and declare which version of the specification they support.</p>
+<p>TACO v3 is not compatible with v2 datasets. Annex A explains the differences and how to migrate.</p>
 
 <h3><span class="sn">1.1.</span> Terminology</h3>
-<p>The key words "MUST", "MUST NOT", "SHOULD", "SHOULD NOT", and "MAY" in this document are to be interpreted as described in RFC 2119. Normative requirements use these keywords in uppercase. All other text is explanatory.</p>
+<p>The words "MUST", "MUST NOT", "SHOULD", "SHOULD NOT", and "MAY" have the meanings defined by RFC 2119 when written in uppercase. All other text is explanatory.</p>
 
 <h2><span class="sn">2.</span> Overview</h2>
-<p>TACO (Transparent Access to Cloud-Optimized datasets) is a specification for organizing Earth Observation datasets. It defines how data files and metadata are structured, stored, and accessed together as a single unit.</p>
-<p>The core problem TACO solves is that there is no standard way to package EO datasets for machine learning. A training dataset is not just a collection of files. It is a collection of samples, where each sample may contain multiple files organized in a hierarchy with metadata at each level. Existing solutions address parts of this problem but not all of it.</p>
-<p>STAC is the most flexible model for organizing geospatial metadata. Its four abstractions (Collection, Catalog, Item, and Asset) can represent virtually any dataset structure, including deeply nested hierarchies. However, STAC stores one JSON file per Item. A dataset with one million samples produces one million JSON files, making efficient queries impossible without a dedicated STAC API server.</p>
-<p>STAC-GeoParquet solves the query bottleneck by serializing STAC Items into GeoParquet, where each row represents one Item and Assets are stored as structs. This enables fast SQL filtering with DuckDB or Polars without a server. But the model remains flat. Consider a land cover change detection dataset where each sample contains a <code>before/</code> folder with pre-change images, an <code>after/</code> folder with post-change images, and a <code>change_map.tif</code> label. In STAC-GeoParquet this hierarchy cannot be expressed because each Item is a single row with Assets as links. There is no way to attach different metadata to <code>before/</code> and <code>after/</code> as separate entities. STAC-GeoParquet is also metadata-only and does not bundle data with metadata.</p>
-<p>In TACO, a dataset is a <strong>collection of samples</strong> that share the same internal structure and the same metadata schema. A sample is an object with metadata and a pointer to data. The internal structure of a sample can be hierarchical, with folders, subfolders, and files at different levels, each with its own metadata. Because the structure is fixed and known in advance, constant-time random access to any sample is possible regardless of dataset size, and metadata is stored in a few Parquet files queryable with DuckDB.</p>
+<p>TACO stands for Transparent Access to Cloud-Optimized datasets. It defines how Earth observation data and metadata are organized, stored, and accessed as one unit.</p>
+<p>A machine learning dataset is more than a collection of files. It contains samples, and each sample may contain several files arranged in folders. Metadata may describe the sample, a folder, or an individual file. Existing formats cover parts of this model, but not the complete dataset.</p>
+<p>STAC provides a logical model for geospatial data based on Catalogs, Collections, Items, and Assets. It represents that model as JSON, which works well for discovery and interoperability. At training-dataset scale, however, representing every sample as an Item may produce millions of JSON documents. Efficient access then depends heavily on caching.</p>
+<p>STAC-GeoParquet stores STAC Items as rows in GeoParquet and their Assets as structs. This enables fast columnar queries without a server, but the result is still a flat table. For example, a change detection sample may contain a <code>before/</code> folder, an <code>after/</code> folder, and a <code>change_map.tif</code> label. STAC-GeoParquet cannot represent those folders as separate entities with their own metadata. It also stores metadata separately from the data files.</p>
+<p>TACO models a dataset as a collection of samples that share one structure and metadata schema. Each sample has an integer index, and each file has a predictable path. Metadata is stored in a small set of Parquet files that can be queried with DuckDB.</p>
 
 <table>
 <tr><th></th><th>STAC</th><th>STAC-GeoParquet</th><th>TACO</th></tr>
 <tr><td>Data model</td><td>Collection, Catalog, Item, Asset</td><td>Collection, Item (row), Asset (struct)</td><td>Collection, Contract, Sample, Asset</td></tr>
 <tr><td>Metadata storage</td><td>1 JSON per Item</td><td>1 Parquet per Collection</td><td>1 Parquet per tree level</td></tr>
-<tr><td>Queryable without server</td><td>Needs STAC API</td><td>Yes</td><td>Yes</td></tr>
+<tr><td>Serverless query method</td><td>Catalog traversal</td><td>Columnar query</td><td>Columnar query</td></tr>
 <tr><td>Hierarchical samples</td><td>Yes</td><td>No (flat rows)</td><td>Yes (structural contract)</td></tr>
-<tr><td>Bundles data + metadata</td><td>No</td><td>No</td><td>ZIP yes, FOLDER no</td></tr>
+<tr><td>Data and metadata stored together</td><td>No</td><td>No</td><td>Yes</td></tr>
 <tr><td>Structural validation</td><td>No</td><td>No</td><td>Yes (contract-first)</td></tr>
-<tr><td>Constant-time random access</td><td>No</td><td>Metadata yes, data requires external fetch</td><td>Yes, metadata and data via VSI pointers</td></tr>
-<tr><td>Self-contained portable unit</td><td>No</td><td>No</td><td>ZIP yes, FOLDER no</td></tr>
+<tr><td>Self-contained portable unit</td><td>No</td><td>No</td><td>Yes</td></tr>
 </table>
 
 <h2><span class="sn">3.</span> Foundations</h2>
-<p>TACO is built on three technologies. Apache Parquet stores metadata in a columnar format that supports fast filtering. The VSI path convention provides a universal pointer to data across local disk, cloud storage, and byte ranges inside archives. Cloud-Optimized ZIP packages data and metadata together while enabling direct access to individual files without extraction.</p>
-<p>A TACO dataset can use three containers. FOLDER stores files directly on disk. ZIP bundles one dataset partition into an archive. TACOCAT is a directory that consolidates metadata from several ZIP partitions.</p>
+<p>TACO combines three existing technologies. Apache Parquet stores queryable metadata. VSI paths identify data on local or remote storage. Cloud-Optimized ZIP packages data and metadata while preserving direct access to individual files.</p>
+<p>A dataset may use one of three containers. FOLDER stores the dataset as a directory. ZIP stores a dataset or partition in one archive. TACOCAT combines the metadata of several ZIP partitions.</p>
 
 <h3><span class="sn">3.1.</span> Apache Parquet</h3>
-<p>Apache Parquet is a columnar storage format. Unlike row-oriented formats such as CSV or JSON where each record is stored sequentially, Parquet stores all values of a single column together. This layout enables two properties that are critical for TACO.</p>
-<p>The first is predicate pushdown. Each Parquet file is divided into row groups, and each row group stores min/max statistics for every column. When a query includes a filter such as <code>WHERE cloud_cover &lt; 10</code>, the reader inspects the statistics and skips entire row groups where the minimum cloud cover exceeds 10. Combined with DuckDB, this allows filtering millions of samples in milliseconds without reading the full file.</p>
-<p>The second is projection pushdown. Because columns are stored independently, reading only the <code>id</code> and <code>time_start</code> columns of a Parquet file with 50 columns does not require touching the other 48. This is important for TACO because metadata tables can have many columns but most queries only need a few.</p>
-<p>A TACO dataset MUST store all metadata in Parquet files. Each level of the sample hierarchy gets its own Parquet file, and each file can be queried independently.</p>
-<p>A conformant reader MUST support projection and predicate pushdown when its query engine provides them. It need not load every Parquet or materialize all metadata at open time. Sample lookup uses the integer identifiers and may read only the required metadata columns and row groups.</p>
+<p>Apache Parquet stores values by column rather than by row. This lets a query avoid data it does not need.</p>
+<p><strong>Predicate pushdown</strong> uses row-group statistics to skip groups that cannot match a filter. A query such as <code>WHERE "quality:cloud_cover" &lt; 10</code> can therefore avoid reading most of the file.</p>
+<p><strong>Projection pushdown</strong> reads only the requested columns. Selecting two columns from a table of fifty does not require reading the other forty-eight.</p>
+<p>TACO MUST store metadata in Parquet, with one file for each level of the sample hierarchy. Each file can be queried independently.</p>
+<p>A reader MUST use predicate and projection pushdown when its query engine supports them. Opening a dataset does not require loading every Parquet file or materializing all metadata.</p>
 
 <h3><span class="sn">3.2.</span> VSI Path Convention</h3>
-<p>TACO uses the VSI (Virtual File System) path convention to address data files. A VSI path is a string that encodes how to reach a file regardless of where it lives, whether on local disk, HTTP, S3, Google Cloud Storage, or inside a byte range of an archive.</p>
+<p>TACO uses VSI paths to locate data. A VSI path describes how to reach a file on local disk, over HTTP, in object storage, or within a byte range of another file.</p>
 <pre><code>/vsicurl/https://example.com/scene.tif     reads from HTTP
 /vsis3/bucket/scene.tif                     reads from S3
 /vsigs/bucket/scene.tif                     reads from Google Cloud
 /vsiaz/container/scene.tif                  reads from Azure</code></pre>
-<p>The most important path form for TACO is <code>/vsisubfile/</code>. It addresses a byte range from any source by specifying an offset and size.</p>
+<p>TACO mainly uses <code>/vsisubfile/</code>, which identifies a byte range by its offset and size.</p>
 <pre><code>/vsisubfile/1024_4096,/data/archive.zip</code></pre>
-<p>This reads 4096 bytes starting at byte 1024 inside <code>archive.zip</code>, without extracting the archive. Paths are chainable, so byte-range access works on remote files too.</p>
+<p>This path reads 4096 bytes at offset 1024 from <code>archive.zip</code>. It does not extract the archive. VSI paths can also be combined to read a byte range from a remote file.</p>
 <pre><code>/vsisubfile/1024_4096,/vsicurl/https://hf.co/dataset.zip</code></pre>
-<p>This reads 4096 bytes starting at byte 1024 from a remote ZIP over HTTP.</p>
-<p>A conformant reader MUST construct VSI paths at runtime. In ZIP mode, the reader MUST look up byte offsets and sizes from Parquet columns and construct <code>/vsisubfile/</code> paths. In FOLDER mode, the contract and the sample index are sufficient to build the path directly (e.g. <code>DATA/42/before/B02.tif</code>), no Parquet lookup required.</p>
-<p>TACO does not depend on any specific library to resolve VSI paths. GDAL is the most widely used implementation that natively understands this convention (via rasterio, QGIS, gdalwarp in Python and C++, sf and terra in R, ArchGDAL in Julia). However, any implementation that can parse the path format and perform the corresponding byte-range reads is a valid TACO reader. The specification defines the path format, not the implementation.</p>
+<p>A reader MUST construct VSI paths when data is accessed. For ZIP containers, it reads the offset and size from Parquet metadata. For FOLDER containers, it builds the path directly from the contract and sample index, such as <code>DATA/42/before/B02.tif</code>.</p>
+<p>TACO defines the path convention, not the library that resolves it. GDAL supports VSI paths through tools and libraries such as rasterio, QGIS, gdalwarp, sf, terra, and ArchGDAL. Other implementations are valid if they interpret the same paths and perform the required reads.</p>
 
 <h3><span class="sn">3.3.</span> Cloud-Optimized ZIP</h3>
-<p>A cloud-optimized ZIP is a valid ZIP archive. Any standard ZIP tool can open it. The difference is an index header at byte 0 containing direct byte offsets to the Parquet metadata files inside the archive. A specialized reader uses this index header to jump straight to the Parquets without reading the Central Directory at the end of the file.</p>
-<p>The access sequence works as follows. The index header points to the Parquet files. The Parquet files contain the information needed to construct VSI paths that point to the data. From the first byte of the archive to any file inside it, this requires three reads.</p>
-<p>A TACO ZIP MUST include an index header at byte 0 with offsets to all Parquet files in METADATA/ and to COLLECTION.json. All files inside a TACO ZIP MUST use STORE mode (no compression). This is required because <code>/vsisubfile/</code> operates on raw byte ranges; compressed entries would require decompressing the entire entry before any read. A TACO ZIP with compressed entries is invalid.</p>
-<p>A secondary benefit of STORE mode is compatibility with Content-Defined Chunking (CDC) on platforms like HuggingFace. CDC splits files into variable-sized chunks based on content using a rolling hash. Because STORE mode preserves the raw bytes of each file inside the archive, when a ZIP is recreated with one file changed out of thousands, the bytes of the unchanged files remain recognizable to the rolling hash even if their position within the ZIP has shifted. This means only the changed chunks are uploaded. Producers SHOULD distribute TACO ZIPs on CDC-aware platforms to minimize transfer costs when updating datasets.</p>
+<p>A cloud-optimized ZIP is a valid ZIP archive that any standard ZIP tool can open. It adds an index at byte 0 with direct offsets to the metadata files. A TACO reader can use this index without first reading the ZIP Central Directory at the end of the archive.</p>
+<p>The index points to the Parquet metadata. The metadata then provides the offsets and sizes needed to access individual data files.</p>
+<p>A TACO ZIP MUST index every Parquet file in <code>METADATA/</code> and <code>COLLECTION.json</code>. Every entry MUST use STORE mode without compression. The <code>/vsisubfile/</code> convention reads raw byte ranges, so compressed entries cannot provide direct access and are invalid.</p>
+<p>STORE mode also works well with Content-Defined Chunking on platforms such as Hugging Face. Because unchanged files keep the same raw content inside a rebuilt archive, the platform can often upload only the chunks that changed. Producers SHOULD use a CDC-aware platform when publishing frequently updated ZIP datasets.</p>
 
 <h2><span class="sn">4.</span> Design Goals</h2>
 <p>TACO is guided by five design principles.</p>
-<p><strong>Self-contained and portable.</strong> A TACO dataset is serverless. All data and metadata live together in the same unit, whether it is a ZIP file or a directory. No database, no API server, no external catalog is needed to query or use the dataset.</p>
-<p><strong>Cloud-optimized.</strong> The format supports partial reads and efficient byte-range access without downloading or extracting archives. Cloud-optimized ZIP places an index header at byte 0 with direct offsets to the Parquet files, bypassing the Central Directory. Parquet enables predicate and projection pushdown for fast metadata filtering. VSI paths construct byte-range pointers to access any data file.</p>
-<p><strong>Contract-first.</strong> The structure of a dataset is declared before any data is written. The contract specifies what files exist inside each sample and what metadata exists at each level. Every sample is validated against this contract on insertion, eliminating an entire class of bugs where samples have missing files, unexpected fields, or inconsistent layouts.</p>
-<p><strong>FAIR-compliant.</strong> TACO implements the FAIR principles (Findable, Accessible, Interoperable, Reusable) through standardized metadata with persistent identifiers, clear licensing fields, spatial and temporal extent, and format interoperability via Parquet and the VSI path convention.</p>
-<p><strong>Language-agnostic.</strong> The reader is a native DuckDB extension. Any language with a DuckDB client, Python, R, Julia, or others, can query TACO datasets with the same SQL interface.</p>
+<p><strong>Self-contained and portable.</strong> Data and metadata live together in a ZIP file or directory. Using the dataset does not require a database, API server, or external catalog.</p>
+<p><strong>Cloud-optimized.</strong> Readers can filter metadata and access individual files with partial reads. They do not need to download or extract the complete archive.</p>
+<p><strong>Contract-first.</strong> The contract declares the files and metadata expected in every sample. Writers use it to reject missing files, unexpected fields, and inconsistent layouts.</p>
+<p><strong>FAIR-compliant.</strong> TACO supports the FAIR principles through descriptive metadata, identifiers, licensing, spatial and temporal extents, Parquet, and VSI paths.</p>
+<p><strong>Language-agnostic.</strong> The reader is a DuckDB extension. Any language with a DuckDB client can use the same SQL interface.</p>
 
 <h3><span class="sn">4.1.</span> Tradeoffs</h3>
-<p>TACO's contract-first approach makes a deliberate tradeoff. The structure of a dataset is fixed at creation time and cannot be changed without creating a new version (see Section 6). This means TACO is not suitable for datasets that require a dynamic or evolving structure within a single version.</p>
-<p>This tradeoff is intentional. AI training datasets do not change structure. A dataset is defined, built, and used. The samples may grow in number, but the internal layout of each sample, what files it contains and what metadata it carries, is stable by design. TACO is built for this pattern. In exchange for structural immutability, TACO provides constant-time access, structural validation, and the guarantee that every sample is complete and consistent.</p>
-<p>If your use case requires adding new file types or metadata fields to existing samples without versioning, TACO is not the right format.</p>
+<p>TACO assumes that every sample in a dataset follows the same contract. The contract is fixed for a dataset version, although new samples may be added as long as they preserve its structure and metadata schema.</p>
+<p>This constraint makes the dataset predictable. Readers know which files and metadata levels exist, and the writer can reject incomplete or inconsistent samples.</p>
+<p>Changing the structure, adding metadata fields, or changing field types requires a new dataset version. TACO is not a good fit when samples need to evolve independently within the same version.</p>
 
 <h2><span class="sn">5.</span> Data Model</h2>
-
-<figure>
-<img src="assets/datamodel.png" alt="TACO Data Model">
-<figcaption><b>Figure 1.</b> TACO Data Model. A Collection holds a Contract (σ, μ) and N Samples. The Contract defines the internal structure of every sample (files and folders) and the metadata schema at each folder level. Each Sample conforms to the Contract on insertion.</figcaption>
-</figure>
-
-<p>This section formalizes the data model introduced in Section 2.</p>
+<p>The data model has two parts. The structure defines the files in each sample. The metadata schema defines the fields stored at each level.</p>
 
 <h3><span class="sn">5.1.</span> Contract</h3>
-<p>A contract is a pair (σ, μ) where σ is the structure and μ is the metadata schema. The contract MUST be declared once and is immutable within a dataset version. Every sample added to a dataset MUST conform to its contract. Changes to the contract require a new dataset version (see Section 6).</p>
+<p>The contract combines the structure and metadata schema of a dataset. It MUST be declared before any sample is written, and every sample MUST follow it. The contract cannot change within a dataset version.</p>
 
-<h3><span class="sn">5.2.</span> Structure (σ)</h3>
-<p>The structure describes the internal organization of a single sample as a tree. The root of the tree represents the sample itself. Internal nodes represent groups (folders). Leaves represent data elements (files).</p>
-<p>The structure is serialized as <code>taco:structure</code>, an array of relative file paths from the sample root to each leaf. Folders are inferred from path segments.</p>
-<p>A leaf can be fixed or variable.</p>
-<p>A <strong>fixed leaf</strong> produces exactly one file per sample. Its name is a literal string declared in the structure (e.g. <code>B02.tif</code>). The literal name is the leaf's unique identifier within its parent folder.</p>
-<p>A <strong>variable leaf</strong> produces a number of files that varies across samples, bounded by a range <code>[a, b]</code> where <code>0 &lt;= a &lt;= b</code>. It MUST be declared with a mandatory prefix followed by <code>*</code> and the range <code>prefix*[a,b].ext</code>. The prefix is the leaf's unique identifier within its parent folder. The <code>*</code> is not a filesystem glob. It is a cardinal index that takes values <code>0, 1, ..., k_s - 1</code> where <code>a &lt;= k_s &lt;= b</code> for sample <code>s</code>. Each file MUST be named <code>prefixj.ext</code> where <code>j</code> is the index.</p>
-<p>The index set <code>{0, ..., b-1}</code> partitions into a deterministic subset <code>D = {0, ..., a-1}</code> and a nondeterministic subset <code>N = {a, ..., b-1}</code>. Every index in <code>D</code> MUST be instantiated in every sample. An index <code>j</code> in <code>N</code> is instantiated in sample <code>s</code> if and only if <code>j &lt; k_s</code>.</p>
-<p>All children of the same folder MUST have distinct identifiers (sibling uniqueness). For fixed leaves, the identifier is the literal name. For variable leaves, the identifier is the prefix. Fixed names and variable prefixes are compared against each other; no two siblings MAY share the same identifier, regardless of whether they are fixed or variable.</p>
-<p>When <code>taco:structure</code> is null, each sample is a single file with no internal structure.</p>
+<h3><span class="sn">5.2.</span> Structure</h3>
+<p>The structure defines which files belong to a sample and how they are arranged in folders. It is stored in <code>taco:structure</code> as a list of relative file paths. Folders are inferred from the path segments.</p>
+<p>Each path describes either a fixed file or a variable sequence of files.</p>
+<p>A <strong>fixed file</strong> appears exactly once in every sample. Its name is written directly in the structure, such as <code>B02.tif</code>.</p>
+<p>A <strong>variable sequence</strong> allows the number of files to differ between samples. It uses the form <code>prefix*[a,b].ext</code>, where <code>a</code> is the minimum number of files and <code>b</code> is the maximum. The prefix is required and <code>0 &lt;= a &lt;= b</code>.</p>
+<p>The <code>*</code> represents a zero-based index, not a filesystem glob. If a sample contains <code>k</code> files, their names MUST run from <code>prefix0.ext</code> to <code>prefix{k-1}.ext</code> without gaps, where <code>a &lt;= k &lt;= b</code>.</p>
+<p>Entries in the same folder MUST have unique identifiers. A fixed file uses its full name as the identifier. A variable sequence uses its prefix.</p>
+<h4>Examples</h4>
+<p><strong>Single file.</strong> When <code>taco:structure</code> is null, each sample is one file with no internal structure.</p>
 <pre><code>{ "taco:structure": null }</code></pre>
-<p>CloudSEN12 (each sample is a folder with 3 fixed files)</p>
+<p><strong>Fixed files.</strong> Each CloudSEN12 sample contains the same three files.</p>
 <pre><code>{
   "taco:structure": [
     "s2_l1c.tif",
@@ -153,7 +145,7 @@ figcaption b{color:var(--fg);font-style:normal}
     "target.tif"
   ]
 }</code></pre>
-<p>Change detection (each sample has two subfolders and a standalone file)</p>
+<p><strong>Folders.</strong> Each change detection sample contains two folders and one label.</p>
 <pre><code>{
   "taco:structure": [
     "before/B02.tif",
@@ -165,10 +157,10 @@ figcaption b{color:var(--fg);font-style:normal}
     "change_map.tif"
   ]
 }</code></pre>
-<p>Multitemporal S2 (each sample has between 4 and 16 images)</p>
+<p><strong>Variable sequence.</strong> Each multitemporal sample contains between 4 and 16 images.</p>
 <pre><code>{ "taco:structure": ["img*[4,16].tif"] }</code></pre>
-<p>This produces files <code>img0.tif, img1.tif, ..., img{k_s - 1}.tif</code> where <code>4 &lt;= k_s &lt;= 16</code>. The first 4 (indices 0-3) are deterministic and always present. Indices 4-15 are nondeterministic.</p>
-<p>Mixed fixed and variable in the same folder (3 fixed bands plus a variable number of masks)</p>
+<p>Each sample contains 4 to 16 files named <code>img0.tif</code>, <code>img1.tif</code>, and so on, with no gaps in the sequence.</p>
+<p><strong>Fixed and variable files.</strong> The same folder may contain both forms.</p>
 <pre><code>{
   "taco:structure": [
     "before/B02.tif",
@@ -177,78 +169,94 @@ figcaption b{color:var(--fg);font-style:normal}
     "before/mask*[1,5].tif"
   ]
 }</code></pre>
-<p>Sibling identifiers under <code>before/</code> are <code>B02</code> (fixed), <code>B03</code> (fixed), <code>B04</code> (fixed), and <code>mask</code> (variable prefix). All distinct.</p>
+<p>The identifiers inside <code>before/</code> are <code>B02.tif</code>, <code>B03.tif</code>, <code>B04.tif</code>, and <code>mask</code>. Each is unique.</p>
 
 <h3><span class="sn">5.3.</span> Reserved Characters</h3>
-<p>TACO reserves three characters and sequences for system use. Each has a specific scope where it is prohibited.</p>
-<p><strong>Colon (<code>:</code>)</strong> is the namespace separator for metadata field names (e.g. <code>stac:centroid</code>, <code>internal:parent_id</code>). It is expected and allowed in metadata field names. It MUST NOT appear in folder names, file names, or <code>taco:metadata</code> level keys.</p>
-<p><strong>Forward slash (<code>/</code>)</strong> is the path separator in <code>taco:structure</code> and <code>internal:relative_path</code>, and the level separator in <code>taco:metadata</code> keys (e.g. <code>sample/before</code>). It is expected and allowed in composed paths and level keys. It MUST NOT appear in folder names or file names themselves.</p>
-<p><strong>Double underscore (<code>__</code>)</strong> is the filesystem escape of <code>/</code> in Parquet filenames on disk. The conversion is bijective and automatic. <code>sample/before</code> in the data model corresponds to <code>sample__before.parquet</code> on disk. It MUST NOT appear in folder names, file names, or metadata field names.</p>
+<p>TACO reserves three tokens so that paths, levels, and metadata fields can be mapped without ambiguity.</p>
 
 <table>
-<tr><th>Character</th><th>Role</th><th>Allowed in</th><th>MUST NOT appear in</th></tr>
-<tr><td><code>:</code></td><td>Namespace separator</td><td>Metadata field names (<code>stac:centroid</code>)</td><td>Folder names, file names, level keys</td></tr>
-<tr><td><code>/</code></td><td>Path and level separator</td><td><code>taco:structure</code> paths, <code>taco:metadata</code> level keys</td><td>Folder names, file names</td></tr>
-<tr><td><code>__</code></td><td>Filesystem escape of <code>/</code></td><td>Parquet filenames (<code>sample__before.parquet</code>)</td><td>Folder names, file names, metadata field names</td></tr>
+<tr><th>Token</th><th>Purpose</th><th>Rule</th></tr>
+<tr><td><code>:</code></td><td>Separates a namespace from a field name</td><td>Every user field MUST contain exactly one. It MUST NOT appear in folder names, file names, or level keys.</td></tr>
+<tr><td><code>/</code></td><td>Separates path and level segments</td><td>It MAY appear in complete structure paths and level keys. It MUST NOT appear inside a folder or file name.</td></tr>
+<tr><td><code>__</code></td><td>Replaces <code>/</code> in Parquet filenames</td><td>It MUST NOT appear in folder names, file names, namespaces, or metadata field names.</td></tr>
 </table>
+<p>For example, the level <code>children/before</code> is stored in <code>children__before.parquet</code>.</p>
 
-<h3><span class="sn">5.4.</span> Metadata (μ)</h3>
-<p>The metadata schema assigns a set of typed fields to every non-leaf node of the dataset tree. Non-leaf nodes are the collection node (depth 0) and every internal node of the structure (the sample root and any folders inside it). Each non-leaf node MUST generate a Parquet table with one row per child and one column per field.</p>
-<p>The metadata schema is serialized as <code>taco:metadata</code>, an object where each key is a path to a non-leaf node and each value is an object mapping field names to <code>[type, description]</code> pairs.</p>
-<p>Field types MUST be types supported by Apache Parquet.</p>
-<p>The keys follow a naming convention. <code>collection</code> refers to the dataset node whose children are the samples. <code>sample</code> refers to each sample whose children are its direct contents (files and folders). Below <code>sample</code>, folders use their literal name separated by <code>/</code> because the structure guarantees they are the same in every sample.</p>
-<p>Each key in <code>taco:metadata</code> identifies a folder node in the structure. Because the structure is the same for all samples, that folder exists in every sample with the same children and the same schema. This means all instances of that folder across all samples can be stacked into a single Parquet table. One key, one Parquet. The full set of tables is known before any data is inserted.</p>
-<p>Users MUST NOT create metadata fields with the <code>internal:</code> prefix. This prefix is reserved for system columns (see Section 7.2).</p>
+<h3><span class="sn">5.4.</span> Metadata</h3>
+<p>The metadata schema defines the columns stored at each level. It is written to <code>taco:metadata</code>, where each level maps field names to their declarations.</p>
+<p>Every field MUST declare the following properties. Its type MUST be representable in Apache Parquet.</p>
+<table>
+<tr><th>Property</th><th>Type</th><th>Meaning</th></tr>
+<tr><td><code>type</code></td><td>string</td><td>Canonical Arrow type</td></tr>
+<tr><td><code>nullable</code></td><td>boolean</td><td>Whether the stored column may contain null values</td></tr>
+<tr><td><code>description</code></td><td>string</td><td>Human-readable field description; MAY be empty</td></tr>
+</table>
+<p>A level identifies what each row describes.</p>
+<table>
+<tr><th>Level</th><th>Rows</th></tr>
+<tr><td><code>sample</code></td><td>One row per sample</td></tr>
+<tr><td><code>children</code></td><td>One row per direct child of a sample</td></tr>
+<tr><td><code>children/&lt;folder&gt;</code></td><td>One row per direct child of that folder in every sample</td></tr>
+</table>
+<p>Names after <code>children/</code> come from the folders in <code>taco:structure</code>. For example, <code>children/before</code> contains one row for every file directly inside each <code>before/</code> folder. A single-file contract has only the <code>sample</code> level.</p>
+<p><code>taco:metadata</code> MUST include <code>sample</code> and every child level implied by the structure. A level with no user fields is stored as an empty object.</p>
+<p>Each level becomes one Parquet table. Rows from all samples are stored together and linked to their parents with <code>internal:parent_id</code>.</p>
+<p>Every user column MUST follow the type and nullability declared in the contract. A non-empty description MUST be stored in the Arrow field metadata under <code>description</code>.</p>
+
+<h4>Namespaces</h4>
+<p>Every user field MUST use the form <code>namespace:field</code>. A namespace groups related fields but does not assign behavior. Both parts MUST be non-empty, and the qualified name MUST be unique within its level.</p>
+<p>The same namespace MAY appear at multiple levels and MAY use a different schema at each level. The <code>internal</code> and <code>taco</code> namespaces are reserved. Producers MUST NOT create fields in either namespace.</p>
+<p>The namespace remains part of the Parquet column name. It does not create a nested struct or refer to a Python class. Contracts are equivalent when their levels, qualified field names, types, nullability, and descriptions are the same.</p>
 
 <h4>Examples</h4>
-<p>CloudSEN12</p>
+<p><strong>CloudSEN12.</strong></p>
 <pre><code>{
   "taco:metadata": {
-    "collection": {
-      "centroid": ["binary", "Center point in EPSG:4326 (WKB)"],
-      "geometry": ["binary", "Spatial footprint (WKB)"],
-      "crs": ["string", "Coordinate reference system"],
-      "time_start": ["timestamp[us]", "Acquisition timestamp"],
-      "cloud_cover": ["double", "Cloud cover percentage (0-100)"],
-      "split": ["string", "Dataset split (train, val, test)"]
-    },
     "sample": {
-      "resolution": ["double", "Spatial resolution in meters"],
-      "num_bands": ["int32", "Number of bands in file"]
+      "stac:centroid": {"type": "binary", "nullable": false, "description": "Center point in EPSG:4326 (WKB)"},
+      "stac:geometry": {"type": "binary", "nullable": false, "description": "Spatial footprint (WKB)"},
+      "stac:crs": {"type": "string", "nullable": false, "description": "Coordinate reference system"},
+      "stac:time_start": {"type": "timestamp[us]", "nullable": false, "description": "Acquisition timestamp"},
+      "quality:cloud_cover": {"type": "double", "nullable": true, "description": "Cloud cover percentage (0-100)"},
+      "ml:split": {"type": "string", "nullable": false, "description": "Dataset split (train, val, test)"}
+    },
+    "children": {
+      "raster:resolution": {"type": "double", "nullable": false, "description": "Spatial resolution in meters"},
+      "raster:num_bands": {"type": "int32", "nullable": false, "description": "Number of bands in file"}
     }
   }
 }</code></pre>
-<p><code>collection</code> generates a Parquet table with one row per sample (0, 1, 2, ...). <code>sample</code> generates a Parquet table with one row per file inside each sample (s2_l1c.tif, s2_l2a.tif, target.tif), so 3 rows per sample.</p>
+<p><code>sample</code> contains one row per sample. <code>children</code> contains one row for each of its three files.</p>
 
-<p>Change detection</p>
+<p><strong>Change detection.</strong></p>
 <pre><code>{
   "taco:metadata": {
-    "collection": {
-      "centroid": ["binary", "Sample center point (WKB)"],
-      "geometry": ["binary", "Sample spatial footprint (WKB)"],
-      "crs": ["string", "Coordinate reference system"],
-      "split": ["string", "Dataset split"],
-      "change_ratio": ["double", "Percentage of changed pixels"]
-    },
     "sample": {
-      "time_start": ["timestamp[us]", "Acquisition timestamp"],
-      "cloud_cover": ["double", "Cloud cover percentage"],
-      "sensor": ["string", "Sensor name"]
+      "stac:centroid": {"type": "binary", "nullable": false, "description": "Sample center point (WKB)"},
+      "stac:geometry": {"type": "binary", "nullable": false, "description": "Sample spatial footprint (WKB)"},
+      "stac:crs": {"type": "string", "nullable": false, "description": "Coordinate reference system"},
+      "ml:split": {"type": "string", "nullable": false, "description": "Dataset split"},
+      "change:ratio": {"type": "double", "nullable": false, "description": "Percentage of changed pixels"}
     },
-    "sample/before": {
-      "resolution": ["double", "Spatial resolution in meters"],
-      "num_bands": ["int32", "Number of bands"]
+    "children": {
+      "stac:time_start": {"type": "timestamp[us]", "nullable": false, "description": "Acquisition timestamp"},
+      "quality:cloud_cover": {"type": "double", "nullable": true, "description": "Cloud cover percentage"},
+      "eo:sensor": {"type": "string", "nullable": false, "description": "Sensor name"}
     },
-    "sample/after": {
-      "resolution": ["double", "Spatial resolution in meters"],
-      "num_bands": ["int32", "Number of bands"]
+    "children/before": {
+      "raster:resolution": {"type": "double", "nullable": false, "description": "Spatial resolution in meters"},
+      "raster:num_bands": {"type": "int32", "nullable": false, "description": "Number of bands"}
+    },
+    "children/after": {
+      "raster:resolution": {"type": "double", "nullable": false, "description": "Spatial resolution in meters"},
+      "raster:num_bands": {"type": "int32", "nullable": false, "description": "Number of bands"}
     }
   }
 }</code></pre>
-<p><code>collection</code> has one row per sample. <code>sample</code> has 3 rows per sample (before, after, change_map.tif). <code>sample/before</code> has 3 rows per before folder (B02, B03, B04). <code>sample/after</code> has 3 rows per after folder.</p>
+<p><code>sample</code> contains one row per sample. <code>children</code> contains rows for <code>before</code>, <code>after</code>, and <code>change_map.tif</code>. The two folder levels contain one row for each band file.</p>
 
 <h3><span class="sn">5.5.</span> Collection</h3>
-<p>A collection is defined by a single <code>COLLECTION.json</code> file. This file MUST contain the contract (<code>taco:structure</code> and <code>taco:metadata</code>) and dataset-level descriptive fields. In TACO, samples have no string identifiers. They are indexed 0, 1, 2, ..., N-1. A sample's identity is its position in the collection.</p>
+<p><code>COLLECTION.json</code> describes the dataset and stores its contract. Samples do not have string identifiers. Their position in the collection is their identity, starting at 0.</p>
 
 <table>
 <tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr>
@@ -258,48 +266,41 @@ figcaption b{color:var(--fg);font-style:normal}
 <tr><td><code>licenses</code></td><td>list[string]</td><td>MUST</td><td>License identifiers (e.g. <code>CC-BY-4.0</code>)</td></tr>
 <tr><td><code>providers</code></td><td>list[object]</td><td>MUST</td><td>Dataset providers with name and roles</td></tr>
 <tr><td><code>tasks</code></td><td>list[string]</td><td>MUST</td><td>ML task types (e.g. <code>segmentation</code>, <code>classification</code>)</td></tr>
-<tr><td><code>taco:structure</code></td><td>list or null</td><td>MUST</td><td>Structure contract σ</td></tr>
-<tr><td><code>taco:metadata</code></td><td>object</td><td>MUST</td><td>Metadata contract μ</td></tr>
+<tr><td><code>taco:structure</code></td><td>list or null</td><td>MUST</td><td>Sample structure</td></tr>
+<tr><td><code>taco:metadata</code></td><td>object</td><td>MUST</td><td>Metadata schema</td></tr>
 <tr><td><code>title</code></td><td>string</td><td>MAY</td><td>Human-readable title</td></tr>
 <tr><td><code>curators</code></td><td>list[object]</td><td>MAY</td><td>Dataset curators</td></tr>
 <tr><td><code>keywords</code></td><td>list[string]</td><td>MAY</td><td>Keywords for discovery</td></tr>
 <tr><td><code>extent</code></td><td>object</td><td>MAY</td><td>Spatial and temporal extent</td></tr>
 </table>
 
-<h3><span class="sn">5.6.</span> Consequences</h3>
-<p>The contract-first approach guarantees several properties without additional enforcement.</p>
-<p>Every file in the dataset is addressed by exactly one pair (sample index, path). The path is fixed by the contract. No directory listing, no file scanning, no search. In FOLDER mode the index and the contract are sufficient to construct the path directly, for example <code>DATA/42/before/B02.tif</code>. In ZIP mode the reader looks up the byte offset and size from the Parquet metadata and constructs <code>/vsisubfile/offset_size,/vsicurl/https://hf.co/dataset.zip</code>. In both cases, access is O(1) regardless of dataset size.</p>
-<p>Any subset of samples forms a valid collection under the same contract. Partitioning a dataset does not require rewriting the contract or restructuring the data.</p>
-<p>Two collections with the same contract can be concatenated into a single collection by appending samples and re-indexing.</p>
+<h3><span class="sn">5.6.</span> Properties</h3>
+<p><strong>Deterministic paths.</strong> A sample index and a structure path identify every file. In FOLDER mode, they produce a path such as <code>DATA/42/before/B02.tif</code>. In ZIP mode, Parquet metadata provides the offset and size for a VSI path. The cost of locating that metadata depends on the Parquet reader and file layout.</p>
+<p><strong>Safe partitioning.</strong> Any subset of samples remains valid under the same contract.</p>
+<p><strong>Simple concatenation.</strong> Collections with identical contracts can be combined by appending and re-indexing their samples.</p>
 
 <h2><span class="sn">6.</span> Dataset Versioning</h2>
-<p>A TACO dataset MUST use Semantic Versioning (SemVer) for the <code>dataset_version</code> field in <code>COLLECTION.json</code>. The versioning scheme is defined by backward compatibility of consumer code. If code that reads version X can also read version Y without modification, the change from X to Y is backward compatible.</p>
+<p>The <code>dataset_version</code> in <code>COLLECTION.json</code> MUST follow Semantic Versioning. Compatibility is measured from the reader's perspective. A change is backward compatible when code written for the previous version continues to work without modification.</p>
 
 <h3><span class="sn">6.1.</span> Version Levels</h3>
-<p><strong>PATCH</strong> (e.g. <code>1.0.0</code> → <code>1.0.1</code>). The contract is unchanged and no samples are added. Changes include fixing incorrect metadata values, correcting corrupted data files, or updating dataset-level fields in <code>COLLECTION.json</code> (description, keywords, extent). Consumer code is unaffected.</p>
-<p><strong>MINOR</strong> (e.g. <code>1.0.0</code> → <code>1.1.0</code>). The contract is unchanged. New samples are added under the same contract. Consumer code is unaffected because the structure and schema are identical; there is simply more data.</p>
-<p><strong>MAJOR</strong> (e.g. <code>1.0.0</code> → <code>2.0.0</code>). The contract changes in a backward-compatible way. Changes include adding new fixed leaves to <code>taco:structure</code> (existing leaves unchanged), adding new fields to <code>taco:metadata</code> (existing fields unchanged), or adding new folder levels. Consumer code continues to work because it can ignore new files and new fields. However, the structural contract has grown, so consumers that validate against the contract or access the new files must update their expectations.</p>
+<p><strong>PATCH</strong> such as <code>1.0.0</code> to <code>1.0.1</code> corrects existing content without changing the contract or adding samples. Examples include fixing metadata values, replacing corrupted files, or updating the description, keywords, or extent.</p>
+<p><strong>MINOR</strong> such as <code>1.0.0</code> to <code>1.1.0</code> adds samples under the existing contract.</p>
+<p><strong>MAJOR</strong> such as <code>1.0.0</code> to <code>2.0.0</code> extends the contract without removing existing structure. Examples include adding files, folders, or metadata fields. Existing readers can ignore the additions, but readers that validate the complete contract may need to update their expectations.</p>
 
 <h3><span class="sn">6.2.</span> When to Create a New Dataset</h3>
-<p>If the contract changes in a backward-incompatible way, producers MUST create a new dataset with a new <code>id</code> instead of incrementing the version. Backward-incompatible changes include removing or renaming files in <code>taco:structure</code>, removing or renaming fields in <code>taco:metadata</code>, changing field types, or restructuring the sample hierarchy.</p>
-<p>The test is simple. Does code that reads version X still work on version Y without modification? If yes, it is a version bump (major if the contract changed, minor if only samples were added, patch if only metadata was corrected). If no, it is a new dataset.</p>
+<p>A breaking contract change requires a new dataset with a new <code>id</code>. This includes removing or renaming files or metadata fields, changing field types, and reorganizing the sample hierarchy.</p>
+<p>The rule is simple. If existing reader code still works, increment the version. If it does not, create a new dataset.</p>
 
 <h3><span class="sn">6.3.</span> Container Mode and Mutability</h3>
-<p>FOLDER mode supports incremental updates. Adding samples is an append operation; create new directories in <code>DATA/</code>, append rows to the Parquet files in <code>METADATA/</code>, and update <code>COLLECTION.json</code>. This makes FOLDER mode the natural choice for datasets under active development, including continuous ingestion of new samples as they become available.</p>
-<p>ZIP mode is immutable. Any change requires recreating the archive. This makes ZIP mode suitable for stable releases. When distributing updated ZIPs on CDC-aware platforms (see Section 3.3), only the changed chunks are transferred.</p>
-<p>Producers SHOULD use FOLDER mode during development and iteration, and publish stable versions as ZIP for distribution. Converting between modes does not change data or metadata, only the packaging.</p>
+<p>FOLDER containers support appending samples. New data is added under <code>DATA/</code>, new rows are added to <code>METADATA/</code>, and <code>COLLECTION.json</code> is updated. This mode is suitable for datasets under active development or continuous ingestion.</p>
+<p>ZIP containers are immutable and must be rebuilt after any change. They are suitable for stable releases. On CDC-aware platforms, rebuilding a ZIP may transfer only the chunks that changed.</p>
+<p>Producers SHOULD build datasets as FOLDER containers and publish stable versions as ZIP containers. Conversion changes only the packaging.</p>
 
 <h2><span class="sn">7.</span> Physical Layer</h2>
-
-<figure>
-<img src="assets/dataset.png" alt="TACO Dataset Physical Layout">
-<figcaption><b>Figure 2.</b> TACO Dataset Physical Layout. COLLECTION.json defines the contract. METADATA/ contains one Parquet per key in taco:metadata, linked by parent_id. DATA/ contains the sample directories with data files. Parquet rows point to data files via VSI paths constructed at runtime.</figcaption>
-</figure>
-
-<p>This section describes how the data model materializes on disk.</p>
+<p>This section defines how a TACO dataset is stored.</p>
 
 <h3><span class="sn">7.1.</span> Directory Structure</h3>
-<p>A TACO dataset MUST have three components on disk.</p>
+<p>Every TACO dataset MUST contain <code>DATA/</code>, <code>METADATA/</code>, and <code>COLLECTION.json</code>.</p>
 <pre><code>dataset/
 ├── DATA/
 │   ├── 0/
@@ -316,51 +317,52 @@ figcaption b{color:var(--fg);font-style:normal}
 │   │   └── ...
 │   └── ...
 ├── METADATA/
-│   ├── collection.parquet
 │   ├── sample.parquet
-│   ├── sample__before.parquet
-│   └── sample__after.parquet
+│   ├── children.parquet
+│   ├── children__before.parquet
+│   └── children__after.parquet
 └── COLLECTION.json</code></pre>
-<p><code>DATA/</code> MUST contain the data files. Each sample MUST be a directory named by its integer index (0, 1, 2, ...). The internal organization MUST mirror <code>taco:structure</code>.</p>
-<p><code>METADATA/</code> MUST contain one Parquet file per key in <code>taco:metadata</code>. Each filename MUST be the key with <code>/</code> replaced by <code>__</code> (see Section 5.3).</p>
-<p><code>COLLECTION.json</code> is defined in Section 5.5.</p>
+<p><code>DATA/</code> contains the data files. Each sample MUST use a directory named by its integer index. Its contents MUST follow <code>taco:structure</code>.</p>
+<p><code>METADATA/</code> contains one Parquet file for each key in <code>taco:metadata</code>. The filename replaces every <code>/</code> in the level name with <code>__</code>.</p>
+<p><code>COLLECTION.json</code> contains the dataset description and contract defined in Section 5.5.</p>
 
 <h3><span class="sn">7.2.</span> Internal Columns</h3>
-<p>TACO adds system columns to each Parquet file. These columns use the reserved prefix <code>internal:</code>. Users MUST NOT create fields with this prefix.</p>
+<p>TACO adds columns for row relationships and data access. Their names use the reserved <code>internal:</code> namespace, which users MUST NOT use.</p>
 
 <table>
 <tr><th>Column</th><th>Description</th><th>Present in</th></tr>
 <tr><td><code>internal:current_id</code></td><td>Row index within this Parquet (0-indexed)</td><td>All Parquets</td></tr>
-<tr><td><code>internal:parent_id</code></td><td>Index of parent row in previous level Parquet</td><td>All except collection</td></tr>
+<tr><td><code>internal:parent_id</code></td><td>Index of parent row in previous level Parquet</td><td>All except sample</td></tr>
 <tr><td><code>internal:relative_path</code></td><td>Relative path from DATA/ to this node</td><td>All Parquets</td></tr>
 <tr><td><code>internal:offset</code></td><td>Byte offset of this file inside the ZIP archive</td><td>ZIP and TACOCAT</td></tr>
 <tr><td><code>internal:size</code></td><td>Byte size of this file inside the ZIP archive</td><td>ZIP and TACOCAT</td></tr>
 <tr><td><code>internal:source_file</code></td><td>Source ZIP filename</td><td>TACOCAT only</td></tr>
 </table>
 
-<p>A conformant writer MUST include <code>internal:current_id</code> and <code>internal:relative_path</code> in all Parquets, and <code>internal:parent_id</code> in all Parquets except collection. In ZIP mode, the writer MUST also include <code>internal:offset</code> and <code>internal:size</code> for every data file.</p>
-<p>The reader constructs VSI paths at runtime. In ZIP mode, the path is <code>/vsisubfile/{offset}_{size},{zip_path}</code> using <code>internal:offset</code> and <code>internal:size</code>. In FOLDER mode, the path is constructed from the contract and the sample index (<code>DATA/{idx}/{structure_path}</code>), no Parquet lookup required.</p>
+<p>Every Parquet MUST contain <code>internal:current_id</code> and <code>internal:relative_path</code>. Every Parquet except <code>sample.parquet</code> MUST also contain <code>internal:parent_id</code>. ZIP metadata MUST include <code>internal:offset</code> and <code>internal:size</code> for every data file.</p>
+<p>Readers use these columns to build VSI paths. ZIP paths use the form <code>/vsisubfile/{offset}_{size},{zip_path}</code>. FOLDER paths use <code>DATA/{idx}/{structure_path}</code> and require no Parquet lookup.</p>
 
 <h3><span class="sn">7.3.</span> ZIP Container</h3>
-<p>A cloud-optimized ZIP (see Section 3.3) packages one dataset or partition as a <code>.zip</code> archive. Its CoZIP index MUST declare the TACO profile (value 2). The index header at byte 0 MUST store offsets to all Parquet files in METADATA/ and to COLLECTION.json. All files MUST use STORE mode (no compression) to enable byte-range access via <code>/vsisubfile/</code>. Writers MUST use the <code>.zip</code> extension, but readers MUST identify the container by the CoZIP profile byte rather than by its filename, per CoZIP specification section 14.5.</p>
-<p>ZIP containers are immutable. Updating a dataset requires recreating the archive (see Section 6.3).</p>
+<p>A ZIP container packages one dataset or partition in a <code>.zip</code> archive. Its CoZIP index MUST declare profile 2, the TACO profile. The byte-0 index MUST contain offsets to <code>COLLECTION.json</code> and every Parquet file in <code>METADATA/</code>. Every entry MUST use STORE mode so that <code>/vsisubfile/</code> can access it directly.</p>
+<p>The writer MUST use the <code>.zip</code> extension. Readers MUST identify TACO archives by their CoZIP profile byte, not by the filename, as defined in Section 14.5 of the CoZIP specification.</p>
+<p>ZIP containers are immutable. Any update requires rebuilding the archive.</p>
 
 <h3><span class="sn">7.4.</span> FOLDER Container</h3>
-<p>A FOLDER container stores the dataset as a plain directory. The directory structure is identical to what exists inside a ZIP container. Converting between FOLDER and ZIP does not change the data or metadata, only the packaging.</p>
-<p>FOLDER mode supports appending new samples without recreating any existing files. This makes it the preferred container for datasets that are built incrementally or updated continuously (see Section 6.3).</p>
+<p>A FOLDER container is a plain directory with the same contents as a ZIP container. Converting between the two changes only the packaging.</p>
+<p>New samples can be appended without rebuilding existing data, making FOLDER suitable for incremental datasets.</p>
 
 <h3><span class="sn">7.5.</span> TACOCAT</h3>
-<p>When a dataset is distributed as multiple ZIP files, querying across all of them requires opening each one individually. TACOCAT consolidates all metadata from multiple ZIP files into a single directory.</p>
+<p>TACOCAT makes a partitioned dataset queryable as one collection. It merges metadata from several ZIP files into a single directory.</p>
 <pre><code>.tacocat/
-├── collection.parquet
 ├── sample.parquet
-├── sample__before.parquet
-├── sample__after.parquet
+├── children.parquet
+├── children__before.parquet
+├── children__after.parquet
 └── COLLECTION.json</code></pre>
-<p>Each consolidated Parquet merges the corresponding Parquets from all source ZIPs. An additional column <code>internal:source_file</code> MUST track which ZIP each row came from. This enables queries across the entire dataset using DuckDB without opening any ZIP file.</p>
-<p>To access data, the reader constructs VSI paths using <code>internal:offset</code>, <code>internal:size</code>, and <code>internal:source_file</code> to point directly into the correct source ZIP.</p>
-<p>The <code>COLLECTION.json</code> in TACOCAT merges metadata from all partitions. The consolidation process MUST validate that all partitions share the same contract (<code>taco:structure</code> and <code>taco:metadata</code>). Sample counts are summed. Spatial extents merge into a global bounding box. Temporal extents span from the earliest start to the latest end.</p>
-<p>An additional field <code>taco:sources</code> SHOULD preserve individual partition extents for query routing, allowing identification of which ZIP files contain relevant data for a specific region or time window without opening every partition.</p>
+<p>Each Parquet file combines the corresponding tables from the source ZIPs. The <code>internal:source_file</code> column MUST identify the source of every row. DuckDB can then query all metadata without opening the ZIP files.</p>
+<p>When data is requested, the reader combines <code>internal:source_file</code>, <code>internal:offset</code>, and <code>internal:size</code> into a VSI path to the correct ZIP.</p>
+<p>TACOCAT consolidation MUST verify that every partition uses the same contract. Its <code>COLLECTION.json</code> combines the partition metadata, sample counts, spatial extents, and temporal extents.</p>
+<p><code>taco:sources</code> SHOULD retain the extent of each partition. Readers can use this information to find relevant ZIP files without opening every partition.</p>
 <pre><code>{
   "taco:sources": {
     "count": 3,
@@ -374,50 +376,111 @@ figcaption b{color:var(--fg);font-style:normal}
 }</code></pre>
 
 <h2><span class="sn">8.</span> API Layer</h2>
-<p>This section describes the reference implementations. The API layer is not normative; conformant implementations MAY use different interfaces as long as they produce and consume valid TACO datasets.</p>
+<p>TACO has one writing API and may have many reading APIs. Datasets MUST be written through the public API of the <code>taco</code> package. Alternative writer implementations are not permitted. Readers MAY use any interface as long as they interpret the format correctly.</p>
 
 <h3><span class="sn">8.1.</span> taco (Writer)</h3>
 
-<p><code>taco</code> is the reference Python writer. Its public API creates
-only immutable <code>.zip</code> files. Every output declares CoZIP profile
-<code>TACO</code> (value 2). Flat-profile creation belongs to the separate
-CoZIP API.</p>
+<p><code>taco</code> is the only TACO writer. The public entry point is <code>taco.open_writer()</code> for both ZIP and FOLDER containers. A path ending in <code>.zip</code> selects ZIP. A path without a suffix selects FOLDER. Other suffixes are rejected.</p>
 
-<h4>Objects</h4>
-<p><strong>Contract</strong> contains the immutable <code>taco:structure</code>
-and <code>taco:metadata</code> declarations.</p>
-<p><strong>Asset</strong> maps one contract-relative path to one local source
-file. <strong>Sample</strong> groups assets and metadata for every contract
-level. <strong>Collection</strong> holds the dataset-level fields and contract.</p>
-<p><strong>TacoWriter</strong> owns a staging journal and has an explicit
-lifecycle: <code>OPEN → RUNNING → SUCCEEDED</code>. <strong>BuildResult</strong>
-describes the completed artifact.</p>
+<h4>Data objects</h4>
+<p>TACO uses small immutable data objects for structure. <strong>Contract</strong> defines the structure and metadata schema. <strong>Collection</strong> describes the dataset. <strong>Sample</strong> contains one sample, and <strong>Asset</strong> points to one source file.</p>
+<p><strong>MetadataSchema</strong> contains one or more <strong>Level</strong> objects. Each level associates a namespace with a Pydantic model or a derived metadata group.</p>
+
+<h4>Metadata schema</h4>
+<p><code>taco.metadata</code> provides reusable groups such as STAC and Raster. Datasets may use these models, extend them, or define additional Pydantic models.</p>
+<pre><code>import taco
+from pydantic import BaseModel, Field
+
+
+class ML(BaseModel):
+    split: str = Field(description="Dataset split")
+
+
+contract = taco.Contract(
+    structure=["image.tif", "label.tif"],
+    metadata=taco.MetadataSchema(
+        taco.Level(
+            "sample",
+            stac=taco.metadata.STAC,
+            ml=ML,
+            majortom=taco.metadata.MajorTOM(dist_km=100),
+        ),
+        taco.Level("children", raster=taco.metadata.Raster),
+    ),
+)</code></pre>
+<p>The keyword is the namespace. The Pydantic model defines its fields, types, nullability, and descriptions. The writer stores them as qualified columns such as <code>stac:geometry</code>, <code>ml:split</code>, and <code>raster:resolution</code>.</p>
+<p>A union with <code>None</code> makes a field nullable. <code>Field(description=...)</code> supplies its description. Exact Arrow types may use <code>Annotated</code>.</p>
+<pre><code>from datetime import datetime
+from typing import Annotated
+
+import pyarrow as pa
+
+Float32 = Annotated[float, pa.float32()]
+TimestampUTC = Annotated[datetime, pa.timestamp("us", tz="UTC")]</code></pre>
+<p>The serialized contract contains the resulting columns, not Python class names, import paths, defaults, or validators.</p>
+
+<h4>Sample metadata</h4>
+<p>Metadata is attached to the object it describes. <code>Sample.metadata</code> describes the sample, while <code>Asset.metadata</code> describes a file. The writer assigns each object to the correct metadata level.</p>
+<p>Assets are passed as a list. In a flat structure, the contract path is inferred when the source filename matches it, so the name is not repeated. The <code>path</code> argument is required for nested paths or when the source name differs from the contract.</p>
+<pre><code>sample = taco.Sample(
+    metadata=taco.Metadata(
+        stac=taco.metadata.STAC(...),
+        ml=ML(split="train"),
+    ),
+    assets=[
+        taco.Asset(
+            Path("/data/image.tif"),
+            metadata=taco.Metadata(
+                raster=taco.metadata.Raster(resolution=10, num_bands=13)
+            ),
+        ),
+        taco.Asset(
+            Path("/data/label.tif"),
+            metadata=taco.Metadata(
+                raster=taco.metadata.Raster(resolution=10, num_bands=1)
+            ),
+        ),
+    ],
+)</code></pre>
+
+<h4>Derived metadata</h4>
+<p>A derived group declares the columns it needs and the columns it produces. MajorTOM requires <code>stac:centroid</code> and produces <code>majortom:code</code>. The contract is invalid when a required column is missing.</p>
+<p>Samples do not provide values for derived groups. The writer computes them from batches of validated metadata before writing Parquet. This keeps vectorized operations in Arrow, NumPy, or Shapely instead of running them once per sample.</p>
+<p>The configuration of a derived group is part of the contract. Appending data with different settings is not allowed.</p>
 
 <h4>Writer lifecycle</h4>
-<p><code>open_writer(collection, output)</code> accepts an extensionless output
-or a path ending in <code>.zip</code>. Any other extension is rejected.
-<code>add()</code> and <code>extend()</code> validate samples and append them to a
-temporary journal; they do not create or rewrite Parquet files.
-<code>run()</code> freezes the writer, computes all DATA offsets, materializes
-each metadata Parquet exactly once, and atomically publishes each archive. A
-second <code>run()</code> on the same successful writer returns the original
-<code>BuildResult</code> without rebuilding. Leaving the context manager only
-cleans staging; it never invokes <code>run()</code> implicitly. A partitioned
-build publishes its ZIP files independently; the complete set and its TACOCAT
-directory are not one filesystem transaction.</p>
+<p><code>add()</code> and <code>extend()</code> validate and stage samples. They do not modify the final dataset.</p>
+<p><code>run()</code> closes the input, computes derived metadata and ZIP offsets, writes each Parquet file once, and publishes the result. If a build fails, an existing dataset MUST remain unchanged.</p>
+<p>Leaving the context manager only removes temporary files. It does not call <code>run()</code>. Calling <code>run()</code> again after success returns the same result without rebuilding.</p>
+<p>FOLDER containers may use <code>append=True</code>. ZIP containers may be partitioned. Each ZIP partition is published independently, so a complete partitioned release and its TACOCAT directory are not one filesystem transaction.</p>
 
 <h4>Example</h4>
-<pre><code>from taco import Collection, Contract, Sample, open_writer
+<pre><code>from datetime import datetime, timezone
+from pathlib import Path
 
-contract = Contract(
+import taco
+from pydantic import BaseModel, Field
+from shapely.geometry import Point
+
+
+class ML(BaseModel):
+    split: str = Field(description="Dataset split")
+
+
+contract = taco.Contract(
     structure=["image.tif", "label.tif"],
-    metadata={
-        "collection": {"split": ["string", "Dataset split"]},
-        "sample": {"role": ["string", "Asset role"]},
-    },
+    metadata=taco.MetadataSchema(
+        taco.Level(
+            "sample",
+            stac=taco.metadata.STAC,
+            ml=ML,
+            majortom=taco.metadata.MajorTOM(dist_km=100),
+        ),
+        taco.Level("children", raster=taco.metadata.Raster),
+    ),
 )
 
-collection = Collection(
+collection = taco.Collection(
     contract=contract,
     id="cloud-segmentation",
     dataset_version="1.0.0",
@@ -427,99 +490,106 @@ collection = Collection(
     tasks=["segmentation"],
 )
 
-sample = Sample(
-    assets={
-        "image.tif": "/data/image.tif",
-        "label.tif": "/data/label.tif",
-    },
-    metadata={
-        "collection": {"split": "train"},
-        "sample": {
-            "image.tif": {"role": "image"},
-            "label.tif": {"role": "label"},
-        },
-    },
+point = Point(-76.5, -9.2)
+sample = taco.Sample(
+    metadata=taco.Metadata(
+        stac=taco.metadata.STAC(
+            geometry=point.wkb,
+            centroid=point.wkb,
+            crs="EPSG:4326",
+            time_start=datetime(2025, 1, 1, tzinfo=timezone.utc),
+        ),
+        ml=ML(split="train"),
+    ),
+    assets=[
+        taco.Asset(
+            Path("/data/image.tif"),
+            metadata=taco.Metadata(
+                raster=taco.metadata.Raster(resolution=10, num_bands=13)
+            ),
+        ),
+        taco.Asset(
+            Path("/data/label.tif"),
+            metadata=taco.Metadata(
+                raster=taco.metadata.Raster(resolution=10, num_bands=1)
+            ),
+        ),
+    ],
 )
 
-with open_writer(collection, "clouds.zip") as writer:
+with taco.open_writer(collection, "clouds.zip") as writer:
     writer.add(sample)
-    result = writer.run()</code></pre>
+    writer.run()</code></pre>
 
 <h3><span class="sn">8.2.</span> DuckDB Extension (Reader)</h3>
-
-<figure>
-<img src="assets/tacoreader.png" alt="TacoReader DuckDB Extension">
-<figcaption><b>Figure 4.</b> The cozip DuckDB extension exposes read_taco() and the contract inspection functions to every DuckDB client.</figcaption>
-</figure>
-
-<p>The reference reader is part of the cozip DuckDB extension and is written in C++. Any language with a DuckDB client uses the same SQL interface. The extension reads remote files through DuckDB's filesystem layer, including httpfs; it does not maintain a separate HTTP client.</p>
+<p>The reference reader is part of the CoZIP DuckDB extension. Every DuckDB client uses the same SQL interface. Remote access goes through DuckDB's filesystem layer, including <code>httpfs</code>.</p>
 <pre><code>INSTALL cozip FROM community;
 LOAD cozip;</code></pre>
 
 <h4>read_taco(path, idx, level, pivoted, files, gdal_vsi)</h4>
-<p>Reads a TACO dataset and returns a table. The container format (ZIP, FOLDER, TACOCAT) is auto-detected from the path.</p>
-<p><strong>path</strong> (VARCHAR, required) is where the dataset lives. It supports local paths and the remote filesystems available to DuckDB, including HTTP, S3, Azure, GCS, and HuggingFace. For ZIP containers, the extension reads the byte-0 index through DuckDB's filesystem API. DuckDB then scans the metadata Parquets at the indexed byte ranges and applies its usual projection and predicate pushdown.</p>
+<p><code>read_taco</code> returns a table and detects ZIP, FOLDER, or TACOCAT from the path.</p>
+<p><strong>path</strong> is required and accepts any local or remote filesystem supported by DuckDB, including HTTP, S3, Azure, GCS, and Hugging Face. For ZIP containers, DuckDB reads the byte-0 index and scans the indexed Parquet ranges with predicate and projection pushdown.</p>
 <pre><code>SELECT * FROM read_taco('/data/cloudsen12.zip');
 SELECT * FROM read_taco('s3://bucket/cloudsen12.zip');
 SELECT * FROM read_taco('https://example.com/cloudsen12.zip');
 SELECT * FROM read_taco('hf://datasets/tacofoundation/cloudsen12/cloudsen12.zip');</code></pre>
 
-<p><strong>idx</strong> (INTEGER or LIST, default NULL) controls which samples to return. Samples are indexed 0, 1, 2, ..., so idx maps directly to row positions. NULL returns all samples. An INTEGER returns a single sample. A two-element LIST returns a range. This is the most important parameter for ML workflows.</p>
+<p><strong>idx</strong> selects samples by their integer position. <code>NULL</code> returns all samples, an integer returns one sample, and a two-element list returns a range.</p>
 <pre><code>SELECT * FROM read_taco('dataset.zip');                -- all samples
 SELECT * FROM read_taco('dataset.zip', idx=5);         -- sample 5
 SELECT * FROM read_taco('dataset.zip', idx=[0, 100]);  -- first 100 samples</code></pre>
 
-<p><strong>level</strong> (VARCHAR, default NULL) controls which metadata Parquet to read. NULL returns the default view with all levels joined. A string returns a specific Parquet without JOINs, using the same keys as <code>taco:metadata</code>. This is for inspection and debugging, not for typical ML usage.</p>
+<p><strong>level</strong> selects a metadata level. <code>NULL</code> returns the default joined view. A level name reads its Parquet directly without joins.</p>
 <pre><code>SELECT * FROM read_taco('dataset.zip');                         -- joined view
-SELECT * FROM read_taco('dataset.zip', level='collection');     -- collection.parquet
-SELECT * FROM read_taco('dataset.zip', level='sample');         -- sample.parquet
-SELECT * FROM read_taco('dataset.zip', level='sample/before');  -- sample__before.parquet</code></pre>
+SELECT * FROM read_taco('dataset.zip', level='sample');          -- sample.parquet
+SELECT * FROM read_taco('dataset.zip', level='children');        -- children.parquet
+SELECT * FROM read_taco('dataset.zip', level='children/before'); -- children__before.parquet</code></pre>
 
-<p><strong>pivoted</strong> (BOOLEAN, default true) controls the result shape. When true, each selected leaf from <code>taco:structure</code> becomes a named column containing its VSI path, with one row per sample. When false, the result has one row per file, a <code>path</code> column identifying the leaf, and one <code>cozip:gdal_vsi</code> column.</p>
-<p><strong>files</strong> (LIST, default NULL) restricts the structure leaves returned by the pivoted view. NULL returns every leaf. This option does not apply when <code>level</code> is set.</p>
-<p><strong>gdal_vsi</strong> (BOOLEAN, default true) controls whether the reader constructs GDAL VSI paths. When false, path columns are NULL, which is useful for metadata-only queries.</p>
+<p><strong>pivoted</strong> controls the result shape. The default value is <code>true</code>, which returns one row per sample and one VSI path column per selected file. When <code>false</code>, the result contains one row per file with <code>path</code> and <code>cozip:gdal_vsi</code> columns.</p>
+<p><strong>files</strong> limits which structure paths appear in a pivoted result. <code>NULL</code> returns all of them. This option is ignored when <code>level</code> is set.</p>
+<p><strong>gdal_vsi</strong> controls whether path columns contain GDAL VSI paths. The default is <code>true</code>. When <code>false</code>, path columns are <code>NULL</code>, which allows metadata-only queries.</p>
 <pre><code>-- Pivoted (default), one row per sample, one column per file
 SELECT * FROM read_taco('cloudsen12.zip');
--- sample_id | split | cloud_cover | s2_l1c          | s2_l2a          | target
--- 0         | train | 23.5        | /vsisubfile/... | /vsisubfile/... | /vsisubfile/...
+-- sample_id | ml:split | quality:cloud_cover | s2_l1c          | s2_l2a          | target
+-- 0         | train    | 23.5                | /vsisubfile/... | /vsisubfile/... | /vsisubfile/...
 
 -- Flat, one row per file
 SELECT * FROM read_taco('cloudsen12.zip', pivoted := false);
--- sample_id | split | cloud_cover | resolution | num_bands | path       | cozip:gdal_vsi
--- 0         | train | 23.5        | 10.0       | 13        | s2_l1c.tif | /vsisubfile/...
--- 0         | train | 23.5        | 10.0       | 13        | s2_l2a.tif | /vsisubfile/...
--- 0         | train | 23.5        | 10.0       | 1         | target.tif | /vsisubfile/...
+-- sample_id | ml:split | raster:resolution | raster:num_bands | path       | cozip:gdal_vsi
+-- 0         | train    | 10.0              | 13               | s2_l1c.tif | /vsisubfile/...
+-- 0         | train    | 10.0              | 13               | s2_l2a.tif | /vsisubfile/...
+-- 0         | train    | 10.0              | 1                | target.tif | /vsisubfile/...
 
 -- Two selected files
 SELECT * FROM read_taco('change_detection.zip', files := ['before/B02.tif', 'after/B02.tif']);
--- sample_id | split | before/B02.tif  | after/B02.tif</code></pre>
+-- sample_id | ml:split | before/B02.tif  | after/B02.tif</code></pre>
 
-<p>For datasets with variable leaves (e.g. <code>img*[4,16].tif</code> in the structure), the pivoted view returns one <code>LIST(VARCHAR)</code> column for that leaf, because the number of files varies across samples.</p>
+<p>A variable sequence such as <code>img*[4,16].tif</code> becomes a <code>LIST(VARCHAR)</code> column in the pivoted view.</p>
 <pre><code>SELECT * FROM read_taco('multitemporal_s2.zip');
--- sample_id | split | num_images | vsi_path
--- 0         | train | 4          | [/vsisubfile/..., /vsisubfile/..., ...]
--- 1         | val   | 8          | [/vsisubfile/..., /vsisubfile/..., ...]</code></pre>
+-- sample_id | ml:split | series:num_images | vsi_path
+-- 0         | train    | 4                 | [/vsisubfile/..., /vsisubfile/..., ...]
+-- 1         | val      | 8                 | [/vsisubfile/..., /vsisubfile/..., ...]</code></pre>
 
 <h4>taco_contract(path)</h4>
-<p>Returns the contract as rows of <code>kind</code> and <code>value</code>. The extension also provides <code>taco_structure(path)</code>, <code>taco_levels(path)</code>, and <code>taco_collection(path)</code> for direct inspection, plus <code>taco_sql(...)</code> to show the SQL generated for <code>read_taco</code>.</p>
+<p><code>taco_contract</code> returns the contract as <code>kind</code> and <code>value</code> rows. The extension also provides <code>taco_structure</code>, <code>taco_levels</code>, and <code>taco_collection</code> for direct inspection. <code>taco_sql</code> shows the SQL generated by <code>read_taco</code>.</p>
 
 <h3><span class="sn">8.3.</span> Language clients</h3>
-<p>The DuckDB extension is the reader implementation. Any DuckDB client can execute the SQL above without a separate TACO reader. The Python package includes a small convenience wrapper:</p>
+<p>Any DuckDB client can call the reader directly. The Python package also provides a small wrapper.</p>
 
 <h4>Python</h4>
-<pre><code>from taco.reader import contract, read
+<pre><code>import taco
 
-table = read("cloudsen12.zip")
-table = read("cloudsen12.zip", idx=5)
-table = read("cloudsen12.zip", idx=[0, 100], pivoted=False)
-table = read("cloudsen12.zip", level="sample")
+table = taco.reader.read("cloudsen12.zip")
+table = taco.reader.read("cloudsen12.zip", idx=5)
+table = taco.reader.read("cloudsen12.zip", idx=[0, 100], pivoted=False)
+table = taco.reader.read("cloudsen12.zip", level="sample")
 
-description = contract("cloudsen12.zip")</code></pre>
+description = taco.reader.contract("cloudsen12.zip")</code></pre>
 
-<p>The wrapper manages one DuckDB connection and returns Arrow tables. It does not parse the CoZIP index or duplicate the reader logic.</p>
+<p>The wrapper manages a DuckDB connection and returns Arrow tables. All reading logic remains in the extension.</p>
 
 <h2>Annex A: Migration from v2</h2>
-<p>TACO v3.0.0 is NOT backward compatible with v2 datasets. Existing v2 datasets MUST be recreated to work with v3 tools. This section documents all breaking changes.</p>
+<p>TACO v3 is not compatible with v2 datasets. Existing datasets MUST be rebuilt to work with v3 tools. This annex summarizes the differences.</p>
 
 <h3><span class="sn">9.1.</span> Summary of Changes</h3>
 <table>
@@ -527,15 +597,15 @@ description = contract("cloudsen12.zip")</code></pre>
 <tr><td>Contract definition</td><td>Inferred from first sample at runtime (PIT)</td><td>Declared explicitly before any data is written</td></tr>
 <tr><td>Core abstractions</td><td>SAMPLE, TORTILLA, TACO</td><td>Contract, Sample, Collection</td></tr>
 <tr><td>Sample identity</td><td>String IDs (<code>id</code> field)</td><td>Integer indices (0, 1, 2, ..., N-1)</td></tr>
-<tr><td>Sample types</td><td>FILE or FOLDER (discriminator field)</td><td>No type field; structure defined by contract</td></tr>
-<tr><td>Irregular structures</td><td>Padding with <code>__TACOPAD__</code> placeholders</td><td>Variable leaves (<code>prefix*[a,b].ext</code>)</td></tr>
+<tr><td>Sample types</td><td>FILE or FOLDER discriminator</td><td>No type field. The contract defines the structure.</td></tr>
+<tr><td>Irregular structures</td><td>Padding with <code>__TACOPAD__</code> placeholders</td><td>Variable sequences (<code>prefix*[a,b].ext</code>)</td></tr>
 <tr><td>Metadata storage</td><td>Dual system (consolidated <code>levelX.parquet</code> + local <code>__meta__</code> per folder)</td><td>Consolidated only (one Parquet per contract level, no local metadata)</td></tr>
-<tr><td>Parquet naming</td><td>By depth (<code>level0.parquet</code>, <code>level1.parquet</code>, ...)</td><td>By semantic path (<code>collection.parquet</code>, <code>sample.parquet</code>, <code>sample__before.parquet</code>, ...)</td></tr>
-<tr><td>Extension system</td><td>Formal <code>extend_with()</code> interface with SampleExtension, TortillaExtension, TacoExtension classes</td><td>Pydantic BaseModels composed in the contract</td></tr>
-<tr><td>Structural constraint</td><td>PIT (Position-Invariant Tree), two rules</td><td>Contract (σ, μ), structure and metadata schema declared as a pair</td></tr>
-<tr><td>Library dependency</td><td>GDAL required</td><td>VSI path convention; GDAL is one implementation, not a dependency</td></tr>
+<tr><td>Parquet naming</td><td>By depth (<code>level0.parquet</code>, <code>level1.parquet</code>, ...)</td><td>By row level (<code>sample.parquet</code>, <code>children.parquet</code>, <code>children__before.parquet</code>, ...)</td></tr>
+<tr><td>Extension system</td><td>Formal <code>extend_with()</code> interface with SampleExtension, TortillaExtension, TacoExtension classes</td><td>Namespaced Pydantic models and derived metadata groups</td></tr>
+<tr><td>Structural constraint</td><td>Position-Invariant Tree inferred at runtime</td><td>Structure and metadata declared in a contract</td></tr>
+<tr><td>Library dependency</td><td>GDAL required</td><td>VSI path convention. GDAL is one implementation.</td></tr>
 <tr><td>Reader implementation</td><td>TacoReader (Python classes with lazy query, DuckDB internally)</td><td>Native DuckDB extension (<code>read_taco</code>), thin wrappers in Python/R/Julia</td></tr>
-<tr><td>Writer implementation</td><td>TacoToolbox (Sample, Tortilla, Taco classes)</td><td>taco (Contract, Asset, Sample, Collection, TacoWriter)</td></tr>
+<tr><td>Writer implementation</td><td>TacoToolbox (Sample, Tortilla, Taco classes)</td><td><code>taco.open_writer()</code></td></tr>
 <tr><td>ZIP extension</td><td><code>.tacozip</code></td><td><code>.zip</code>, with the CoZIP profile byte as the only type signal</td></tr>
 <tr><td>TACOCAT format</td><td>Binary file with 128-byte header, fixed 7-entry index table</td><td>Directory with merged Parquets and COLLECTION.json</td></tr>
 <tr><td>TACOLLECTION</td><td>Separate <code>TACOLLECTION.json</code> file</td><td>Merged into TACOCAT COLLECTION.json via <code>taco:sources</code> field</td></tr>
@@ -547,47 +617,45 @@ description = contract("cloudsen12.zip")</code></pre>
 </table>
 
 <h3><span class="sn">9.2.</span> Contract vs PIT</h3>
-<p>The most fundamental change between v2 and v3 is how dataset structure is defined.</p>
-<p>In v2, the structure was inferred at runtime through the PIT (Position-Invariant Tree) constraint. PIT required that all samples at the same hierarchy level be structurally isomorphic, meaning same number of children, same identifiers at same positions, same types. The writer accepted the first sample and enforced that all subsequent samples matched its structure. If they did not match, padding placeholders (<code>__TACOPAD__</code>) were inserted to maintain compliance.</p>
-<p>In v3, the structure is declared explicitly as a contract before any data is written. The contract is a pair (σ, μ) where σ defines the file layout and μ defines the metadata schema. Every sample is validated against the contract on insertion. There is no inference, no padding, and no runtime structural discovery.</p>
-<p>This change has several consequences. The set of Parquet files is known before any data exists, because it is determined entirely by the contract. Parquet files are named by semantic path (<code>sample__before.parquet</code>) instead of depth (<code>level1.parquet</code>), making them self-describing. Variable-count files are handled through variable leaves (<code>prefix*[a,b].ext</code>) instead of padding, eliminating wasted space and artificial samples.</p>
+<p>The main change in v3 is that the dataset structure is explicit.</p>
+<p>In v2, the writer inferred the structure from the first sample. PIT then required later samples to have the same children, in the same positions, with the same types. Missing positions were filled with <code>__TACOPAD__</code> placeholders.</p>
+<p>In v3, the contract declares the file layout and metadata schema before writing begins. Every sample is checked against it. Nothing is inferred and no padding is needed.</p>
+<p>The contract also determines the Parquet files in advance. Their names describe the rows they contain, such as <code>children__before.parquet</code>, instead of using a depth such as <code>level1.parquet</code>. Variable sequences replace padding when the number of files differs between samples.</p>
 
 <h3><span class="sn">9.3.</span> Metadata System</h3>
-<p>v2 implemented a dual metadata system. Consolidated metadata (<code>METADATA/levelX.parquet</code>) supported SQL queries across the entire dataset. Local metadata (<code>__meta__</code> files inside each folder in <code>DATA/</code>) supported hierarchical navigation without loading the full dataset. The reader chose the optimal source based on the query.</p>
-<p>v3 removes local metadata entirely. There are no <code>__meta__</code> files. All metadata lives in the consolidated Parquet files in <code>METADATA/</code>. Hierarchical navigation is handled through SQL JOINs on <code>internal:parent_id</code> via <code>read_taco()</code>, not through filesystem traversal of <code>__meta__</code> files.</p>
-<p>This simplification is possible because the contract makes the set of Parquet files predictable. In v2, local metadata was necessary because the reader could not know the structure in advance; it had to read <code>__meta__</code> files to discover what a folder contained. In v3, the contract declares the structure, so the reader knows what to expect at every level.</p>
+<p>v2 stored metadata twice. Consolidated <code>levelX.parquet</code> files supported queries across the dataset, while local <code>__meta__</code> files supported navigation inside each folder.</p>
+<p>v3 stores all metadata in the Parquet files under <code>METADATA/</code>. Relationships between levels use <code>internal:parent_id</code> and SQL joins. Local <code>__meta__</code> files are no longer needed because the contract already describes every level.</p>
 
 <h3><span class="sn">9.4.</span> Reader Architecture</h3>
-<p>v2 implemented the reader as a Python library (TacoReader) with its own lazy query interface, backend system (ZipBackend, FolderBackend, TacoCatBackend), and hierarchical navigation through <code>read()</code> methods. DuckDB was used internally but hidden behind the TacoDataset and TacoDataFrame classes.</p>
-<p>v3 implements the reader in the native cozip DuckDB extension, written in C++. The extension exposes <code>read_taco()</code> and the contract inspection functions through SQL. Any language with a DuckDB client uses the same implementation; a Python convenience wrapper is also available.</p>
-<p>This change eliminates the need for separate backend implementations per format. The DuckDB extension handles ZIP, FOLDER, and TACOCAT detection and path construction internally.</p>
+<p>v2 used a Python reader with separate backends for ZIP, FOLDER, and TACOCAT. DuckDB was hidden behind TACO-specific dataset and dataframe classes.</p>
+<p>v3 moves reading into the CoZIP DuckDB extension. It exposes <code>read_taco()</code> and inspection functions through SQL, detects the container, and builds paths internally. Every DuckDB client uses the same implementation, with an optional convenience wrapper for Python.</p>
 
 <h3><span class="sn">9.5.</span> Extension System</h3>
-<p>v2 defined a formal extension system with abstract base classes (<code>SampleExtension</code>, <code>TortillaExtension</code>, <code>TacoExtension</code>) and a unified <code>extend_with()</code> interface. Extensions implemented <code>get_schema()</code> and <code>_compute()</code> methods, supporting both computational and schema-only modes.</p>
-<p>v3 replaces extensions with Pydantic BaseModels composed in the contract. Metadata fields are defined as model attributes with types. The STAC model is provided as a built-in that can be composed with user-defined models. There is no separate extension mechanism; all metadata is part of the contract.</p>
-<p>Transforms in v3 serve a similar role to v2 TORTILLA extensions, they are batch functions that compute metadata across all samples. But they are plain functions, not abstract classes.</p>
+<p>v2 extensions combined schema definitions with metadata computation through base classes and <code>extend_with()</code>.</p>
+<p>v3 uses namespaced Pydantic models in the contract. The namespace determines the stored column prefix, and the model defines and validates its fields.</p>
+<p><code>taco</code> includes reusable models such as STAC and Raster. It also provides derived groups such as MajorTOM, which compute metadata by batch from explicit dependencies. Datasets can use the built-in groups, extend their models, or define additional groups.</p>
 
 <h3><span class="sn">9.6.</span> TACOCAT and TACOLLECTION</h3>
-<p>v2 implemented TACOCAT as a binary file with a fixed 128-byte header containing format magic, version, max depth, and a 7-entry index table. TACOLLECTION was a separate JSON file for merging dataset-level metadata across partitions.</p>
-<p>v3 implements TACOCAT as a directory (<code>.tacocat/</code>) containing merged Parquet files and a single COLLECTION.json. The binary header is gone. TACOLLECTION is gone as a separate concept; its functionality is absorbed into the TACOCAT COLLECTION.json through the <code>taco:sources</code> field.</p>
+<p>v2 stored TACOCAT in a binary file with a fixed header. It used a separate TACOLLECTION JSON document for dataset metadata.</p>
+<p>v3 stores TACOCAT as a <code>.tacocat/</code> directory containing merged Parquet files and one <code>COLLECTION.json</code>. The <code>taco:sources</code> field replaces TACOLLECTION.</p>
 
 <h3><span class="sn">9.7.</span> Migration Path</h3>
-<p>There is no automatic migration tool from v2 to v3. The changes to the data model (contract-first vs PIT-inferred, integer indices vs string IDs, semantic Parquet naming vs depth-based naming) are too fundamental for mechanical conversion.</p>
-<p>To migrate a v2 dataset, producers MUST define a v3 contract that captures the structure and metadata schema of the existing dataset, then recreate the dataset using taco. The data files themselves (GeoTIFFs, NetCDFs, etc.) do not need to change; only the packaging and metadata need to be rewritten.</p>
+<p>There is no automatic migration tool. The two versions differ in structure discovery, sample identity, metadata layout, and Parquet naming.</p>
+<p>To migrate, producers MUST define a v3 contract and rebuild the dataset with <code>taco</code>. The GeoTIFF, NetCDF, and other data files can remain unchanged. Only their packaging and metadata must be rewritten.</p>
 
 <h2>Annex B: History</h2>
 
-<p>TACO was born in Valencia, Spain, at the Image and Signal Processing (ISP) group of the Universitat de València. Every Friday, we met at TKOTACO, a one-euro taco restaurant, to talk about series, anime, memes, data, and sometimes new deep learning papers. The regular crew was Julio Contreras, Oscar Pellicer, Simon Donike, Chen Ma (HIT), and me (@csaybar). When David Montero (University of Leipzig) visited, he always joined us.</p>
+<p>TACO began in Valencia, Spain, at the Image and Signal Processing group of the Universitat de València. Early discussions brought together Julio Contreras, Oscar Pellicer, Simon Donike, Chen Ma from HIT, and David Montero from the University of Leipzig.</p>
 
-<p>During one of those Friday meetings, frustrated after spending over a month harmonizing deep learning datasets for cloud detection, we sketched a general solution. We wanted something simple for our problems and ISP datasets. That day, TACOv1 was born, a format with a custom BLOB structure and Parquet metadata. The idea was simple, build the infrastructure around GDAL and the DataFrame concept.</p>
+<p>During that period, after spending more than a month harmonizing cloud detection datasets, we sketched a general solution. We wanted something simple for our own work and the datasets produced at ISP. That idea became TACOv1, which combined a custom binary layout with Parquet metadata and built its tooling around GDAL and dataframes.</p>
 
-<p>The format had many flaws, but the core idea was sound. At ESA Living Planet 2025, several conversations shaped TACOv2. Jérémy Anger (Kayrros/Université Paris-Saclay) suggested we abandon the custom BLOB format and use ZIP instead, which became a turning point. Conversations with Mikolaj Czerkawski (Asterisk) about MajorTOM influenced much of the lazy loading architecture. Nils Lehmann and Adam Stewart (University of Munich, TorchGeo) brought years of experience with deep learning datasets that proved critical for API design. OceanTACO, a collaboration with Nils Lehmann (TUM), stress-tested v2 on ocean remote sensing data and exposed limitations that directly informed v3's contract model. Nate Mankovich (ISP) helped us define PIT (Position-Invariant Tree), which became the structural foundation of v2. Luis Gómez-Chova and Gustau Camps-Valls (ISP) have been discussing what TACO is and should be since day one.</p>
+<p>The first format had many flaws, but its central idea held up. Conversations at ESA Living Planet 2025 shaped TACOv2. Jérémy Anger from Kayrros and Université Paris-Saclay suggested replacing the custom binary format with ZIP. Discussions with Mikolaj Czerkawski at Asterisk about MajorTOM influenced the lazy loading design. Nils Lehmann and Adam Stewart from the University of Munich and TorchGeo brought years of experience with machine learning datasets to the API design.</p>
+<p>OceanTACO, built with Nils Lehmann at TUM, tested v2 on ocean remote sensing data and exposed limitations that later shaped the v3 contract. Nate Mankovich at ISP helped define the Position-Invariant Tree that underpinned v2. Luis Gómez-Chova and Gustau Camps-Valls at ISP have helped question and refine TACO from the beginning.</p>
 
-<p>TACOv2 worked. We published datasets, people used them, and the tools held up for small and medium collections. After that, Asterisk Labs took TACO forward and built dataset after dataset at production scale. Every one taught us something new about where v2 broke.</p>
+<p>TACOv2 worked. We published datasets, people used them, and the tools held up for small and medium collections. Asterisk Labs then used TACO to build datasets at production scale. Each dataset revealed another limit of v2.</p>
 
-<p>TACOv3 is smaller than v2. Fewer concepts, fewer files on disk, fewer abstractions. The contract replaced PIT, extensions, and padding with a single declaration. The DuckDB extension replaced three Python backend classes with one C++ implementation. The <code>__meta__</code> files are gone. The binary TACOCAT header is gone. What remains is what was always the core idea from that Friday in Valencia, organize data and metadata together so that a machine learning researcher can query, filter, and load a dataset without thinking about formats.</p>
-
-<p>This is still TACO, a format born in a one-euro taco restaurant. The code is open source and always will be.</p>
+<p>TACOv3 is smaller than v2. The contract replaces PIT, extensions, and padding. One DuckDB extension replaces three Python reader backends. Local <code>__meta__</code> files and the binary TACOCAT header are gone.</p>
+<p>The original idea remains the same. Data and metadata should live together so that a machine learning researcher can query, filter, and load a dataset without thinking about its packaging.</p>
 
 <div class="logos">
 <img src="assets/isp_logo.png" alt="ISP Logo">
@@ -595,6 +663,8 @@ description = contract("cloudsen12.zip")</code></pre>
 <img src="assets/tum_logo.png" alt="TUM Logo">
 <img src="assets/asterisk_logo.svg" alt="Asterisk Labs Logo">
 </div>
+
+<p>Cesar Aybar</p>
 
 <script>hljs.highlightAll();</script>
 </body>

@@ -6,6 +6,8 @@
 
 PYTHON ?= python
 SITE   := _site
+DUCKDB_VERSION ?= 1.5.5
+COZIP_PYTHON ?= ../cozip/python
 
 # taco.reader forwards to the cozip DuckDB extension. Until it lands on the
 # community registry, point at a local build of the sibling repository.
@@ -15,7 +17,7 @@ export COZIP_EXTENSION
 .PHONY: python deck onepager site clean
 
 python:
-	$(PYTHON) -m pip install -q -e python --no-deps
+	$(PYTHON) -m pip install -q "duckdb==$(DUCKDB_VERSION)" -e $(COZIP_PYTHON) -e python --no-deps
 	$(PYTHON) -m ruff format --check --config python/pyproject.toml python/taco python/tests python/examples
 	$(PYTHON) -m ruff check --config python/pyproject.toml python/taco python/tests python/examples demo.py tools
 	$(PYTHON) -m mypy --config-file python/pyproject.toml python/taco

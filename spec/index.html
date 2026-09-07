@@ -36,6 +36,24 @@ figcaption b{color:var(--fg);font-style:normal}
 .note{margin-top:.8rem;padding:.6rem .8rem;background:var(--accent-bg);border-left:3px solid var(--accent);border-radius:0 4px 4px 0;font-size:14px}
 .logos{display:flex;gap:2rem;margin:1.2rem 0;flex-wrap:wrap;align-items:center}
 .logos img{height:48px;width:auto}
+.dataset-figure{text-align:left}
+.dataset-map{font:12px/1.45 'JetBrains Mono',monospace;border:1px solid var(--border);border-radius:9px;overflow:hidden;background:#fff;color:#172033}
+.dm-head{display:grid;grid-template-columns:minmax(0,1fr) 126px;gap:.8rem;align-items:center;padding:.9rem 1rem .75rem}
+.dm-class{color:#64748b}.dm-title{font-size:14px;font-weight:700;margin-left:.45rem}
+.dm-description{font-family:Inter,sans-serif;color:#64748b;margin-top:.25rem}
+.dm-facts{display:flex;flex-wrap:wrap;gap:.35rem;margin-top:.6rem}
+.dm-fact{border:1px solid var(--border);border-radius:999px;padding:.05rem .4rem;font-size:10px}
+.dm-store{width:120px;justify-self:end}
+.dm-section{border-top:1px solid var(--border)}
+.dm-summary{display:flex;align-items:center;gap:.45rem;padding:.4rem .8rem}
+.dm-arrow{color:#94a3b8}.dm-name{font-weight:700}.dm-count{color:#94a3b8}
+.dm-content{padding:.1rem 1rem .65rem 2.25rem}
+.dm-graph{overflow-x:auto;padding:.2rem 1rem .7rem}
+.dm-graph svg{display:block;margin:auto}.dm-edge{fill:none;stroke:#94a3b8;stroke-width:1.25}
+.dm-node rect{stroke-width:1.1}.dm-root rect{fill:#fac775;stroke:#854f0b}
+.dm-file rect{fill:#fff;stroke:#94a3b8}.dm-label{fill:#172033;font-size:11px;font-weight:700}
+.dm-kind{fill:#64748b;font-size:8px;letter-spacing:.08em}
+.dm-folded{padding-bottom:.05rem}
 @media(max-width:600px){
   body{font-size:14px;padding:1.5rem 1rem 3rem}
   .hdr h1{font-size:1.4rem}
@@ -43,6 +61,8 @@ figcaption b{color:var(--fg);font-style:normal}
   th,td{padding:.3rem .4rem}
   pre{padding:.6rem .7rem;font-size:12px}
   .logos img{height:36px}
+  .dm-head{grid-template-columns:1fr}
+  .dm-store{display:none}
 }
 </style>
 </head>
@@ -302,12 +322,14 @@ figcaption b{color:var(--fg);font-style:normal}
 <tr><td><code>title</code></td><td>string</td><td>MAY</td><td>Human-readable title</td></tr>
 <tr><td><code>curators</code></td><td>list[object]</td><td>MAY</td><td>Dataset curators</td></tr>
 <tr><td><code>keywords</code></td><td>list[string]</td><td>MAY</td><td>Keywords for discovery</td></tr>
-<tr><td><code>extent</code></td><td>object</td><td>MAY</td><td>Spatial and temporal extent</td></tr>
+<tr><td><code>extent</code></td><td>object</td><td>STAC</td><td>Writer-generated spatial and temporal summary</td></tr>
 <tr><td><code>taco:sources</code></td><td>object</td><td>TACOCAT</td><td>Source ZIP partitions</td></tr>
 </table>
 
 <p>A provider MUST have a non-empty <code>name</code>. It MAY have <code>roles</code>, <code>url</code>, and <code>links</code>. A curator MUST have a <code>name</code> or <code>organization</code> and MAY have <code>email</code> and <code>role</code>.</p>
 <p>An extent contains <code>spatial</code> and MAY contain <code>temporal</code>. <code>spatial</code> is <code>[west, south, east, north]</code> in EPSG:4326. A value where west is greater than east crosses the antimeridian. <code>temporal</code> is either null or <code>[start, end]</code> using ISO 8601 timestamps in UTC.</p>
+<p><code>extent</code> is a summary produced by the writer. When a metadata level declares the built-in STAC group, the writer MUST calculate the extent from the rows at the shallowest level containing that group. The spatial interval covers <code>stac:centroid</code>. The temporal interval starts at the earliest <code>stac:time_start</code> and ends at the latest <code>stac:time_end</code>, using <code>stac:time_start</code> when an end is absent. If no row contains STAC metadata, the writer MUST omit <code>extent</code>.</p>
+<p>Each ZIP partition MUST summarize only its own rows. TACOCAT stores each partition extent in <code>taco:sources</code> and uses their union as its collection extent. A FOLDER append MUST summarize both the existing and appended rows.</p>
 
 <h4>Collection metadata</h4>
 <p>Collection metadata is stored directly in <code>COLLECTION.json</code> as qualified fields. It uses the same <code>namespace:field</code> rule as tabular metadata but is not part of <code>taco:metadata</code> and does not create Parquet columns.</p>
@@ -329,7 +351,7 @@ figcaption b{color:var(--fg);font-style:normal}
 <p>The <code>dataset_version</code> in <code>COLLECTION.json</code> MUST follow Semantic Versioning. Versions describe successive releases of the same dataset and therefore keep the same <code>id</code>.</p>
 
 <h3><span class="sn">6.1.</span> Version Levels</h3>
-<p><strong>PATCH</strong> such as <code>1.0.0</code> to <code>1.0.1</code> corrects existing content without changing the contract or adding samples. Examples include fixing metadata values, replacing corrupted files, or updating the description, keywords, or extent.</p>
+<p><strong>PATCH</strong> such as <code>1.0.0</code> to <code>1.0.1</code> corrects existing content without changing the contract or adding samples. Examples include fixing metadata values, replacing corrupted files, or updating the description or keywords. Corrected STAC metadata may also produce a different extent.</p>
 <p><strong>MINOR</strong> such as <code>1.0.0</code> to <code>1.1.0</code> adds samples under the existing contract.</p>
 <p><strong>MAJOR</strong> such as <code>1.0.0</code> to <code>2.0.0</code> changes the contract or the meaning of existing fields. Examples include adding, removing, or renaming files, folders, or metadata fields, changing field types, changing derived metadata configuration, or reorganizing the sample hierarchy.</p>
 
@@ -485,6 +507,10 @@ TimestampUTC = Annotated[datetime, pa.timestamp("us", tz="UTC")]</code></pre>
     )
 )</code></pre>
 <p>A collection group is validated once. It is never copied into every sample row. The writer adds <code>taco:version</code> automatically.</p>
+
+<h4>Collection summaries</h4>
+<p>STAC produces <code>extent</code> from the rows written to a container. Users provide STAC metadata on samples and do not repeat its spatial or temporal coverage in <code>Collection</code>.</p>
+<p>Summaries run independently for every output partition. They consume metadata in batches and retain only the values needed for the summary. They do not keep the complete metadata table in memory.</p>
 
 <h4>Sample metadata</h4>
 <p>Metadata is attached to the object it describes. <code>Sample.metadata</code> describes the sample, <code>Folder.metadata</code> describes a folder, and <code>Asset.metadata</code> describes a file. The writer assigns each object to the correct metadata level.</p>
@@ -657,22 +683,64 @@ SELECT * FROM read_taco('change_detection.zip', files := ['before/B02.tif', 'aft
 <h4>taco_contract(path)</h4>
 <p><code>taco_contract</code> returns the structure, levels, and derived group declarations as <code>kind</code> and <code>value</code> rows. Structure and level values are names. When derived groups exist, one derived row contains the complete <code>taco:derived</code> object as JSON. The extension also provides <code>taco_structure</code>, <code>taco_levels</code>, <code>taco_derived</code>, and <code>taco_collection</code> for direct inspection. <code>taco_sql</code> shows the SQL generated by <code>read_taco</code>.</p>
 
-<h3><span class="sn">8.3.</span> Language clients</h3>
-<p>Any DuckDB client can call the reader directly. The Python package also provides a small wrapper.</p>
+<h3 id="python-dataset"><span class="sn">8.3.</span> Python Dataset</h3>
+<p><code>taco.open()</code> returns a <code>Dataset</code>. The object represents the complete dataset rather than one table. Its <code>collection</code> property contains the collection model, its <code>contract</code> property contains the shared sample contract, and <code>read()</code> materializes a selected view as an Arrow table.</p>
 
-<h4>Python</h4>
 <pre><code>import taco
 
-table = taco.reader.read("cloudsen12.zip")
-table = taco.reader.read("cloudsen12.zip", idx=5)
-table = taco.reader.read("cloudsen12.zip", idx=[0, 100], pivoted=False)
-table = taco.reader.read("cloudsen12.zip", level="sample")
+dataset = taco.open("cloudsen12.zip")
 
-contract = taco.reader.contract("cloudsen12.zip")
-derived = taco.reader.derived("cloudsen12.zip")
-collection = taco.reader.collection("cloudsen12.zip")</code></pre>
+dataset.collection
+dataset.contract
+dataset.read()
+dataset.read(layout="long")
+dataset.read(idx=10)</code></pre>
 
-<p>The wrapper manages a DuckDB connection. <code>read()</code> and <code>contract()</code> return Arrow tables. <code>derived()</code> and <code>collection()</code> return parsed JSON objects. All reading logic remains in the extension.</p>
+<p>The same API accepts every TACO container and a list of compatible partitions.</p>
+<pre><code>parts = taco.open(["cloudsen12_0.zip", "cloudsen12_1.zip"])
+folder = taco.open("cloudsen12/")
+catalog = taco.open("cloudsen12/.tacocat")</code></pre>
+<p>A list is combined by one DuckDB query. Python reads the collection descriptors to verify that every source has the same identity, version, contract, and collection metadata, then DuckDB streams the partition tables through <code>UNION ALL BY NAME</code>. It does not create one Arrow table per source. Partition extents may differ and are merged by <code>Dataset</code>. A TACOCAT is already consolidated and must be opened as one path rather than placed inside a source list.</p>
+<p>Rows from a source list include <code>source_file</code>. As with TACOCAT, the pair <code>(source_file, sample_id)</code> identifies a sample and <code>idx</code> is applied independently to every source.</p>
+
+<figure class="dataset-figure">
+<div class="dataset-map">
+  <div class="dm-head">
+    <div>
+      <div><span class="dm-class">taco.Dataset</span><span class="dm-title">CloudSEN12</span></div>
+      <div class="dm-description">Sentinel-2 image patches and cloud masks</div>
+      <div class="dm-facts"><span class="dm-fact">ZIP</span><span class="dm-fact">3 leaves</span><span class="dm-fact">2 levels</span><span class="dm-fact">8 fields</span></div>
+    </div>
+    <svg class="dm-store" viewBox="0 0 160 125" role="img" aria-label="TACO ZIP storage">
+      <defs><linearGradient id="spec-cylinder" x1="0" x2="1"><stop offset="0" stop-color="#FAEEDA"/><stop offset=".55" stop-color="#FAC775"/><stop offset="1" stop-color="#EF9F27"/></linearGradient></defs>
+      <path d="M25 28v66c0 11 25 20 55 20s55-9 55-20V28" fill="url(#spec-cylinder)" stroke="#854F0B" stroke-width="1.4"/>
+      <ellipse cx="80" cy="28" rx="55" ry="19" fill="#FAEEDA" stroke="#854F0B" stroke-width="1.4"/>
+      <path d="M25 61c0 11 25 20 55 20s55-9 55-20M25 85c0 11 25 20 55 20s55-9 55-20" fill="none" stroke="#854F0B" stroke-width=".7" opacity=".45"/>
+      <text x="80" y="67" text-anchor="middle" fill="#633806" font-size="12" font-weight="700">ZIP</text>
+    </svg>
+  </div>
+  <div class="dm-section">
+    <div class="dm-summary"><span class="dm-arrow">v</span><span class="dm-name">Structure</span><span class="dm-count">3 leaves</span></div>
+    <div class="dm-content dm-graph">
+      <svg viewBox="0 0 360 170" width="360" height="170" role="img" aria-label="Sample structure">
+        <path class="dm-edge" d="M 180 56 V 85 H 52 V 114"/><path class="dm-edge" d="M 180 56 V 85 H 180 V 114"/><path class="dm-edge" d="M 180 56 V 85 H 308 V 114"/>
+        <g class="dm-node dm-root"><rect x="138" y="16" width="84" height="40" rx="7"/><text class="dm-label" x="180" y="33" text-anchor="middle">sample</text><text class="dm-kind" x="180" y="47" text-anchor="middle">root</text></g>
+        <g class="dm-node dm-file"><rect x="8" y="114" width="88" height="40" rx="7"/><text class="dm-label" x="52" y="131" text-anchor="middle">s2_l1c.tif</text><text class="dm-kind" x="52" y="145" text-anchor="middle">file</text></g>
+        <g class="dm-node dm-file"><rect x="136" y="114" width="88" height="40" rx="7"/><text class="dm-label" x="180" y="131" text-anchor="middle">s2_l2a.tif</text><text class="dm-kind" x="180" y="145" text-anchor="middle">file</text></g>
+        <g class="dm-node dm-file"><rect x="264" y="114" width="88" height="40" rx="7"/><text class="dm-label" x="308" y="131" text-anchor="middle">target.tif</text><text class="dm-kind" x="308" y="145" text-anchor="middle">file</text></g>
+      </svg>
+    </div>
+  </div>
+  <div class="dm-section dm-folded"><div class="dm-summary"><span class="dm-arrow">&gt;</span><span class="dm-name">Metadata</span><span class="dm-count">8 fields</span></div></div>
+  <div class="dm-section dm-folded"><div class="dm-summary"><span class="dm-arrow">&gt;</span><span class="dm-name">Collection</span><span class="dm-count">cloudsen12</span></div></div>
+  <div class="dm-section dm-folded"><div class="dm-summary"><span class="dm-arrow">&gt;</span><span class="dm-name">Sources</span><span class="dm-count">1 source</span></div></div>
+</div>
+<figcaption><b>Figure 4.</b> Notebook representation of a Dataset. The contract is visible without reading the sample table.</figcaption>
+</figure>
+
+<p>The default <code>wide</code> layout returns one row per sample with sample metadata and one path column per declared file. The <code>long</code> layout returns one row per file and includes metadata inherited from its sample and folders. Collection metadata remains on <code>dataset.collection</code> and is never repeated in result rows.</p>
+<p><code>Dataset</code> is not a dataframe. It owns dataset semantics and leaves tabular operations to Arrow, DuckDB, Pandas, or Polars. Calling <code>read()</code> returns <code>pyarrow.Table</code>. The low-level <code>taco.reader</code> functions remain available when direct access to the extension is useful.</p>
+<p>Notebook environments use the Dataset HTML representation to show the collection identity, structure, and metadata levels without materializing the sample table.</p>
 
 <h2>Annex A: Migration from v2</h2>
 <p>TACO v3 is not compatible with v2 datasets. Existing datasets MUST be rebuilt to work with v3 tools. This annex summarizes the differences.</p>
@@ -719,7 +787,7 @@ collection = taco.reader.collection("cloudsen12.zip")</code></pre>
 <h3><span class="sn">A.5.</span> Extension System</h3>
 <p>v2 extensions combined schema definitions with metadata computation through base classes and <code>extend_with()</code>.</p>
 <p>v3 uses namespaced Pydantic models. Groups are separated under <code>taco.metadata.sample</code>, <code>taco.metadata.folder</code>, <code>taco.metadata.asset</code>, and <code>taco.metadata.collection</code>. The namespace determines the stored field prefix, and the model defines and validates its values.</p>
-<p><code>taco</code> includes reusable models such as STAC, Raster, Labels, and Optical. It also provides derived sample groups such as MajorTOM, which compute metadata by batch from explicit dependencies. Datasets can use the built-in groups, extend their models, or define additional groups.</p>
+<p><code>taco</code> includes reusable models such as STAC, Raster, Labels, and Optical. It also provides derived sample groups such as MajorTOM, which compute metadata by batch from explicit dependencies. STAC also calculates the extent of each container from its rows. Datasets can use the built-in groups, extend their models, or define additional groups.</p>
 
 <h3><span class="sn">A.6.</span> TACOCAT and TACOLLECTION</h3>
 <p>v2 stored TACOCAT in a binary file with a fixed header. It used a separate TACOLLECTION JSON document for dataset metadata.</p>

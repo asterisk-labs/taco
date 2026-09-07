@@ -78,6 +78,111 @@ def test_reader_wrappers(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
     assert "[1, 4]" in str(connection.calls[0][1])
 
 
+def test_dataset_api(monkeypatch: pytest.MonkeyPatch, collection: taco.Collection, tmp_path: Path) -> None:
+    connection = Connection()
+    monkeypatch.setattr(reader, "connect", lambda: connection)
+    monkeypatch.setattr(reader, "_collections", lambda paths: [collection.to_dict() for _ in paths])
+    path = tmp_path / "data.zip"
+
+    dataset = taco.open(path)
+
+    assert isinstance(dataset, taco.Dataset)
+    assert dataset.path == path.resolve()
+    assert dataset.collection.to_dict() == collection.to_dict()
+    assert dataset.contract == collection.contract
+    assert dataset.read().num_rows == 1
+    assert dataset.read(layout="long", idx=3, level="children", files=["mask.tif"], gdal_vsi=False).num_rows == 1
+    assert "pivoted := ?" in connection.calls[-1][0]
+    assert connection.calls[-1][1] == [str(path.resolve()), "3", "children", False, ["mask.tif"], False]
+    assert repr(dataset).startswith("Dataset(")
+
+
+def test_dataset_multiple_sources(monkeypatch: pytest.MonkeyPatch, collection: taco.Collection, tmp_path: Path) -> None:
+    connection = Connection()
+    monkeypatch.setattr(reader, "connect", lambda: connection)
+    monkeypatch.setattr(reader, "_collections", lambda paths: [collection.to_dict() for _ in paths])
+    paths = [tmp_path / "a.zip", tmp_path / "b.zip"]
+
+    dataset = taco.open(paths)
+    assert dataset.paths == tuple(path.resolve() for path in paths)
+    assert dataset.path == dataset.paths
+    assert "sources=2" in repr(dataset)
+    assert "2 sources" in dataset._repr_html_()
+
+    dataset.read(layout="long", idx=(2, 4))
+
+    query, arguments = connection.calls[-1]
+    assert query.count("read_taco") == 2
+    assert "UNION ALL BY NAME" in query
+    assert arguments == [
+        "a.zip",
+        str(paths[0].resolve()),
+        "[2, 4]",
+        None,
+        False,
+        None,
+        True,
+        "b.zip",
+        str(paths[1].resolve()),
+        "[2, 4]",
+        None,
+        False,
+        None,
+        True,
+    ]
+
+
+def test_dataset_rejects_unknown_layout(monkeypatch: pytest.MonkeyPatch, collection: taco.Collection) -> None:
+    monkeypatch.setattr(reader, "_collections", lambda paths: [collection.to_dict() for _ in paths])
+    dataset = taco.open("https://example.com/data.zip")
+
+    assert dataset.path == "https://example.com/data.zip"
+    with pytest.raises(ValueError, match="must not be empty"):
+        taco.open("")
+    with pytest.raises(ValueError, match="at least one"):
+        taco.open([])
+    with pytest.raises(ValueError, match="unique"):
+        taco.open(["same.zip", "same.zip"])
+    with pytest.raises(ValueError, match="layout"):
+        dataset.read(layout="flat")  # type: ignore[arg-type]
+
+
+def test_dataset_html_escapes_collection_text(monkeypatch: pytest.MonkeyPatch, collection: taco.Collection) -> None:
+    dangerous = collection.replace(title="<dataset>", description="<script>alert(1)</script>")
+    monkeypatch.setattr(reader, "_collections", lambda paths: [dangerous.to_dict() for _ in paths])
+
+    html = taco.open("dataset.zip")._repr_html_()
+
+    assert "<script>" not in html
+    assert "&lt;script&gt;" in html
+    assert "&lt;dataset&gt;" in html
+    assert "taco.Dataset" in html
+    assert "<svg" in html
+    assert "Structure" in html
+    assert "Metadata" in html
+    assert 'class="taco-structure-graph"' in html
+    assert '<g class="taco-graph-node taco-graph-folder">' in html
+    assert '<g class="taco-graph-node taco-graph-variable">' in html
+    assert ">before/<" in html
+    assert "extra*[0,3].png" in html
+    assert 'role="tooltip"' in html
+    assert "Dataset split" in html
+    assert "<span>nullable</span><code>false</code>" in html
+    assert 'tabindex="0"' not in html
+    assert ".taco-field:hover>.taco-field-info" in html
+
+
+def test_dataset_reads_folder(folder_dataset: Path) -> None:
+    dataset = taco.open(folder_dataset)
+
+    assert dataset.collection.id == "tiny-change"
+    html = dataset._repr_html_()
+    assert ">FOLDER<" in html
+    assert 'aria-label="TACO folder storage"' in html
+    assert dataset.read().num_rows == 4
+    assert dataset.read(layout="long").num_rows == 19
+
+
 @pytest.mark.parametrize(
     ("value", "expected"),
     [(None, None), (3, "3"), ((1, 4), "[1, 4]")],

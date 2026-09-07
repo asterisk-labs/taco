@@ -4,6 +4,7 @@ from importlib.metadata import PackageNotFoundError, version
 
 from . import metadata, reader
 from .contract import Asset, Collection, Contract, Folder, Sample
+from .dataset import Dataset, open
 from .errors import TacoError
 from .schema import CollectionMetadata, DerivedMetadata, Level, Metadata, MetadataSchema
 from .tacocat import consolidate
@@ -20,6 +21,7 @@ __all__ = [
     "Collection",
     "CollectionMetadata",
     "Contract",
+    "Dataset",
     "DerivedMetadata",
     "Folder",
     "Level",
@@ -30,6 +32,7 @@ __all__ = [
     "__version__",
     "consolidate",
     "metadata",
+    "open",
     "open_writer",
     "reader",
     "validate",

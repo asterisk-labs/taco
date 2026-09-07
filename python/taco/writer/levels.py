@@ -102,6 +102,7 @@ class LevelTableWriter:
         self._buffers: dict[str, list[dict[str, Any]]] = {level: [] for level in contract.levels}
         self._writers: dict[str, pq.ParquetWriter] = {}
         self._next_id = dict.fromkeys(contract.levels, 0)
+        self._verified: set[str] = set()
         self._summaries = _collection_summaries(contract)
         self.paths = {level: directory / level_to_filename(level) for level in contract.levels}
         directory.mkdir(parents=True, exist_ok=True)
@@ -174,7 +175,10 @@ class LevelTableWriter:
         rows = self._buffers[level]
         if not rows:
             return
-        self.contract.apply_derived(level, rows)
+        # Checking the first batch of each level is enough to catch a derived
+        # group that reads across rows, and costs one extra row of work.
+        self.contract.apply_derived(level, rows, verify=level not in self._verified)
+        self._verified.add(level)
         for summary in self._summaries:
             if summary.level == level:
                 summary.update_rows(rows)

@@ -76,6 +76,34 @@ def _check_derived_descriptors(
             available.update(pending.pop(name)["produces"])
 
 
+def _same_value(left: Any, right: Any) -> bool:
+    if left is None or right is None:
+        return left is right
+    if isinstance(left, float) and isinstance(right, float):
+        return left == right or (left != left and right != right)
+    return bool(left == right)
+
+
+def _check_row_independent(group: Group, inputs: dict[str, list[Any]], produced: dict[str, list[Any]]) -> None:
+    """Recompute the first row alone and compare.
+
+    Derived groups run once per buffered batch, so a computation that looks at
+    the other rows silently produces a different answer for every batch size.
+    Values that aggregate across samples belong in a collection summary, which
+    accumulates until the writer closes.
+    """
+    assert group.derived is not None
+    probe = group.derived.compute({name: values[:1] for name, values in inputs.items()})
+    for name, values in produced.items():
+        alone = list(probe.get(name, ()))
+        if len(alone) != 1 or not _same_value(alone[0], values[0]):
+            raise SampleError(
+                f"derived group {group.namespace!r} depends on the other rows of its batch; "
+                f"it runs once per batch, so a value that aggregates across samples "
+                f"belongs in a collection summary"
+            )
+
+
 @dataclass(frozen=True, init=False, eq=False)
 class Contract:
     structure: tuple[str, ...] | None
@@ -480,7 +508,7 @@ class Contract:
                     raise SampleError(f"invalid {arrow_field.name} at {level!r}: {exc}") from exc
         return result
 
-    def apply_derived(self, level: str, rows: list[dict[str, Any]]) -> None:
+    def apply_derived(self, level: str, rows: list[dict[str, Any]], *, verify: bool = False) -> None:
         if not rows:
             return
         pending = [group for group in self._groups[level] if group.derived is not None]
@@ -511,11 +539,16 @@ class Contract:
                     raise SampleError(
                         f"derived group {group.namespace!r} returned {sorted(output)}, expected {sorted(expected)}"
                     )
+                produced: dict[str, list[Any]] = {}
                 for name, arrow_field in group.fields:
                     values = list(output[name])
                     if len(values) != len(rows):
                         raise SampleError(f"derived field {arrow_field.name!r} returned the wrong number of rows")
-                    for row, value in zip(rows, values, strict=True):
+                    produced[name] = values
+                if verify and len(rows) > 1:
+                    _check_row_independent(group, inputs, produced)
+                for name, arrow_field in group.fields:
+                    for row, value in zip(rows, produced[name], strict=True):
                         row[arrow_field.name] = coerce_value(value, arrow_field.type, nullable=arrow_field.nullable)
                 pending.remove(group)
 

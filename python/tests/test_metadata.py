@@ -255,3 +255,44 @@ def test_custom_derived_group(tmp_path) -> None:
     from taco._view import open_view
 
     assert open_view(tmp_path / "derived").level("sample").column("next:value").to_pylist() == [3]
+
+
+@dataclass(frozen=True)
+class BatchSize(taco.DerivedMetadata):
+    """Reads the whole batch, which is exactly what a derived group may not do."""
+
+    @property
+    def requires(self) -> tuple[str, ...]:
+        return ("base:value",)
+
+    @property
+    def fields(self) -> pa.Schema:
+        return pa.schema([pa.field("size", pa.int64(), nullable=False)])
+
+    def compute(self, columns: Mapping[str, Sequence[object]]) -> Mapping[str, Sequence[object]]:
+        size = len(columns["base:value"])
+        return {"size": [size] * size}
+
+
+def test_derived_group_may_not_read_across_its_batch(tmp_path) -> None:
+    class Base(BaseModel):
+        value: int
+
+    contract = taco.Contract(
+        structure=None,
+        metadata=taco.MetadataSchema(taco.Level("sample", base=Base, batch=BatchSize())),
+    )
+    collection = taco.Collection(
+        contract=contract,
+        id="derived",
+        dataset_version="1.0.0",
+        description="Derived test",
+        licenses=["MIT"],
+        providers=["me"],
+        tasks=["other"],
+    )
+    with taco.open_writer(collection, tmp_path / "batched", batch_size=4) as writer:
+        for value in range(8):
+            writer.add(taco.Sample(assets=b"x", metadata=taco.Metadata(base=Base(value=value))))
+        with pytest.raises(taco.TacoError, match="depends on the other rows"):
+            writer.run()

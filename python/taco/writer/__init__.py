@@ -23,6 +23,7 @@ def open_writer(
     parquet_options: Mapping[str, Any] | None = None,
     partition_size: int | str | None = None,
     partition_by: str | None = None,
+    progress: bool = False,
 ) -> _Writer:
     if collection.sources is not None:
         raise ValueError("taco:sources is reserved for TACOCAT")
@@ -41,6 +42,7 @@ def open_writer(
             parquet_options=parquet_options,
             partition_size=partition_size,
             partition_by=partition_by,
+            progress=progress,
         )
     if path.suffix:
         raise ValueError("output must end in .zip or have no suffix")
@@ -55,6 +57,7 @@ def open_writer(
         row_group_size=row_group_size,
         batch_size=batch_size,
         parquet_options=parquet_options,
+        progress=progress,
     )
 
 

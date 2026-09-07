@@ -68,6 +68,7 @@ class _ArchiveWriter(_Writer):
         parquet_options: Mapping[str, Any] | None = None,
         partition_size: int | str | None = None,
         partition_by: str | None = None,
+        progress: bool = False,
     ) -> None:
         if not isinstance(collection, Collection):
             raise TypeError("collection must be a Collection")
@@ -85,6 +86,7 @@ class _ArchiveWriter(_Writer):
             batch_size=batch_size,
             row_group_size=row_group_size,
             parquet_options=parquet_options,
+            progress=progress,
         )
         self.output = normalized_output
         self.overwrite = overwrite
@@ -105,7 +107,11 @@ class _ArchiveWriter(_Writer):
 
     def _run_single(self) -> _BuildResult:
         self._check_destination(self.output)
-        return self._build_archive(self.output, lambda: ((index, sample) for index, sample, _ in self._records()))
+        return self._build_archive(
+            self.output,
+            lambda: ((index, sample) for index, sample, _ in self._records()),
+            self.sample_count,
+        )
 
     def _partitions(self) -> list[tuple[str, Journal[tuple[_PreparedSample, int]]]]:
         directory = self._stage / "partitions"
@@ -208,7 +214,7 @@ class _ArchiveWriter(_Writer):
                         yield index, sample
 
                 logger.info("building partition %s with %d samples -> %s", label, journal.count, output)
-                results.append(self._build_archive(release / output.name, samples))
+                results.append(self._build_archive(release / output.name, samples, journal.count))
 
             tacocat = consolidate(
                 [item.path for item in results],
@@ -232,15 +238,16 @@ class _ArchiveWriter(_Writer):
         self,
         output: Path,
         samples: Callable[[], Iterator[tuple[int, _PreparedSample]]],
+        sample_count: int,
     ) -> _BuildResult:
         temporary_output: Path | None = None
         with tempfile.TemporaryDirectory(prefix="build-", dir=self._stage) as name:
             stage = Path(name)
             files: list[tuple[str, Path]] = []
-            sample_count = 0
-            for index, sample in samples():
-                files.extend(_data_entries(index, sample))
-                sample_count += 1
+            with self._progress(sample_count, f"planning {output.name}") as progress:
+                for index, sample in samples():
+                    files.extend(_data_entries(index, sample))
+                    progress.update()
             names = _priority_names(self.collection)
             layout = cozip_plan(files, names)
             offsets = layout.offsets
@@ -254,8 +261,10 @@ class _ArchiveWriter(_Writer):
                 batch_size=self.batch_size,
             )
             try:
-                for index, sample in samples():
-                    tables.add_sample(index, sample, offsets.__getitem__)
+                with self._progress(sample_count, f"metadata {output.name}") as progress:
+                    for index, sample in samples():
+                        tables.add_sample(index, sample, offsets.__getitem__)
+                        progress.update()
                 paths = tables.close()
             except BaseException:
                 tables.abort()
@@ -273,7 +282,9 @@ class _ArchiveWriter(_Writer):
             os.close(descriptor)
             temporary_output = Path(temporary_name)
             try:
-                cozip_write(temporary_output, layout, priority_files)
+                with self._progress(1, f"packing {output.name}", "archive") as progress:
+                    cozip_write(temporary_output, layout, priority_files)
+                    progress.update()
                 # mkstemp creates 0600; a published archive follows the umask.
                 umask = os.umask(0)
                 os.umask(umask)
@@ -302,6 +313,7 @@ def _open_archive(
     parquet_options: Mapping[str, Any] | None = None,
     partition_size: int | str | None = None,
     partition_by: str | None = None,
+    progress: bool = False,
 ) -> _ArchiveWriter:
     return _ArchiveWriter(
         collection,
@@ -312,4 +324,5 @@ def _open_archive(
         parquet_options=parquet_options,
         partition_size=partition_size,
         partition_by=partition_by,
+        progress=progress,
     )

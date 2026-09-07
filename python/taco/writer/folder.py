@@ -47,6 +47,7 @@ class _FolderWriter(_Writer):
         row_group_size: int = 65_536,
         batch_size: int = 10_000,
         parquet_options: Mapping[str, Any] | None = None,
+        progress: bool = False,
     ) -> None:
         output = Path(directory).expanduser().resolve()
         if output.suffix.lower() == ".zip":
@@ -58,6 +59,7 @@ class _FolderWriter(_Writer):
             batch_size=batch_size,
             row_group_size=row_group_size,
             parquet_options=parquet_options,
+            progress=progress,
         )
         self.directory = output
         self.append = append
@@ -143,21 +145,23 @@ class _FolderWriter(_Writer):
                 if existing is not None:
                     for level in self.contract.levels:
                         tables.write_existing(level, existing.level(level))
-                for local_index, sample, _ in self._records():
-                    index = start + local_index
-                    sample_dir = data_dir / str(index)
-                    if sample_dir.exists():
-                        raise WriterError(f"{sample_dir} already exists")
-                    created.append(sample_dir)
-                    sample_dir.mkdir()
-                    for asset in sample.assets:
-                        assert isinstance(asset.source, Path)
-                        target = sample_dir if asset.path is None else sample_dir / asset.path
-                        if asset.path is None:
-                            sample_dir.rmdir()
-                        copied_bytes += self._place(asset.source, target)
-                        copied_files += 1
-                    tables.add_sample(index, sample)
+                with self._progress(self.sample_count, f"writing {self.directory.name}") as progress:
+                    for local_index, sample, _ in self._records():
+                        index = start + local_index
+                        sample_dir = data_dir / str(index)
+                        if sample_dir.exists():
+                            raise WriterError(f"{sample_dir} already exists")
+                        created.append(sample_dir)
+                        sample_dir.mkdir()
+                        for asset in sample.assets:
+                            assert isinstance(asset.source, Path)
+                            target = sample_dir if asset.path is None else sample_dir / asset.path
+                            if asset.path is None:
+                                sample_dir.rmdir()
+                            copied_bytes += self._place(asset.source, target)
+                            copied_files += 1
+                        tables.add_sample(index, sample)
+                        progress.update()
                 tables.close()
             except BaseException:
                 tables.abort()
@@ -201,6 +205,7 @@ def _open_folder_writer(
     row_group_size: int = 65_536,
     batch_size: int = 10_000,
     parquet_options: Mapping[str, Any] | None = None,
+    progress: bool = False,
 ) -> _FolderWriter:
     return _FolderWriter(
         collection,
@@ -211,4 +216,5 @@ def _open_folder_writer(
         row_group_size=row_group_size,
         batch_size=batch_size,
         parquet_options=parquet_options,
+        progress=progress,
     )

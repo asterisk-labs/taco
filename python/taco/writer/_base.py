@@ -12,6 +12,7 @@ from typing import Any
 from ..contract.collection import Collection
 from ..contract.sample import Sample, _PreparedAsset, _PreparedSample
 from ..errors import SampleError, WriterError
+from ._progress import Progress
 from .journal import Journal
 
 
@@ -43,6 +44,7 @@ class _Writer:
         batch_size: int = 10_000,
         row_group_size: int = 65_536,
         parquet_options: Mapping[str, Any] | None = None,
+        progress: bool = False,
     ) -> None:
         if not isinstance(collection, Collection):
             raise TypeError("collection must be a Collection")
@@ -54,6 +56,7 @@ class _Writer:
         self.row_group_size = row_group_size
         self.batch_size = batch_size
         self.parquet_options = dict(parquet_options or {})
+        self.progress = progress
         self.state = _WriterState.OPEN
         self._result: _BuildResult | None = None
 
@@ -130,6 +133,9 @@ class _Writer:
 
     def _build(self) -> _BuildResult:
         raise NotImplementedError
+
+    def _progress(self, total: int, description: str, unit: str = "sample") -> Progress:
+        return Progress(self.progress, total, description, unit)
 
     def _collection_json(self, summaries: Mapping[str, Any]) -> str:
         data = self.collection.to_dict()

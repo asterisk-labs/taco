@@ -4,6 +4,14 @@
 spec/main.md
 
 demo.zip
+minimal.zip
+/numpy-demo.zip
+/change-detection/
+/image-sequence.zip
+/time-series.zip
+/geospatial.zip
+/partitioned_*.zip
+/.tacocat/
 .vscode/
 
 .pytest_cache/

@@ -38,6 +38,6 @@ class Progress:
         if self._bar is not None:
             self._bar.close()
 
-    def update(self) -> None:
+    def update(self, value: int = 1) -> None:
         if self._bar is not None:
-            self._bar.update()
+            self._bar.update(value)

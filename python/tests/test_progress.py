@@ -22,26 +22,22 @@ class _Bar:
 
 
 @pytest.mark.parametrize(
-    ("name", "options", "samples", "descriptions"),
+    ("name", "options", "samples", "descriptions", "updates"),
     [
-        ("data.zip", {}, 1, ["planning data.zip", "metadata data.zip", "packing data.zip"]),
-        ("data", {}, 1, ["writing data"]),
+        ("data.zip", {}, 1, ["planning data.zip", "metadata data.zip", "packing data.zip"], [1, 1, 1]),
+        ("data", {}, 1, ["writing data"], [1]),
         (
             "parts.zip",
-            {"partition_size": 1},
+            {"partition_size": 1, "workers": 2},
             2,
-            [
-                "planning parts_part0001.zip",
-                "metadata parts_part0001.zip",
-                "packing parts_part0001.zip",
-                "planning parts_part0002.zip",
-                "metadata parts_part0002.zip",
-                "packing parts_part0002.zip",
-            ],
+            ["building parts.zip"],
+            [2],
         ),
     ],
 )
-def test_writer_progress(name, options, samples, descriptions, tmp_path, collection, make_sample, monkeypatch) -> None:
+def test_writer_progress(
+    name, options, samples, descriptions, updates, tmp_path, collection, make_sample, monkeypatch
+) -> None:
     bars: list[_Bar] = []
 
     def tqdm(**options: object) -> _Bar:
@@ -55,7 +51,7 @@ def test_writer_progress(name, options, samples, descriptions, tmp_path, collect
         writer.run()
 
     assert [bar.options["desc"] for bar in bars] == descriptions
-    assert [bar.updates for bar in bars] == [1] * len(bars)
+    assert [bar.updates for bar in bars] == updates
     assert all(bar.closed for bar in bars)
 
 

@@ -134,8 +134,8 @@ class _Writer:
     def _build(self) -> _BuildResult:
         raise NotImplementedError
 
-    def _progress(self, total: int, description: str, unit: str = "sample") -> Progress:
-        return Progress(self.progress, total, description, unit)
+    def _progress(self, total: int, description: str, unit: str = "sample", *, enabled: bool = True) -> Progress:
+        return Progress(self.progress and enabled, total, description, unit)
 
     def _collection_json(self, summaries: Mapping[str, Any]) -> str:
         data = self.collection.to_dict()

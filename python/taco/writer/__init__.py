@@ -24,6 +24,7 @@ def open_writer(
     partition_size: int | str | None = None,
     partition_by: str | None = None,
     progress: bool = False,
+    workers: int = 1,
 ) -> _Writer:
     if collection.sources is not None:
         raise ValueError("taco:sources is reserved for TACOCAT")
@@ -43,11 +44,14 @@ def open_writer(
             partition_size=partition_size,
             partition_by=partition_by,
             progress=progress,
+            workers=workers,
         )
     if path.suffix:
         raise ValueError("output must end in .zip or have no suffix")
     if partition_size is not None or partition_by is not None:
         raise ValueError("partitioning is only valid for ZIP datasets")
+    if workers != 1:
+        raise ValueError("workers is only valid for partitioned ZIP datasets")
     return _open_folder_writer(
         collection,
         path,

@@ -6,6 +6,7 @@ import struct
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
+from threading import Barrier
 
 import pyarrow.parquet as pq
 import pytest
@@ -323,6 +324,25 @@ def test_partition_by_size(tmp_path: Path, collection: taco.Collection, make_sam
     assert open_view(result.path).sample_count == 3
 
 
+def test_partition_workers(tmp_path: Path, collection: taco.Collection, make_sample, monkeypatch) -> None:
+    import taco.writer.archive as archive_module
+
+    barrier = Barrier(2)
+    write = archive_module.cozip_write
+
+    def write_together(*args, **kwargs) -> None:
+        barrier.wait(timeout=5)
+        write(*args, **kwargs)
+
+    monkeypatch.setattr(archive_module, "cozip_write", write_together)
+    with taco.open_writer(collection, tmp_path / "parts.zip", partition_size=1, workers=2) as writer:
+        writer.extend(make_sample(index) for index in range(2))
+        result = writer.run()
+
+    assert len(result.parts) == 2
+    assert taco.validate(result.path).ok
+
+
 def test_partition_options_are_checked(tmp_path: Path, collection: taco.Collection) -> None:
     with pytest.raises(ValueError, match="either"):
         taco.open_writer(collection, tmp_path / "a.zip", partition_size=1, partition_by="ml:split")
@@ -330,6 +350,12 @@ def test_partition_options_are_checked(tmp_path: Path, collection: taco.Collecti
         taco.open_writer(collection, tmp_path / "a.zip", partition_by="missing:value")
     with pytest.raises(ValueError, match="only valid for ZIP"):
         taco.open_writer(collection, tmp_path / "folder", partition_size=1)
+    with pytest.raises(ValueError, match="positive integer"):
+        taco.open_writer(collection, tmp_path / "a.zip", partition_size=1, workers=0)
+    with pytest.raises(ValueError, match="partitioned ZIP"):
+        taco.open_writer(collection, tmp_path / "a.zip", workers=2)
+    with pytest.raises(ValueError, match="partitioned ZIP"):
+        taco.open_writer(collection, tmp_path / "folder", workers=2)
 
 
 def test_overwrite_zip(tmp_path: Path, collection: taco.Collection, make_sample) -> None:

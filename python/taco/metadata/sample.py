@@ -15,7 +15,7 @@ import pyarrow as pa
 from pydantic import Field, model_validator
 
 from ..contract.collection import Extent
-from ._base import CollectionSummary, DerivedMetadata, ScopedModel
+from ._base import CollectionSummary, DerivedMetadata, SampleModel
 
 TimestampUTC = Annotated[datetime, pa.timestamp("us", tz="UTC")]
 
@@ -115,8 +115,7 @@ class _STACExtent(CollectionSummary):
         self._longitudes.close()
 
 
-class STAC(ScopedModel):
-    __taco_scopes__: ClassVar[frozenset[str]] = frozenset({"sample"})
+class STAC(SampleModel):
     __taco_summaries__ = (_STACExtent,)
 
     crs: str = Field(description="Coordinate reference system")
@@ -136,9 +135,7 @@ class ISTAC(STAC):
     pass
 
 
-class Split(ScopedModel):
-    __taco_scopes__: ClassVar[frozenset[str]] = frozenset({"sample"})
-
+class Split(SampleModel):
     split: Literal["train", "test", "validation"] = Field(description="Dataset split")
 
 

@@ -37,10 +37,6 @@ class SampleModel(ScopedModel):
     __taco_scopes__ = frozenset({"sample"})
 
 
-class FolderModel(ScopedModel):
-    __taco_scopes__ = frozenset({"folder"})
-
-
 class AssetModel(ScopedModel):
     __taco_scopes__ = frozenset({"asset"})
 

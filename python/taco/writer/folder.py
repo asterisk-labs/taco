@@ -164,7 +164,7 @@ class _FolderWriter(_Writer):
                 raise
 
             temp_collection = transaction / COLLECTION_FILENAME
-            temp_collection.write_text(self.collection.to_json(), encoding="utf-8")
+            temp_collection.write_text(self._collection_json(tables.summaries), encoding="utf-8")
             publish_many(
                 [
                     (temp_metadata, directory / METADATA_DIR),

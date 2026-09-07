@@ -125,6 +125,12 @@ def test_antimeridian_extent_union() -> None:
     assert merged.crosses_antimeridian
 
 
+def test_point_extent_union() -> None:
+    extent = Extent((-63.42020466006154, -12, -63.42020466006154, -12))
+
+    assert Extent.union([extent]) == extent
+
+
 def test_bad_provider_and_curator_fields() -> None:
     with pytest.raises(CollectionError, match="url"):
         Provider("x", url="example.com")

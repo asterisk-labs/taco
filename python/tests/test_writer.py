@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import io
 import json
+import struct
 import zipfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pyarrow.parquet as pq
@@ -12,6 +14,10 @@ from pydantic import BaseModel
 import taco
 from taco._view import open_view
 from taco.errors import SampleError, WriterError
+
+
+def point(x: float, y: float) -> bytes:
+    return struct.pack("<BIdd", 1, 1, x, y)
 
 
 def test_zip_end_to_end(tmp_path: Path, collection: taco.Collection, make_sample) -> None:
@@ -29,6 +35,10 @@ def test_zip_end_to_end(tmp_path: Path, collection: taco.Collection, make_sample
     dataset = open_view(output)
     assert dataset.levels == ("sample", "children", "children/before", "children/after")
     assert dataset.sample_count == 3
+    assert dataset.collection.extent == taco.contract.Extent(
+        (-76, -12, -74, -11.8),
+        ("2024-01-01T00:00:00Z", "2024-01-03T00:00:00Z"),
+    )
     assert dataset.level("sample").column("majortom:code").null_count == 0
     assert dataset.level("children").num_rows == 3 * 3 + 3
 
@@ -65,6 +75,10 @@ def test_folder_end_to_end(folder_dataset: Path) -> None:
     assert dataset.sample_count == 4
     assert "internal:offset" not in dataset.level("children").column_names
     assert (folder_dataset / "DATA/0/before/B02.tif").is_file()
+    assert dataset.collection.extent == taco.contract.Extent(
+        (-76, -12, -73, -11.7),
+        ("2024-01-01T00:00:00Z", "2024-01-04T00:00:00Z"),
+    )
     assert taco.validate(folder_dataset).ok
 
 
@@ -80,6 +94,10 @@ def test_folder_append(tmp_path: Path, collection: taco.Collection, make_sample)
     dataset = open_view(output)
     assert dataset.sample_count == 3
     assert dataset.collection.dataset_version == "1.1.0"
+    assert dataset.collection.extent == taco.contract.Extent(
+        (-76, -12, -74, -11.8),
+        ("2024-01-01T00:00:00Z", "2024-01-03T00:00:00Z"),
+    )
     assert taco.validate(output).ok
 
 
@@ -176,6 +194,73 @@ def test_single_file_dataset(tmp_path: Path) -> None:
     assert zipfile.ZipFile(output).read("DATA/0") == b"one"
 
 
+def test_stac_generates_extent(tmp_path: Path) -> None:
+    contract = taco.Contract(
+        structure=None,
+        metadata=taco.MetadataSchema(taco.Level("sample", stac=taco.metadata.sample.STAC)),
+    )
+    collection = taco.Collection(
+        contract=contract,
+        id="spatiotemporal",
+        dataset_version="1.0.0",
+        description="Spatiotemporal samples",
+        licenses=["MIT"],
+        providers=["me"],
+        tasks=["other"],
+        extent={"spatial": [0, 0, 0, 0]},
+    )
+    records = [
+        (94, -10, datetime(2024, 1, 2, tzinfo=timezone.utc), datetime(2024, 1, 5, tzinfo=timezone.utc)),
+        (-178, 20, datetime(2024, 1, 1, tzinfo=timezone.utc), None),
+        (-3, 5, datetime(2024, 1, 3, tzinfo=timezone.utc), None),
+    ]
+    with taco.open_writer(collection, tmp_path / "data.zip", batch_size=1) as writer:
+        for lon, lat, start, end in records:
+            location = point(lon, lat)
+            writer.add(
+                taco.Sample(
+                    assets=b"x",
+                    metadata=taco.Metadata(
+                        stac=taco.metadata.sample.STAC(
+                            crs="EPSG:4326",
+                            geometry=location,
+                            centroid=location,
+                            time_start=start,
+                            time_end=end,
+                        )
+                    ),
+                )
+            )
+        writer.run()
+
+    assert open_view(tmp_path / "data.zip").collection.extent == taco.contract.Extent(
+        (-3, -10, -178, 20),
+        ("2024-01-01T00:00:00Z", "2024-01-05T00:00:00Z"),
+    )
+
+
+def test_empty_stac_summary_removes_extent(tmp_path: Path) -> None:
+    contract = taco.Contract(
+        structure=None,
+        metadata=taco.MetadataSchema(taco.Level("sample", stac=taco.metadata.sample.STAC | None)),
+    )
+    collection = taco.Collection(
+        contract=contract,
+        id="without-location",
+        dataset_version="1.0.0",
+        description="Sample without location",
+        licenses=["MIT"],
+        providers=["me"],
+        tasks=["other"],
+        extent={"spatial": [0, 0, 0, 0]},
+    )
+    with taco.open_writer(collection, tmp_path / "data.zip") as writer:
+        writer.add(taco.Sample(assets=b"x"))
+        writer.run()
+
+    assert open_view(tmp_path / "data.zip").collection.extent is None
+
+
 def test_optional_only_structure_can_have_no_data(tmp_path: Path) -> None:
     collection = taco.Collection(
         contract=taco.Contract(structure=["image*[0,2].tif"]),
@@ -201,6 +286,21 @@ def test_partition_by_sample_metadata(tmp_path: Path, collection: taco.Collectio
         result = writer.run()
     assert result.path == (tmp_path / ".tacocat").resolve()
     assert {path.name for path in result.parts} == {"parts_train.zip", "parts_val.zip"}
+    extents = {path.name: open_view(path).collection.extent for path in result.parts}
+    assert extents == {
+        "parts_train.zip": taco.contract.Extent(
+            (-76, -12, -74, -11.8),
+            ("2024-01-01T00:00:00Z", "2024-01-03T00:00:00Z"),
+        ),
+        "parts_val.zip": taco.contract.Extent(
+            (-75, -11.9, -73, -11.7),
+            ("2024-01-02T00:00:00Z", "2024-01-04T00:00:00Z"),
+        ),
+    }
+    assert open_view(result.path).collection.extent == taco.contract.Extent(
+        (-76, -12, -73, -11.7),
+        ("2024-01-01T00:00:00Z", "2024-01-04T00:00:00Z"),
+    )
     assert taco.validate(result.path).ok
 
 

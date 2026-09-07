@@ -249,6 +249,8 @@ class Extent:
         else:
             start = gap_end % 360
             end = gap_start % 360
+            if math.isclose(start, end, abs_tol=1e-12):
+                start = end
             west = start - 180
             east = 180.0 if end == 0 and start > 0 else end - 180
         temporal_values = [item.temporal for item in extents if item.temporal is not None]

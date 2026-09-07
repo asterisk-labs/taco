@@ -9,10 +9,28 @@ import pyarrow as pa
 from pydantic import BaseModel, ConfigDict
 
 
+class CollectionSummary(ABC):
+    field: ClassVar[str]
+    requires: ClassVar[tuple[str, ...]]
+
+    @abstractmethod
+    def update(self, columns: Mapping[str, Sequence[Any]]) -> None:
+        raise NotImplementedError
+
+    @abstractmethod
+    def finish(self) -> Any:
+        raise NotImplementedError
+
+    @abstractmethod
+    def close(self) -> None:
+        raise NotImplementedError
+
+
 class ScopedModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     __taco_scopes__: ClassVar[frozenset[str]] = frozenset()
+    __taco_summaries__: ClassVar[tuple[type[CollectionSummary], ...]] = ()
 
 
 class SampleModel(ScopedModel):

@@ -13,7 +13,7 @@ from pydantic import BaseModel
 
 from .contract.naming import validate_field_name
 from .errors import ContractError, SampleError
-from .metadata._base import DerivedMetadata
+from .metadata._base import CollectionSummary, DerivedMetadata
 
 _NAMESPACE = re.compile(r"^[a-z][a-z0-9_]*$")
 _RESERVED_NAMESPACES = frozenset({"cozip", "internal", "taco"})
@@ -36,6 +36,7 @@ class Group:
     optional: bool
     fields: tuple[tuple[str, pa.Field], ...]
     derived: DerivedMetadata | None = None
+    summaries: tuple[type[CollectionSummary], ...] = ()
 
 
 def _optional(annotation: Any) -> tuple[Any, bool]:
@@ -129,11 +130,30 @@ def _model_fields(namespace: str, model: type[BaseModel], optional: bool) -> tup
     return tuple(result)
 
 
+def _summary_types(
+    model: type[BaseModel], fields: tuple[tuple[str, pa.Field], ...]
+) -> tuple[type[CollectionSummary], ...]:
+    summaries = getattr(model, "__taco_summaries__", ())
+    if not isinstance(summaries, tuple):
+        raise ContractError(f"{model.__name__} summaries must be a tuple")
+    names = {name for name, _ in fields}
+    for summary in summaries:
+        if not isinstance(summary, type) or not issubclass(summary, CollectionSummary):
+            raise ContractError(f"{model.__name__} has an invalid collection summary")
+        if not isinstance(summary.field, str) or not summary.field:
+            raise ContractError(f"{summary.__name__}.field must be a non-empty string")
+        missing = sorted(set(summary.requires) - names)
+        if missing:
+            raise ContractError(f"{summary.__name__} requires fields missing from {model.__name__}: {missing}")
+    return summaries
+
+
 def _model_binding(namespace: str, value: Any) -> Group:
     annotation, optional = _optional(value)
     if not isinstance(annotation, type) or not issubclass(annotation, BaseModel):
         raise ContractError(f"metadata group {namespace!r} must be a Pydantic model, Model | None, or derived group")
-    return Group(namespace, annotation, optional, _model_fields(namespace, annotation, optional))
+    fields = _model_fields(namespace, annotation, optional)
+    return Group(namespace, annotation, optional, fields, summaries=_summary_types(annotation, fields))
 
 
 def _derived_binding(namespace: str, value: DerivedMetadata) -> Group:

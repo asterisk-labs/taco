@@ -262,7 +262,7 @@ class _ArchiveWriter(_Writer):
                 raise
 
             collection_path = stage / COLLECTION_FILENAME
-            collection_path.write_text(self.collection.to_json(), encoding="utf-8")
+            collection_path.write_text(self._collection_json(tables.summaries), encoding="utf-8")
             priority_files = [(COLLECTION_FILENAME, collection_path)]
             priority_files += [
                 (f"{METADATA_DIR}/{level_to_filename(level)}", paths[level]) for level in self.contract.levels

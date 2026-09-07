@@ -2,23 +2,122 @@ from __future__ import annotations
 
 import math
 import struct
+import tempfile
+from array import array
 from collections.abc import Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from functools import lru_cache
 from typing import Annotated, Any, ClassVar, Literal
 
 import pyarrow as pa
 from pydantic import Field, model_validator
 
-from ._base import DerivedMetadata, ScopedModel
+from ..contract.collection import Extent
+from ._base import CollectionSummary, DerivedMetadata, ScopedModel
 
 TimestampUTC = Annotated[datetime, pa.timestamp("us", tz="UTC")]
 
 
+def _point(wkb: bytes) -> tuple[float, float]:
+    if len(wkb) < 21 or wkb[0] not in (0, 1):
+        raise ValueError("stac:centroid must be a WKB point")
+    order = "<" if wkb[0] == 1 else ">"
+    geometry_type = struct.unpack_from(order + "I", wkb, 1)[0]
+    offset = 5
+    if geometry_type & 0x20000000:
+        offset += 4
+    if geometry_type & 0xFF not in (1,):
+        raise ValueError("stac:centroid must be a WKB point")
+    if len(wkb) < offset + 16:
+        raise ValueError("stac:centroid contains incomplete WKB")
+    lon, lat = struct.unpack_from(order + "dd", wkb, offset)
+    if not math.isfinite(lon) or not math.isfinite(lat) or not (-180 <= lon <= 180) or not (-90 <= lat <= 90):
+        raise ValueError("stac:centroid is outside EPSG:4326 bounds")
+    return lon, lat
+
+
+def _utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def _iso(value: datetime) -> str:
+    return _utc(value).isoformat().replace("+00:00", "Z")
+
+
+class _STACExtent(CollectionSummary):
+    field = "extent"
+    requires = ("centroid", "time_start", "time_end")
+
+    def __init__(self) -> None:
+        self._longitudes = tempfile.TemporaryFile()  # noqa: SIM115
+        self._longitude_count = 0
+        self._south = 90.0
+        self._north = -90.0
+        self._start: datetime | None = None
+        self._end: datetime | None = None
+        self._result: dict[str, Any] | None = None
+        self._finished = False
+
+    def update(self, columns: Mapping[str, Sequence[Any]]) -> None:
+        longitudes = array("d")
+        for value in columns["centroid"]:
+            if value is None:
+                continue
+            lon, lat = _point(value)
+            longitudes.append(-180 if lon == 180 else lon)
+            self._south = min(self._south, lat)
+            self._north = max(self._north, lat)
+        longitudes.tofile(self._longitudes)
+        self._longitude_count += len(longitudes)
+
+        for start, end in zip(columns["time_start"], columns["time_end"], strict=True):
+            if start is None:
+                continue
+            start = _utc(start)
+            end = start if end is None else _utc(end)
+            self._start = start if self._start is None else min(self._start, start)
+            self._end = end if self._end is None else max(self._end, end)
+
+    def finish(self) -> dict[str, Any] | None:
+        if self._finished:
+            return self._result
+        self._finished = True
+        if not self._longitude_count:
+            self.close()
+            return None
+        import numpy as np
+
+        self._longitudes.flush()
+        longitudes = np.memmap(self._longitudes, dtype=np.float64, mode="r+", shape=(self._longitude_count,))
+        longitudes.sort()
+        largest = float(longitudes[0] + 360 - longitudes[-1])
+        gap = self._longitude_count - 1
+        for start in range(0, self._longitude_count - 1, 1_000_000):
+            values = longitudes[start : min(self._longitude_count, start + 1_000_001)]
+            differences = np.diff(values)
+            index = int(np.argmax(differences))
+            if differences[index] > largest:
+                largest = float(differences[index])
+                gap = start + index
+        west = float(longitudes[(gap + 1) % self._longitude_count])
+        east = float(longitudes[gap])
+        temporal = None if self._start is None or self._end is None else (_iso(self._start), _iso(self._end))
+        self._result = Extent((west, self._south, east, self._north), temporal).to_dict()
+        del longitudes
+        self.close()
+        return self._result
+
+    def close(self) -> None:
+        self._longitudes.close()
+
+
 class STAC(ScopedModel):
     __taco_scopes__: ClassVar[frozenset[str]] = frozenset({"sample"})
+    __taco_summaries__ = (_STACExtent,)
 
     crs: str = Field(description="Coordinate reference system")
     geometry: bytes = Field(description="Spatial footprint as WKB")
@@ -41,24 +140,6 @@ class Split(ScopedModel):
     __taco_scopes__: ClassVar[frozenset[str]] = frozenset({"sample"})
 
     split: Literal["train", "test", "validation"] = Field(description="Dataset split")
-
-
-def _point(wkb: bytes) -> tuple[float, float]:
-    if len(wkb) < 21 or wkb[0] not in (0, 1):
-        raise ValueError("stac:centroid must be a WKB point")
-    order = "<" if wkb[0] == 1 else ">"
-    geometry_type = struct.unpack_from(order + "I", wkb, 1)[0]
-    offset = 5
-    if geometry_type & 0x20000000:
-        offset += 4
-    if geometry_type & 0xFF not in (1,):
-        raise ValueError("stac:centroid must be a WKB point")
-    if len(wkb) < offset + 16:
-        raise ValueError("stac:centroid contains incomplete WKB")
-    lon, lat = struct.unpack_from(order + "dd", wkb, offset)
-    if not math.isfinite(lon) or not math.isfinite(lat) or not (-180 <= lon <= 180) or not (-90 <= lat <= 90):
-        raise ValueError("stac:centroid is outside EPSG:4326 bounds")
-    return lon, lat
 
 
 @lru_cache(maxsize=32)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +24,36 @@ from ..contract.naming import (
     level_to_filename,
 )
 from ..contract.sample import _PreparedSample
+from ..metadata._base import CollectionSummary
+
+
+@dataclass
+class _BoundSummary:
+    field: str
+    level: str
+    namespace: str
+    reducer: CollectionSummary
+
+    def update_rows(self, rows: list[dict[str, Any]]) -> None:
+        columns = {name: [row.get(f"{self.namespace}:{name}") for row in rows] for name in self.reducer.requires}
+        self.reducer.update(columns)
+
+    def update_table(self, table: pa.Table) -> None:
+        columns = {name: table.column(f"{self.namespace}:{name}").to_pylist() for name in self.reducer.requires}
+        self.reducer.update(columns)
+
+
+def _collection_summaries(contract: Contract) -> list[_BoundSummary]:
+    result = []
+    produced = set()
+    for level in contract.levels:
+        for group in contract._groups[level]:
+            for summary in group.summaries:
+                if summary.field in produced:
+                    continue
+                result.append(_BoundSummary(summary.field, level, group.namespace, summary()))
+                produced.add(summary.field)
+    return result
 
 
 def internal_columns(contract: Contract, level: str, *, with_offsets: bool) -> list[str]:
@@ -71,6 +102,7 @@ class LevelTableWriter:
         self._buffers: dict[str, list[dict[str, Any]]] = {level: [] for level in contract.levels}
         self._writers: dict[str, pq.ParquetWriter] = {}
         self._next_id = dict.fromkeys(contract.levels, 0)
+        self._summaries = _collection_summaries(contract)
         self.paths = {level: directory / level_to_filename(level) for level in contract.levels}
         directory.mkdir(parents=True, exist_ok=True)
 
@@ -78,6 +110,9 @@ class LevelTableWriter:
         if self._next_id[level] or self._buffers[level]:
             raise RuntimeError("existing rows must be written first")
         table = table.select(self._schemas[level].names).cast(self._schemas[level])
+        for summary in self._summaries:
+            if summary.level == level:
+                summary.update_table(table)
         if table.num_rows:
             self._writer(level).write_table(table, row_group_size=self.row_group_size)
         self._next_id[level] = table.num_rows
@@ -140,6 +175,9 @@ class LevelTableWriter:
         if not rows:
             return
         self.contract.apply_derived(level, rows)
+        for summary in self._summaries:
+            if summary.level == level:
+                summary.update_rows(rows)
         table = pa.Table.from_pylist(rows, schema=self._schemas[level])
         self._writer(level).write_table(table, row_group_size=self.row_group_size)
         self._buffers[level] = []
@@ -155,11 +193,17 @@ class LevelTableWriter:
         self._writers = {}
         return dict(self.paths)
 
+    @property
+    def summaries(self) -> dict[str, Any]:
+        return {summary.field: summary.reducer.finish() for summary in self._summaries}
+
     def abort(self) -> None:
         for writer in self._writers.values():
             with contextlib.suppress(Exception):
                 writer.close()
         self._writers = {}
+        for summary in self._summaries:
+            summary.reducer.close()
 
 
 __all__ = ["LevelTableWriter", "internal_columns", "level_schema"]

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
@@ -129,6 +130,16 @@ class _Writer:
 
     def _build(self) -> _BuildResult:
         raise NotImplementedError
+
+    def _collection_json(self, summaries: Mapping[str, Any]) -> str:
+        data = self.collection.to_dict()
+        data.pop("extent", None)
+        for name, value in summaries.items():
+            if value is None:
+                data.pop(name, None)
+            else:
+                data[name] = value
+        return json.dumps(data, ensure_ascii=False, indent=2, allow_nan=False) + "\n"
 
     def _materialize(self, sample_id: int, sample: _PreparedSample) -> _PreparedSample:
         if not any(asset.is_inline for asset in sample.assets):

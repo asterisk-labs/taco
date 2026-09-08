@@ -7,6 +7,6 @@ remotes::install_github("asterisk-labs/taco", subdir = "r")
 ```
 
 ```r
-samples <- taco::read("dataset.zip")
-parts <- taco::read(c("part-0.zip", "part-1.zip"))
+dataset <- taco::open_dataset("dataset.zip")
+samples <- taco::read(dataset)
 ```

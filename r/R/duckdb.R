@@ -15,15 +15,6 @@
 }
 
 
-.single_source <- function(source) {
-  .check_source(source)
-  if (length(source) != 1L) {
-    .taco_stop("this operation needs a single source")
-  }
-  source
-}
-
-
 .reader <- new.env(parent = emptyenv())
 .reader$con <- NULL
 

@@ -58,8 +58,8 @@ with taco.open_writer(collection, "time-series.zip", overwrite=True) as writer:
         writer.add(taco.Sample(assets=assets, metadata=taco.Metadata(site=Site(name=f"site-{site_index}"))))
     writer.run()
 
-dataset = taco.open("time-series.zip")
-table = dataset.read()
+dataset = taco.open_dataset("time-series.zip")
+table = taco.read(dataset)
 assert [len(images) for images in table.column("image").to_pylist()] == [3, 5]
-assert dataset.read(layout="long").num_rows == 8
+assert taco.read(dataset, layout="long").num_rows == 8
 assert taco.validate("time-series.zip").ok

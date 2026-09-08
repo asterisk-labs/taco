@@ -32,6 +32,18 @@ describe("read a TACO dataset", {
     expect_identical(result[["ml:split"]], c("train", "train", "test"))
   })
 
+  it("reads an open dataset", {
+    dataset <- taco::open_dataset(taco_fixture())
+    expect_s3_class(dataset, "taco_dataset")
+    expect_identical(dataset$sources, taco_fixture())
+    expect_identical(dataset$collection$id, "taco-fixture")
+    expect_identical(dataset$contract$structure, c("image.bin", "mask.bin"))
+    expect_identical(dataset$contract$levels, c("sample", "children"))
+    expect_identical(dataset$contract$derived, list())
+    expect_identical(nrow(taco::read(dataset)), 3L)
+    expect_match(capture.output(print(dataset)), "taco.Dataset")
+  })
+
   it("returns one row per file", {
     result <- taco::read(taco_fixture(), layout = "long")
     expect_identical(nrow(result), 6L)
@@ -98,41 +110,33 @@ describe("read a TACO dataset", {
     document <- sub('"mask.bin"', '"other.bin"', document, fixed = TRUE)
     writeLines(document, collection_path, useBytes = TRUE)
 
-    expect_error(taco::read(c(taco_fixture(), folder)), "same contract")
+    expect_error(taco::read(c(taco_fixture(), folder)), "same collection")
   })
 })
 
 
-describe("contract accessors", {
-  it("lists metadata levels and structure leaves", {
-    expect_identical(taco::metadata_levels(taco_fixture()), c("sample", "children"))
-    expect_identical(taco::sample_structure(taco_fixture()), c("image.bin", "mask.bin"))
-  })
+describe("open a TACO dataset", {
+  it("combines partition extents", {
+    make_partition <- function(path, spatial, temporal) {
+      dir.create(path)
+      utils::unzip(taco_fixture(), exdir = path)
+      collection_path <- file.path(path, "COLLECTION.json")
+      collection <- jsonlite::read_json(collection_path, simplifyVector = FALSE)
+      collection$extent <- list(spatial = as.list(spatial), temporal = as.list(temporal))
+      jsonlite::write_json(collection, collection_path, auto_unbox = TRUE)
+    }
 
-  it("returns COLLECTION.json unparsed", {
-    document <- taco::collection(taco_fixture())
-    expect_type(document, "character")
-    expect_match(document, '"id": ?"taco-fixture"')
-  })
+    first <- tempfile("taco-part-")
+    second <- tempfile("taco-part-")
+    on.exit(unlink(c(first, second), recursive = TRUE), add = TRUE)
+    make_partition(first, c(-76, -12, -75, -11), c("2024-01-02T00:00:00Z", "2024-01-03T00:00:00Z"))
+    make_partition(second, c(-74, -10, -73, -9), c("2024-01-01T00:00:00Z", "2024-01-04T00:00:00Z"))
 
-  it("describes the contract", {
-    result <- taco::contract(taco_fixture())
-    expect_true(all(c("kind", "value") %in% names(result)))
-    expect_true("structure" %in% result[["kind"]])
-  })
-
-  it("reports the archive profile", {
-    expect_identical(taco::profile(taco_fixture()), "taco")
-  })
-
-  it("returns an empty string when there is no derived metadata", {
-    expect_identical(taco::derived(taco_fixture()), "")
-  })
-
-  it("requires one source", {
-    expect_error(
-      taco::collection(c(taco_fixture(), "part-1.zip")),
-      "single source"
+    dataset <- taco::open_dataset(c(first, second))
+    expect_equal(unlist(dataset$collection$extent$spatial), c(-76, -12, -73, -9))
+    expect_identical(
+      unlist(dataset$collection$extent$temporal),
+      c("2024-01-01T00:00:00Z", "2024-01-04T00:00:00Z")
     )
   })
 })

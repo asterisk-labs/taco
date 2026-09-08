@@ -73,6 +73,6 @@ with taco.open_writer(collection, "change-detection", overwrite=True) as writer:
     writer.add(sample)
     writer.run()
 
-dataset = taco.open("change-detection")
-assert dataset.read().num_rows == 1
+dataset = taco.open_dataset("change-detection")
+assert taco.read(dataset).num_rows == 1
 assert taco.validate("change-detection").ok

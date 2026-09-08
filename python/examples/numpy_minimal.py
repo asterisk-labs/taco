@@ -43,6 +43,6 @@ with taco.open_writer(collection, "numpy-demo.zip", overwrite=True) as writer:
         )
     writer.run()
 
-dataset = taco.open("numpy-demo.zip")
-assert dataset.read().num_rows == 10
+dataset = taco.open_dataset("numpy-demo.zip")
+assert taco.read(dataset).num_rows == 10
 assert taco.validate("numpy-demo.zip").ok

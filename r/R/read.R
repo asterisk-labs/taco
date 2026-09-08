@@ -58,26 +58,6 @@
 }
 
 
-.same_contract <- function(con, sources) {
-  expected <- DBI::dbGetQuery(
-    con,
-    "SELECT * FROM taco_contract(?)",
-    params = list(sources[[1L]])
-  )
-  for (source in sources[-1L]) {
-    actual <- DBI::dbGetQuery(
-      con,
-      "SELECT * FROM taco_contract(?)",
-      params = list(source)
-    )
-    if (!identical(actual, expected)) {
-      .taco_stop("sources do not share the same contract: %s", source)
-    }
-  }
-  invisible(NULL)
-}
-
-
 .source_labels <- function(sources) {
   labels <- basename(sub("/+$", "", sources))
   if (all(nzchar(labels)) && !anyDuplicated(labels)) labels else sources
@@ -89,7 +69,7 @@
 #' `source` is one or more `.zip` archives, a FOLDER directory or a
 #' `.tacocat` catalog, local or remote. Multiple sources must share a contract.
 #'
-#' @param source Local paths or http(s)/s3/gcs/azure/hf URLs to the dataset.
+#' @param source A dataset, or local paths or http(s)/s3/gcs/azure/hf URLs.
 #' @param layout `"wide"` gives one row per sample with a column per
 #'   structure leaf; `"long"` gives one row per file.
 #' @param idx One sample number, or a two-element half-open range.
@@ -103,8 +83,32 @@
 #' @export
 read <- function(source, layout = c("wide", "long"), idx = NULL,
                  level = NULL, files = NULL, gdal_vsi = TRUE) {
+  UseMethod("read")
+}
+
+
+#' @rdname read
+#' @export
+read.character <- function(source, layout = c("wide", "long"), idx = NULL,
+                           level = NULL, files = NULL, gdal_vsi = TRUE) {
+  if (length(source) > 1L) {
+    source <- open_dataset(source)[["sources"]]
+  }
+  .read_sources(source, layout, idx, level, files, gdal_vsi)
+}
+
+
+#' @rdname read
+#' @export
+read.taco_dataset <- function(source, layout = c("wide", "long"), idx = NULL,
+                              level = NULL, files = NULL, gdal_vsi = TRUE) {
+  .read_sources(source[["sources"]], layout, idx, level, files, gdal_vsi)
+}
+
+
+.read_sources <- function(source, layout, idx, level, files, gdal_vsi) {
   .check_source(source)
-  layout <- match.arg(layout)
+  layout <- match.arg(layout, c("wide", "long"))
   .check_idx(idx)
   .check_names(level, "level")
   if (!is.null(level) && length(level) != 1L) {
@@ -121,7 +125,6 @@ read <- function(source, layout = c("wide", "long"), idx = NULL,
     sql <- paste("SELECT * FROM", .read_call)
     params <- c(list(source), options)
   } else {
-    .same_contract(con, source)
     projection <- if (is.null(level)) {
       "taco.sample_id, ?::VARCHAR AS source_file, taco.* EXCLUDE (sample_id)"
     } else {
@@ -141,87 +144,4 @@ read <- function(source, layout = c("wide", "long"), idx = NULL,
     )
   }
   tibble::as_tibble(DBI::dbGetQuery(con, sql, params = params))
-}
-
-
-.scalar <- function(source, sql) {
-  source <- .single_source(source)
-  con <- .open_reader()
-  DBI::dbGetQuery(con, sql, params = list(source))[[1L]]
-}
-
-
-#' The contract of a TACO dataset
-#'
-#' @param source Local path or URL to the dataset.
-#' @return A tibble of `kind` and `value` rows describing the structure,
-#'   the metadata levels and the derived groups.
-#' @export
-contract <- function(source) {
-  source <- .single_source(source)
-  con <- .open_reader()
-  tibble::as_tibble(
-    DBI::dbGetQuery(con, "SELECT * FROM taco_contract(?)", params = list(source))
-  )
-}
-
-
-#' Metadata levels of a TACO dataset
-#'
-#' Named `metadata_levels()` rather than `levels()` so it does not mask
-#' the base R generic.
-#'
-#' @param source Local path or URL to the dataset.
-#' @return A character vector, parents before children.
-#' @export
-metadata_levels <- function(source) {
-  unlist(.scalar(source, "SELECT taco_levels(?)"), use.names = FALSE)
-}
-
-
-#' Sample structure of a TACO dataset
-#'
-#' Named `sample_structure()` rather than `structure()` so it does not
-#' mask the base R function.
-#'
-#' @param source Local path or URL to the dataset.
-#' @return A character vector of leaf declarations, empty when the
-#'   contract declares no structure.
-#' @export
-sample_structure <- function(source) {
-  unlist(.scalar(source, "SELECT taco_structure(?)"), use.names = FALSE)
-}
-
-
-#' COLLECTION.json of a TACO dataset
-#'
-#' Returned unparsed so the package stays free of a JSON dependency.
-#' Pass it through `jsonlite::fromJSON()` for a list.
-#'
-#' @param source Local path or URL to the dataset.
-#' @return A single JSON string.
-#' @export
-collection <- function(source) {
-  .scalar(source, "SELECT taco_collection(?)")
-}
-
-
-#' Derived metadata declarations of a TACO dataset
-#'
-#' @param source Local path or URL to the dataset.
-#' @return A single JSON string, empty when the contract declares none.
-#' @export
-derived <- function(source) {
-  values <- unlist(.scalar(source, "SELECT taco_derived(?)"), use.names = FALSE)
-  if (length(values)) values[[1L]] else ""
-}
-
-
-#' The cozip profile of an archive
-#'
-#' @param source Local path or URL to the dataset.
-#' @return `"none"`, `"flat"` or `"taco"`.
-#' @export
-profile <- function(source) {
-  .scalar(source, "SELECT cozip_profile(?)")
 }

@@ -7,6 +7,8 @@ All notable changes to `taco` are documented here. The format follows
 
 ### Changed
 
+- Python, R, and Julia now share `open_dataset()` and `read()`. An open dataset
+  exposes its sources, collection, and contract in each language.
 - STAC once again represents regular raster chunks with `tensor_shape` and a
   six-value GDAL `geotransform`; it no longer stores a WKB footprint on every
   sample. ISTAC is now a distinct irregular-geometry model instead of an alias

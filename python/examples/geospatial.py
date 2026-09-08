@@ -52,8 +52,8 @@ with taco.open_writer(collection, "geospatial.zip", overwrite=True) as writer:
         writer.add(taco.Sample(assets=asset, metadata=taco.Metadata(stac=stac)))
     writer.run()
 
-dataset = taco.open("geospatial.zip")
-table = dataset.read()
+dataset = taco.open_dataset("geospatial.zip")
+table = taco.read(dataset)
 assert table.num_rows == 3
 assert "majortom:code" in table.column_names
 assert dataset.collection.extent is not None

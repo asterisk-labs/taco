@@ -2,6 +2,8 @@
 % Please edit documentation in R/read.R
 \name{read}
 \alias{read}
+\alias{read.character}
+\alias{read.taco_dataset}
 \title{Read a TACO dataset}
 \usage{
 read(
@@ -12,9 +14,27 @@ read(
   files = NULL,
   gdal_vsi = TRUE
 )
+
+\method{read}{character}(
+  source,
+  layout = c("wide", "long"),
+  idx = NULL,
+  level = NULL,
+  files = NULL,
+  gdal_vsi = TRUE
+)
+
+\method{read}{taco_dataset}(
+  source,
+  layout = c("wide", "long"),
+  idx = NULL,
+  level = NULL,
+  files = NULL,
+  gdal_vsi = TRUE
+)
 }
 \arguments{
-\item{source}{Local paths or http(s)/s3/gcs/azure/hf URLs to the dataset.}
+\item{source}{A dataset, or local paths or http(s)/s3/gcs/azure/hf URLs.}
 
 \item{layout}{\code{"wide"} gives one row per sample with a column per
 structure leaf; \code{"long"} gives one row per file.}

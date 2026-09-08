@@ -107,7 +107,7 @@ def dataset_html(dataset: Dataset) -> str:
         f"{_section('Structure', _structure_count(dataset), _structure(dataset), open_=True)}"
         f"{_section('Metadata', _metadata_count(dataset), _metadata(dataset))}"
         f"{_section('Collection', collection.id, _collection(dataset))}"
-        f"{_section('Sources', _source_label(dataset), _sources(dataset), open_=len(dataset.paths) > 1)}"
+        f"{_section('Sources', _source_label(dataset), _sources(dataset), open_=len(dataset.sources) > 1)}"
         "</div></div>"
     )
 
@@ -135,11 +135,11 @@ def _section(name: str, count: str, content: str, *, open_: bool = False) -> str
 
 
 def _kind(dataset: Dataset) -> str:
-    if len(dataset.paths) > 1:
+    if len(dataset.sources) > 1:
         return "PARTITIONS"
     if dataset.collection.sources is not None:
         return "TACOCAT"
-    path = dataset.paths[0]
+    path = dataset.sources[0]
     if isinstance(path, Path):
         return "FOLDER" if path.is_dir() else "ZIP"
     lowered = path.rstrip("/").lower()
@@ -156,7 +156,7 @@ def _source_count(dataset: Dataset) -> int:
         partitions = sources.get("partitions")
         if isinstance(partitions, list):
             return len(partitions)
-    return len(dataset.paths)
+    return len(dataset.sources)
 
 
 def _sample_count(dataset: Dataset) -> int | None:
@@ -238,7 +238,7 @@ def _collection(dataset: Dataset) -> str:
 
 
 def _sources(dataset: Dataset) -> str:
-    rows = [str(path) for path in dataset.paths]
+    rows = [str(path) for path in dataset.sources]
     sources = dataset.collection.sources
     if sources is not None and isinstance(sources.get("partitions"), list):
         rows.extend(

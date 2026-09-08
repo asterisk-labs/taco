@@ -28,7 +28,7 @@ def _collection(paths: tuple[Location, ...]) -> Collection:
         actual = collection.to_dict()
         actual.pop("extent", None)
         actual.pop("taco:sources", None)
-        if actual != expected:
+        if collection.contract.levels != collections[0].contract.levels or actual != expected:
             raise ContainerError(f"source does not belong to the same collection: {path}")
 
     extents = [collection.extent for collection in collections if collection.extent is not None]
@@ -37,36 +37,15 @@ def _collection(paths: tuple[Location, ...]) -> Collection:
 
 class Dataset:
     def __init__(self, source: Source) -> None:
-        self.paths = normalize(source)
-        self.path: Location | tuple[Location, ...] = self.paths[0] if len(self.paths) == 1 else self.paths
-        self.collection = _collection(self.paths)
+        self.sources = normalize(source)
+        self.collection = _collection(self.sources)
 
     @property
     def contract(self) -> Contract:
         return self.collection.contract
 
-    def read(
-        self,
-        *,
-        layout: Layout = "wide",
-        idx: reader.Index = None,
-        level: str | None = None,
-        files: Sequence[str] | None = None,
-        gdal_vsi: bool = True,
-    ) -> pa.Table:
-        if layout not in ("wide", "long"):
-            raise ValueError("layout must be 'wide' or 'long'")
-        return reader.read(
-            self.paths,
-            idx=idx,
-            level=level,
-            pivoted=layout == "wide",
-            files=files,
-            gdal_vsi=gdal_vsi,
-        )
-
     def __repr__(self) -> str:
-        location = f"path={self.path!r}" if len(self.paths) == 1 else f"sources={len(self.paths)}"
+        location = f"source={self.sources[0]!r}" if len(self.sources) == 1 else f"sources={len(self.sources)}"
         return f"Dataset({self.collection.id!r}, version={self.collection.dataset_version!r}, {location})"
 
     def _repr_html_(self) -> str:
@@ -75,8 +54,35 @@ class Dataset:
         return dataset_html(self)
 
 
-def open(source: Source) -> Dataset:
+def open_dataset(source: Source) -> Dataset:
     return Dataset(source)
 
 
-__all__ = ["Dataset", "Layout", "open"]
+def read(
+    source: Source | Dataset,
+    *,
+    layout: Layout = "wide",
+    idx: reader.Index = None,
+    level: str | None = None,
+    files: Sequence[str] | None = None,
+    gdal_vsi: bool = True,
+) -> pa.Table:
+    if layout not in ("wide", "long"):
+        raise ValueError("layout must be 'wide' or 'long'")
+    if isinstance(source, Dataset):
+        sources = source.sources
+    else:
+        sources = normalize(source)
+        if len(sources) > 1:
+            sources = open_dataset(sources).sources
+    return reader.read(
+        sources,
+        idx=idx,
+        level=level,
+        pivoted=layout == "wide",
+        files=files,
+        gdal_vsi=gdal_vsi,
+    )
+
+
+__all__ = ["Dataset", "Layout", "open_dataset", "read"]

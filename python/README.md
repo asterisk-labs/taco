@@ -10,6 +10,6 @@ python examples/minimal.py
 ```python
 import taco
 
-samples = taco.open("dataset.zip").read()
-parts = taco.open(["part-0.zip", "part-1.zip"]).read()
+samples = taco.read("dataset.zip")
+parts = taco.read(["part-0.zip", "part-1.zip"])
 ```

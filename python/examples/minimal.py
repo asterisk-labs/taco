@@ -13,5 +13,5 @@ with taco.open_writer(collection, "minimal.zip", overwrite=True) as writer:
     writer.add(taco.Sample(assets=b"hello"))
     writer.run()
 
-dataset = taco.open("minimal.zip")
-assert dataset.read().num_rows == 1
+dataset = taco.open_dataset("minimal.zip")
+assert taco.read(dataset).num_rows == 1

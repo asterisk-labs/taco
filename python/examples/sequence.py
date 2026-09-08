@@ -44,6 +44,6 @@ with taco.open_writer(collection, "image-sequence.zip", overwrite=True) as write
         )
     writer.run()
 
-dataset = taco.open("image-sequence.zip")
-assert dataset.read().num_rows == 3
+dataset = taco.open_dataset("image-sequence.zip")
+assert taco.read(dataset).num_rows == 3
 assert taco.validate("image-sequence.zip").ok

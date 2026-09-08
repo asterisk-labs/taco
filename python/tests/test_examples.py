@@ -25,12 +25,12 @@ def test_minimal_example(tmp_path: Path, monkeypatch) -> None:
     archive = tmp_path / "minimal.zip"
     assert archive.is_file()
     assert taco.validate(archive).ok
-    dataset = taco.open(archive)
+    dataset = taco.open_dataset(archive)
     assert dataset.collection.id == "minimal"
     assert dataset.contract.structure is None
     assert "sample file" in dataset._repr_html_()
-    assert dataset.read().num_rows == 1
-    assert dataset.read(layout="long").num_rows == 1
+    assert taco.read(dataset).num_rows == 1
+    assert taco.read(dataset, layout="long").num_rows == 1
 
 
 @pytest.mark.parametrize("name", EXAMPLES)

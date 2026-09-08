@@ -10,6 +10,6 @@ Pkg.add(url="https://github.com/asterisk-labs/taco", subdir="julia")
 ```julia
 using Taco
 
-samples = Taco.read("dataset.zip")
-parts = Taco.read(["part-0.zip", "part-1.zip"])
+dataset = Taco.open_dataset("dataset.zip")
+samples = Taco.read(dataset)
 ```

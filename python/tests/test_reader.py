@@ -84,14 +84,15 @@ def test_dataset_api(monkeypatch: pytest.MonkeyPatch, collection: taco.Collectio
     monkeypatch.setattr(reader, "_collections", lambda paths: [collection.to_dict() for _ in paths])
     path = tmp_path / "data.zip"
 
-    dataset = taco.open(path)
+    dataset = taco.open_dataset(path)
 
     assert isinstance(dataset, taco.Dataset)
-    assert dataset.path == path.resolve()
+    assert dataset.sources == (path.resolve(),)
     assert dataset.collection.to_dict() == collection.to_dict()
     assert dataset.contract == collection.contract
-    assert dataset.read().num_rows == 1
-    assert dataset.read(layout="long", idx=3, level="children", files=["mask.tif"], gdal_vsi=False).num_rows == 1
+    assert taco.read(dataset).num_rows == 1
+    assert taco.read(path).num_rows == 1
+    assert taco.read(dataset, layout="long", idx=3, level="children", files=["mask.tif"], gdal_vsi=False).num_rows == 1
     assert "pivoted := ?" in connection.calls[-1][0]
     assert connection.calls[-1][1] == [str(path.resolve()), "3", "children", False, ["mask.tif"], False]
     assert repr(dataset).startswith("Dataset(")
@@ -103,13 +104,12 @@ def test_dataset_multiple_sources(monkeypatch: pytest.MonkeyPatch, collection: t
     monkeypatch.setattr(reader, "_collections", lambda paths: [collection.to_dict() for _ in paths])
     paths = [tmp_path / "a.zip", tmp_path / "b.zip"]
 
-    dataset = taco.open(paths)
-    assert dataset.paths == tuple(path.resolve() for path in paths)
-    assert dataset.path == dataset.paths
+    dataset = taco.open_dataset(paths)
+    assert dataset.sources == tuple(path.resolve() for path in paths)
     assert "sources=2" in repr(dataset)
     assert "2 sources" in dataset._repr_html_()
 
-    dataset.read(layout="long", idx=(2, 4))
+    taco.read(dataset, layout="long", idx=(2, 4))
 
     query, arguments = connection.calls[-1]
     assert query.count("read_taco") == 2
@@ -130,28 +130,29 @@ def test_dataset_multiple_sources(monkeypatch: pytest.MonkeyPatch, collection: t
         None,
         True,
     ]
+    assert taco.read(paths).num_rows == 1
 
 
 def test_dataset_rejects_unknown_layout(monkeypatch: pytest.MonkeyPatch, collection: taco.Collection) -> None:
     monkeypatch.setattr(reader, "_collections", lambda paths: [collection.to_dict() for _ in paths])
-    dataset = taco.open("https://example.com/data.zip")
+    dataset = taco.open_dataset("https://example.com/data.zip")
 
-    assert dataset.path == "https://example.com/data.zip"
+    assert dataset.sources == ("https://example.com/data.zip",)
     with pytest.raises(ValueError, match="must not be empty"):
-        taco.open("")
+        taco.open_dataset("")
     with pytest.raises(ValueError, match="at least one"):
-        taco.open([])
+        taco.open_dataset([])
     with pytest.raises(ValueError, match="unique"):
-        taco.open(["same.zip", "same.zip"])
+        taco.open_dataset(["same.zip", "same.zip"])
     with pytest.raises(ValueError, match="layout"):
-        dataset.read(layout="flat")  # type: ignore[arg-type]
+        taco.read(dataset, layout="flat")  # type: ignore[arg-type]
 
 
 def test_dataset_html_escapes_collection_text(monkeypatch: pytest.MonkeyPatch, collection: taco.Collection) -> None:
     dangerous = collection.replace(title="<dataset>", description="<script>alert(1)</script>")
     monkeypatch.setattr(reader, "_collections", lambda paths: [dangerous.to_dict() for _ in paths])
 
-    html = taco.open("dataset.zip")._repr_html_()
+    html = taco.open_dataset("dataset.zip")._repr_html_()
 
     assert "<script>" not in html
     assert "&lt;script&gt;" in html
@@ -173,14 +174,14 @@ def test_dataset_html_escapes_collection_text(monkeypatch: pytest.MonkeyPatch, c
 
 
 def test_dataset_reads_folder(folder_dataset: Path) -> None:
-    dataset = taco.open(folder_dataset)
+    dataset = taco.open_dataset(folder_dataset)
 
     assert dataset.collection.id == "tiny-change"
     html = dataset._repr_html_()
     assert ">FOLDER<" in html
     assert 'aria-label="TACO folder storage"' in html
-    assert dataset.read().num_rows == 4
-    assert dataset.read(layout="long").num_rows == 19
+    assert taco.read(dataset).num_rows == 4
+    assert taco.read(dataset, layout="long").num_rows == 19
 
 
 @pytest.mark.parametrize(

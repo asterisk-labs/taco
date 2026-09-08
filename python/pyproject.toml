@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "taco-eo"
-version = "0.2.0"
+version = "0.3.0"
 description = "Build, read, consolidate and validate TACO v3 Earth Observation datasets (ZIP, FOLDER, TACOCAT)."
 readme = "README.md"
 license = "MIT"

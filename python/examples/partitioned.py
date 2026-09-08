@@ -29,6 +29,6 @@ with taco.open_writer(
         )
     catalog = writer.run().path
 
-dataset = taco.open(catalog)
-assert dataset.read().num_rows == 4
+dataset = taco.open_dataset(catalog)
+assert taco.read(dataset).num_rows == 4
 assert taco.validate(catalog).ok

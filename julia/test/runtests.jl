@@ -12,7 +12,7 @@ const FIXTURE = joinpath(@__DIR__, "data", "taco.zip")
         @test_throws "non-empty" Taco.read("")
         @test_throws "unique" Taco.read(["a.zip", "a.zip"])
         @test_throws "NUL byte" Taco.read("bad\0.zip")
-        @test_throws "must be :wide or :long" Taco.read(FIXTURE; layout=:tall)
+        @test_throws "must be \"wide\" or \"long\"" Taco.read(FIXTURE; layout="tall")
         @test_throws "whole, non-negative" Taco.read(FIXTURE; idx=1.5)
         @test_throws "whole, non-negative" Taco.read(FIXTURE; idx=true)
         @test_throws "whole, non-negative" Taco.read(FIXTURE; idx=-1)
@@ -27,12 +27,22 @@ const FIXTURE = joinpath(@__DIR__, "data", "taco.zip")
         first_reads = fetch.([Threads.@spawn Taco.read(FIXTURE; idx=0) for _ in 1:32])
         @test all(frame -> size(frame, 1) == 1, first_reads)
 
+        dataset = Taco.open_dataset(FIXTURE)
+        @test dataset isa Taco.Dataset
+        @test dataset.sources == [FIXTURE]
+        @test dataset.collection["id"] == "taco-fixture"
+        @test dataset.contract.structure == ["image.bin", "mask.bin"]
+        @test dataset.contract.levels == ["sample", "children"]
+        @test isempty(dataset.contract.derived)
+        @test size(Taco.read(dataset), 1) == 3
+        @test occursin("Taco.Dataset", sprint(show, dataset))
+
         wide = Taco.read(FIXTURE)
         @test size(wide, 1) == 3
         @test issubset(["sample_id", "ml:split", "image.bin", "mask.bin"], names(wide))
         @test wide[!, "ml:split"] == ["train", "train", "test"]
 
-        long = Taco.read(FIXTURE; layout=:long)
+        long = Taco.read(FIXTURE; layout="long")
         @test size(long, 1) == 6
         @test sort(unique(long.path)) == ["image.bin", "mask.bin"]
         @test sort(unique(long[!, "file:role"])) == ["image", "mask"]
@@ -44,7 +54,7 @@ const FIXTURE = joinpath(@__DIR__, "data", "taco.zip")
         @test "mask.bin" in names(narrowed)
         @test !("image.bin" in names(narrowed))
 
-        long_narrowed = Taco.read(FIXTURE; layout=:long, files=["mask.bin"])
+        long_narrowed = Taco.read(FIXTURE; layout="long", files=["mask.bin"])
         @test size(long_narrowed, 1) == 3
         @test unique(long_narrowed.path) == ["mask.bin"]
         @test_throws "structure leaf" Taco.read(
@@ -56,7 +66,7 @@ const FIXTURE = joinpath(@__DIR__, "data", "taco.zip")
         @test size(level, 1) == 6
         @test "internal:current_id" in names(level)
 
-        quiet = Taco.read(FIXTURE; layout=:long, gdal_vsi=false)
+        quiet = Taco.read(FIXTURE; layout="long", gdal_vsi=false)
         @test all(ismissing, quiet[!, "cozip:gdal_vsi"])
     end
 
@@ -69,29 +79,35 @@ const FIXTURE = joinpath(@__DIR__, "data", "taco.zip")
 
             @test size(Taco.read(unicode_path), 1) == 3
 
-            parts = Taco.read([FIXTURE, part_path])
+            dataset = Taco.open_dataset([FIXTURE, part_path])
+            parts = Taco.read(dataset)
             @test size(parts, 1) == 6
             @test sort(unique(parts.source_file)) == ["part-1.zip", "taco.zip"]
+            @test Taco.read([FIXTURE, part_path]) == parts
         end
     end
 
-    @testset "contract accessors" begin
-        @test Taco.levels(FIXTURE) == ["sample", "children"]
-        @test Taco.structure(FIXTURE) == ["image.bin", "mask.bin"]
-        @test occursin("taco-fixture", Taco.collection(FIXTURE))
-        @test Taco.derived(FIXTURE) == ""
-        @test Taco.profile(FIXTURE) == "taco"
+    @testset "extent union" begin
+        first = Dict(
+            "spatial" => Any[-76.0, -12.0, -75.0, -11.0],
+            "temporal" => Any["2024-01-01T00:00:00Z", "2024-01-02T00:00:00Z"],
+        )
+        second = Dict(
+            "spatial" => Any[-74.0, -10.0, -73.0, -9.0],
+            "temporal" => Any["2024-01-03T00:00:00Z", "2024-01-04T00:00:00Z"],
+        )
+        extent = Taco._extent_union([first, second])
+        @test extent["spatial"] == Any[-76.0, -12.0, -73.0, -9.0]
+        @test extent["temporal"] == Any[
+            "2024-01-01T00:00:00Z",
+            "2024-01-04T00:00:00Z",
+        ]
 
-        rows = Taco.contract(FIXTURE)
-        @test issubset(["kind", "value"], names(rows))
-        @test "structure" in rows.kind
-        @test_throws "single source" Taco.collection([FIXTURE, "part-1.zip"])
-    end
-
-    @testset "contract comparison" begin
-        left = DataFrame(kind=["structure"], value=["image.bin"])
-        right = DataFrame(kind=["structure"], value=["mask.bin"])
-        @test Taco._same_contract(left, copy(left))
-        @test !Taco._same_contract(left, right)
+        collection = Dict("id" => "same")
+        @test_throws "same collection" Taco._merge_collections(
+            [collection, copy(collection)],
+            [["sample", "children"], ["children", "sample"]],
+            ["first.zip", "second.zip"],
+        )
     end
 end

@@ -1,4 +1,6 @@
 # make python    install taco, lint, test and build the wheel
+# make r         check the R reader
+# make julia     check the Julia reader
 # make deck      assemble the deck into _site/deck
 # make onepager  assemble the onepager into _site/onepager
 # make site      deck + onepager + spec (what GitHub Pages deploys)
@@ -14,7 +16,7 @@ COZIP_PYTHON ?= ../cozip/python
 COZIP_EXTENSION ?= $(abspath ../cozip_reader/build/release/extension/cozip/cozip.duckdb_extension)
 export COZIP_EXTENSION
 
-.PHONY: python deck onepager site clean
+.PHONY: python r julia deck onepager site clean
 
 python:
 	$(PYTHON) -m pip install -q "duckdb==$(DUCKDB_VERSION)" -e $(COZIP_PYTHON) -e python --no-deps
@@ -23,6 +25,13 @@ python:
 	$(PYTHON) -m mypy --config-file python/pyproject.toml python/taco
 	$(PYTHON) -m pytest python --cov=taco --cov-config=python/pyproject.toml --cov-report=term-missing
 	rm -rf python/dist && cd python && (command -v uv >/dev/null && uv build -q || $(PYTHON) -m pip wheel -q --no-deps -w dist .) && ls dist
+
+r:
+	Rscript -e 'roxygen2::roxygenise("r")'
+	Rscript -e 'testthat::test_local("r", reporter = "summary", stop_on_failure = TRUE)'
+
+julia:
+	cd julia && julia --project=. -e 'using Pkg; Pkg.test()'
 
 deck:
 	rm -rf $(SITE)/deck && mkdir -p $(SITE) && cp -R deck $(SITE)/deck && touch $(SITE)/.nojekyll

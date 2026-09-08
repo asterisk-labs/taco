@@ -1,6 +1,6 @@
 # taco
 
-R reader for TACO datasets.
+Read TACO datasets in R.
 
 ```r
 remotes::install_github("asterisk-labs/taco", subdir = "r")

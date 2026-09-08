@@ -1,6 +1,6 @@
 # taco
 
-Python package for writing and reading TACO datasets.
+Read and write TACO datasets in Python.
 
 ```bash
 pip install taco-eo

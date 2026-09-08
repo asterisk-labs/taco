@@ -1,6 +1,6 @@
 # Taco.jl
 
-Julia reader for TACO datasets.
+Read TACO datasets in Julia.
 
 ```julia
 using Pkg

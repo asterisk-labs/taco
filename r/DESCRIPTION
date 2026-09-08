@@ -4,9 +4,7 @@ Title: Read TACO Datasets
 Version: 0.3.0
 Authors@R: person("Cesar", "Aybar", email = "cesar@asterisk.coop",
     role = c("aut", "cre"))
-Description: R reader for TACO v3 datasets. Wraps read_taco() in the
-    DuckDB cozip extension, so the contract and the metadata are read
-    the same way in every language.
+Description: Read TACO datasets in R.
 License: MIT + file LICENSE
 URL: https://github.com/asterisk-labs/taco
 BugReports: https://github.com/asterisk-labs/taco/issues

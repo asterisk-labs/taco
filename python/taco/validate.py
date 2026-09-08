@@ -30,7 +30,7 @@ from .contract.naming import (
 from .contract.types import type_name
 from .cozip import INDEX_NAME
 from .errors import TacoError, ValidationFailed
-from .writer.levels import level_schema
+from .writer.metadata_tables import table_schema
 
 __all__ = ["Issue", "ValidationReport", "validate"]
 
@@ -130,7 +130,7 @@ def _check_collection(dataset: DatasetView, collector: _Collector) -> None:
 
 
 def _expected_schema_names(contract: Contract, level: str, container: str) -> list[str]:
-    schema = level_schema(contract, level, with_offsets=container != "folder")
+    schema = table_schema(contract, level, with_offsets=container != "folder")
     names = list(schema.names)
     if container == "tacocat":
         names.append(SOURCE_FILE)
@@ -320,7 +320,7 @@ def _check_schema(dataset: DatasetView, level: str, table: pa.Table, collector: 
         collector.error("schema", f"{level}: missing columns {missing}")
     if extra:
         collector.error("schema", f"{level}: unexpected columns {extra}")
-    reference = level_schema(contract, level, with_offsets=dataset.container != "folder")
+    reference = table_schema(contract, level, with_offsets=dataset.container != "folder")
     for field_ in reference:
         if field_.name in actual:
             column = table.column(field_.name)

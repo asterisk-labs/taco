@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 import taco
-from taco.writer import _progress
+from taco.writer import progress
 
 
 class _Bar:
@@ -45,7 +45,7 @@ def test_writer_progress(
         bars.append(bar)
         return bar
 
-    monkeypatch.setattr(_progress, "import_module", lambda _: SimpleNamespace(tqdm=tqdm))
+    monkeypatch.setattr(progress, "import_module", lambda _: SimpleNamespace(tqdm=tqdm))
     with taco.open_writer(collection, tmp_path / name, progress=True, **options) as writer:
         writer.extend(make_sample(index) for index in range(samples))
         writer.run()
@@ -59,6 +59,6 @@ def test_progress_requires_tqdm(monkeypatch) -> None:
     def missing(_: str):
         raise ModuleNotFoundError(name="tqdm")
 
-    monkeypatch.setattr(_progress, "import_module", missing)
+    monkeypatch.setattr(progress, "import_module", missing)
     with pytest.raises(ImportError, match=r"taco-eo\[progress\]"):
-        _progress.Progress(True, 1, "writing")
+        progress.Progress(True, 1, "writing")

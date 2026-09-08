@@ -41,3 +41,6 @@ class Progress:
     def update(self, value: int = 1) -> None:
         if self._bar is not None:
             self._bar.update(value)
+
+
+__all__ = ["Progress"]

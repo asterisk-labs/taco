@@ -18,7 +18,7 @@ from ._view import DatasetView, open_view
 from .contract.collection import Extent
 from .contract.naming import COLLECTION_FILENAME, SOURCE_FILE, TACOCAT_DIR, level_to_filename, validate_component
 from .errors import ConsolidationError, ContractError
-from .writer.levels import level_schema
+from .writer.metadata_tables import table_schema
 
 __all__ = ["consolidate"]
 
@@ -106,7 +106,7 @@ def consolidate(
     _check_partition(reference, reference)
     writer_options = parquet_writer_options(parquet_options)
     output_schemas = {
-        level: level_schema(reference.contract, level, with_offsets=True).append(
+        level: table_schema(reference.contract, level, with_offsets=True).append(
             pa.field(SOURCE_FILE, pa.string(), nullable=False)
         )
         for level in reference.levels

@@ -132,9 +132,9 @@ def test_failed_append_keeps_existing_dataset(
 
 def test_writer_mode_is_selected_from_path(tmp_path: Path, collection: taco.Collection) -> None:
     with taco.open_writer(collection, tmp_path / "folder") as writer:
-        assert writer.__class__.__name__ == "_FolderWriter"
+        assert writer.__class__.__name__ == "FolderWriter"
     with taco.open_writer(collection, tmp_path / "archive.zip") as writer:
-        assert writer.__class__.__name__ == "_ArchiveWriter"
+        assert writer.__class__.__name__ == "ArchiveWriter"
     with pytest.raises(ValueError, match="must end"):
         taco.open_writer(collection, tmp_path / "archive.taco")
     with pytest.raises(ValueError, match="immutable"):

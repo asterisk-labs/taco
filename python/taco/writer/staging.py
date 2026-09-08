@@ -8,9 +8,7 @@ from typing import Generic, TypeVar, cast
 T = TypeVar("T")
 
 
-class Journal(Generic[T]):
-    """Pickle stream on disk; keeps writer memory flat for huge datasets."""
-
+class StagedSamples(Generic[T]):
     def __init__(self, path: Path) -> None:
         self.path = path
         self._file = path.open("ab")
@@ -24,20 +22,23 @@ class Journal(Generic[T]):
         pickle.dump(item, self._file, protocol=pickle.HIGHEST_PROTOCOL)
         self._count += 1
 
-    def flush(self) -> None:
-        if not self._file.closed:
-            self._file.flush()
-
     def close(self) -> None:
         if not self._file.closed:
             self._file.flush()
             self._file.close()
 
     def __iter__(self) -> Iterator[T]:
-        self.flush()
+        if not self._file.closed:
+            self._file.flush()
+
+        # Each pass gets its own read handle. This also lets separate archive
+        # partitions be consumed concurrently without sharing file position.
         with self.path.open("rb") as stream:
             while True:
                 try:
                     yield cast(T, pickle.load(stream))
                 except EOFError:
                     return
+
+
+__all__ = ["StagedSamples"]

@@ -6,9 +6,9 @@ from pathlib import Path
 from typing import Any
 
 from ..contract.collection import Collection
-from ._base import _Writer
-from .archive import _open_archive
-from .folder import _open_folder_writer
+from .archive import ArchiveWriter
+from .core import Writer
+from .folder import FolderWriter
 
 
 def open_writer(
@@ -25,7 +25,12 @@ def open_writer(
     partition_by: str | None = None,
     progress: bool = False,
     workers: int = 1,
-) -> _Writer:
+) -> Writer:
+    """Create the writer selected by the output path.
+
+    A ``.zip`` path creates an immutable archive writer.  A path without a
+    suffix creates a folder writer, which also supports append and hard links.
+    """
     if collection.sources is not None:
         raise ValueError("taco:sources is reserved for TACOCAT")
     path = Path(output).expanduser()
@@ -34,7 +39,7 @@ def open_writer(
             raise ValueError("ZIP datasets are immutable")
         if link:
             raise ValueError("link is only valid for FOLDER datasets")
-        return _open_archive(
+        return ArchiveWriter(
             collection,
             path,
             overwrite=overwrite,
@@ -52,7 +57,7 @@ def open_writer(
         raise ValueError("partitioning is only valid for ZIP datasets")
     if workers != 1:
         raise ValueError("workers is only valid for partitioned ZIP datasets")
-    return _open_folder_writer(
+    return FolderWriter(
         collection,
         path,
         append=append,

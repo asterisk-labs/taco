@@ -84,7 +84,7 @@ module = "taco.cozip"
 disable_error_code = ["import-untyped"]
 
 [[tool.mypy.overrides]]
-module = ["taco._view", "taco.tacocat", "taco.writer.levels"]
+module = ["taco._view", "taco.tacocat", "taco.writer.metadata_tables"]
 disable_error_code = ["no-untyped-call"]
 
 [tool.coverage.run]

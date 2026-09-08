@@ -18,6 +18,10 @@ All notable changes to `taco` are documented here. The format follows
 - Collection and nested sample values are validated before writing.
 - Python checks now cover formatting, strict typing, warnings and branch
   coverage.
+- The writer internals now follow the build flow explicitly (`core`, `archive`,
+  `folder`, `metadata_tables`, and `staging`) and use descriptive class and
+  method names. STAC/ISTAC definitions moved to `metadata.spatiotemporal`,
+  while `metadata.sample` remains a compatible import facade.
 
 ### Removed
 

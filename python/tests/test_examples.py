@@ -13,6 +13,8 @@ EXAMPLES = (
     "sequence.py",
     "time_series.py",
     "geospatial.py",
+    "stac_segmentation.py",
+    "oceantaco_istac.py",
     "partitioned.py",
 )
 

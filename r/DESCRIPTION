@@ -1,0 +1,26 @@
+Package: taco
+Type: Package
+Title: Read TACO Datasets
+Version: 0.2.0
+Authors@R: person("Cesar", "Aybar", email = "cesar@asterisk.coop",
+    role = c("aut", "cre"))
+Description: R reader for TACO v3 datasets. Wraps read_taco() in the
+    DuckDB cozip extension, so the contract and the metadata are read
+    the same way in every language.
+License: MIT + file LICENSE
+URL: https://github.com/asterisk-labs/taco
+BugReports: https://github.com/asterisk-labs/taco/issues
+Encoding: UTF-8
+Language: en-US
+Depends:
+    R (>= 4.1)
+Imports:
+    duckdb (>= 1.5.5),
+    DBI,
+    tibble
+Suggests:
+    testthat (>= 3.0.0),
+    jsonlite
+Config/testthat/edition: 3
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.3

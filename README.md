@@ -1,20 +1,68 @@
-# TACO
+<div align="center">
+  <h1>TACO</h1>
+  <p>
+    <a href="https://pypi.org/project/taco-eo"><img src="https://img.shields.io/pypi/v/taco-eo?label=python&logo=python&logoColor=white&color=3776AB&style=flat-square" alt="Python"/></a>
+    <a href="https://asterisk-labs.r-universe.dev/taco"><img src="https://img.shields.io/badge/r--universe-taco-276DC3?logo=r&logoColor=white&style=flat-square" alt="R"/></a>
+    <a href="https://github.com/asterisk-labs/AsteriskRegistry"><img src="https://img.shields.io/badge/julia-Taco.jl-9558B2?logo=julia&logoColor=white&style=flat-square" alt="Julia"/></a>
+    <a href="https://asterisk.coop/taco/spec"><img src="https://img.shields.io/badge/spec-v3-A8B9CC?style=flat-square" alt="Specification"/></a>
+  </p>
+</div>
 
-A specification for organizing Earth Observation datasets.
+---
 
-v3.0.0 in progress.
+Open an Earth observation dataset like a table.
 
-- [`spec/`](spec/) is the specification document (open `spec/index.html`).
-- [`python/`](python/) is the reference Python writer
-  and imported as `taco`. It builds immutable `.zip` archives carrying cozip
-  profile `TACO`, FOLDER datasets with incremental append and TACOCAT
-  consolidations, and validates existing datasets.
-  See [`python/README.md`](python/README.md).
-- Reading is the [cozip DuckDB extension](https://github.com/asterisk-labs/cozip_reader),
-  whose `read_taco()` serves Python, R and Julia from one C++ implementation.
-- [`deck/`](deck/) and [`onepager/`](onepager/) are the public site material.
+TACO keeps files and tabular metadata together under one sample structure. A
+dataset can be a ZIP, a folder, or a partitioned catalog.
 
-The cozip implementation and language bindings live in the separate
-[asterisk-labs/cozip](https://github.com/asterisk-labs/cozip) project.
-The writer reaches cozip's public native TACO ABI through the private Python
-adapter `cozip._taco`, so it needs a cozip release that ships that adapter.
+## Read
+
+Python
+
+```python
+import taco
+
+dataset = taco.open_dataset("dataset.zip")
+samples = taco.read(dataset)
+```
+
+R
+
+```r
+dataset <- taco::open_dataset("dataset.zip")
+samples <- taco::read(dataset)
+```
+
+Julia
+
+```julia
+using Taco
+
+dataset = Taco.open_dataset("dataset.zip")
+samples = Taco.read(dataset)
+```
+
+Python also provides the writer. See the
+[`minimal.py`](python/examples/minimal.py) example.
+
+## Packages
+
+- [Python](python/)
+- [R](r/)
+- [Julia](julia/)
+- [Specification](spec/)
+
+TACO uses [cozip](https://github.com/asterisk-labs/cozip) for its ZIP
+container and [cozip_reader](https://github.com/asterisk-labs/cozip_reader)
+for reading.
+
+## License
+
+MIT.
+
+<div align="center">
+  <br>
+  <a href="https://asterisk.coop">
+    <img src="spec/assets/asterisk_logo.svg" alt="Asterisk Labs" width="400"/>
+  </a>
+</div>

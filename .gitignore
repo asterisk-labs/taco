@@ -23,6 +23,7 @@ build/
 python/.venv/
 python/dist/
 python/uv.lock
+/julia/Manifest.toml
 
 *.dylib
 

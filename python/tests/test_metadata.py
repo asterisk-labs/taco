@@ -21,6 +21,13 @@ def point(x: float, y: float) -> bytes:
     return struct.pack("<BIdd", 1, 1, x, y)
 
 
+def test_sample_metadata_facade_keeps_public_imports() -> None:
+    assert taco.metadata.sample.STAC is taco.metadata.spatiotemporal.STAC
+    assert taco.metadata.sample.ISTAC is taco.metadata.spatiotemporal.ISTAC
+    assert taco.metadata.sample.MajorTOM is taco.metadata.derived.MajorTOM
+    assert taco.metadata.sample.Split is taco.metadata.split.Split
+
+
 def test_builtin_models() -> None:
     raster = taco.metadata.asset.Raster(resolution=10, num_bands=13, data_type="uint16")
     scaling = taco.metadata.asset.Scaling(scale_factor=0.01, scale_offset=[1], padding=[1, 2, 3, 4])

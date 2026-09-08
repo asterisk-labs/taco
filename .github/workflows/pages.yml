@@ -12,7 +12,9 @@ on:
       - "onepager/**"
   pull_request:
     paths:
+      - ".github/workflows/pages.yml"
       - "tools/build_site.py"
+      - "CNAME"
       - "spec/**"
       - "deck/**"
       - "onepager/**"
@@ -31,9 +33,9 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -41,7 +43,7 @@ jobs:
         run: make site
 
       - name: Upload site build
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: taco-site-${{ github.run_id }}
           path: _site/
@@ -51,11 +53,11 @@ jobs:
 
       - name: Configure Pages
         if: github.event_name != 'pull_request'
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@v6
 
       - name: Upload Pages artifact
         if: github.event_name != 'pull_request'
-        uses: actions/upload-pages-artifact@v4
+        uses: actions/upload-pages-artifact@v5
         with:
           path: _site
 
@@ -74,4 +76,4 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5

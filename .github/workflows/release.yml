@@ -1,0 +1,66 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build Python package
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Check version
+        run: |
+          VERSION=$(python -c 'from pathlib import Path; import tomllib; print(tomllib.loads(Path("python/pyproject.toml").read_text())["project"]["version"])')
+          if [ "v${VERSION}" != "${GITHUB_REF_NAME}" ]; then
+            echo "Tag ${GITHUB_REF_NAME} does not match version ${VERSION}"
+            exit 1
+          fi
+
+      - name: Test
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e "./python[dev]"
+          python -m ruff format --check --config python/pyproject.toml python/taco python/tests python/examples
+          python -m ruff check --config python/pyproject.toml python/taco python/tests python/examples tools
+          python -m pytest python --cov=taco --cov-config=python/pyproject.toml --cov-report=term-missing
+
+      - name: Build
+        run: |
+          python -m pip install build twine
+          python -m build --sdist --wheel --outdir dist python
+          python -m twine check dist/*
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: python-package
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    name: Publish to PyPI
+    needs: build
+    runs-on: ubuntu-24.04
+    environment:
+      name: pypi
+      url: https://pypi.org/p/taco-eo
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: python-package
+          path: dist/
+
+      - uses: pypa/gh-action-pypi-publish@release/v1

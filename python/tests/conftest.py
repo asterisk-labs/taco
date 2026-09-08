@@ -30,11 +30,6 @@ def point(x: float, y: float) -> bytes:
     return struct.pack("<BIdd", 1, 1, x, y)
 
 
-def polygon(west: float, south: float, east: float, north: float) -> bytes:
-    ring = [(west, south), (east, south), (east, north), (west, north), (west, south)]
-    return struct.pack("<BIII", 1, 3, 1, len(ring)) + b"".join(struct.pack("<dd", x, y) for x, y in ring)
-
-
 STRUCTURE = ["before/B02.tif", "before/B03.tif", "after/B02.tif", "mask.tif", "extra*[0,3].png"]
 
 
@@ -90,11 +85,13 @@ def make_sample(tmp_path: Path):
                 metadata = taco.Metadata(node=Kind(kind="label" if path == "mask.tif" else "extra"))
             assets.append(taco.Asset(source, path=path, metadata=metadata))
         center = point(-76 + index, -12 + index / 10)
+        longitude, latitude = -76 + index, -12 + index / 10
         return taco.Sample(
             metadata=taco.Metadata(
                 stac=taco.metadata.sample.STAC(
                     crs="EPSG:4326",
-                    geometry=polygon(-76.1 + index, -12.1, -75.9 + index, -11.9),
+                    tensor_shape=(13, 256, 256),
+                    geotransform=(longitude - 0.1, 0.2 / 256, 0, latitude + 0.1, 0, -0.2 / 256),
                     centroid=center,
                     time_start=datetime(2024, 1, index + 1, tzinfo=timezone.utc),
                 ),

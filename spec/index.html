@@ -241,6 +241,16 @@ figcaption b{color:var(--fg);font-style:normal}
 <p>The same namespace MAY appear at multiple levels and MAY use a different schema at each level. The <code>internal</code>, <code>taco</code>, and <code>cozip</code> namespaces are reserved. Producers MUST NOT create fields in these namespaces.</p>
 <p>On disk, a namespace only qualifies a column name. It does not create a nested struct or identify a Python class. Contracts are equivalent when their structure, levels, qualified fields, types, nullability, descriptions, and derived group declarations are the same.</p>
 
+<h4>STAC and ISTAC profiles</h4>
+<p>TACO defines two mutually exclusive spatiotemporal metadata profiles inherited from v2. A metadata level MAY declare <code>stac</code> for regular raster chunks or <code>istac</code> for irregular footprints. The same level MUST NOT declare both. These profiles are compact tabular metadata groups; they are not serializations of a complete STAC Item.</p>
+<table>
+<tr><th>Profile</th><th>Required fields</th><th>Optional fields</th><th>Spatial representation</th></tr>
+<tr><td><code>stac</code></td><td><code>crs</code>, <code>tensor_shape</code>, <code>geotransform</code>, <code>time_start</code>, <code>centroid</code></td><td><code>time_end</code>, <code>time_middle</code></td><td>Regular affine grid; no footprint geometry is stored</td></tr>
+<tr><td><code>istac</code></td><td><code>crs</code>, <code>geometry</code>, <code>time_start</code>, <code>centroid</code></td><td><code>time_end</code>, <code>time_middle</code></td><td>Irregular WKB footprint in the declared CRS</td></tr>
+</table>
+<p>For STAC, <code>tensor_shape</code> is a non-empty list of positive integers with at least two dimensions; its final two values are height and width. <code>geotransform</code> is the six-value GDAL affine transform. For both profiles, <code>centroid</code> is a WKB Point in EPSG:4326 and timestamps use <code>timestamp[us, UTC]</code>. When <code>time_end</code> is present and <code>time_middle</code> is absent, the writer MUST populate the midpoint.</p>
+<p>The built-in Python models MUST use their canonical namespaces: <code>stac=taco.metadata.sample.STAC</code> and <code>istac=taco.metadata.sample.ISTAC</code>. A producer chooses one profile per metadata level. STAC is RECOMMENDED for fixed or affine image chunks, while ISTAC is reserved for swaths, vectors, and other samples whose footprint cannot be recovered from a regular grid.</p>
+
 <h4>Derived groups</h4>
 <p>A derived group computes columns from other columns at the same level. Its declaration is stored in <code>taco:derived</code>. Each entry records its required columns, produced columns, and JSON-serializable configuration. The produced columns MUST also appear in <code>taco:metadata</code>.</p>
 <pre><code>{
@@ -261,10 +271,13 @@ figcaption b{color:var(--fg);font-style:normal}
 <pre><code>{
   "taco:metadata": {
     "sample": {
-      "stac:centroid": {"type": "binary", "nullable": false, "description": "Center point in EPSG:4326 (WKB)"},
-      "stac:geometry": {"type": "binary", "nullable": false, "description": "Spatial footprint (WKB)"},
       "stac:crs": {"type": "string", "nullable": false, "description": "Coordinate reference system"},
+      "stac:tensor_shape": {"type": "list&lt;int64&gt;", "nullable": false, "description": "Tensor dimensions ending in height and width"},
+      "stac:geotransform": {"type": "list&lt;double&gt;", "nullable": false, "description": "Six-value GDAL affine transform"},
       "stac:time_start": {"type": "timestamp[us, UTC]", "nullable": false, "description": "Acquisition timestamp"},
+      "stac:centroid": {"type": "binary", "nullable": false, "description": "Center point in EPSG:4326 (WKB)"},
+      "stac:time_end": {"type": "timestamp[us, UTC]", "nullable": true, "description": "Acquisition end"},
+      "stac:time_middle": {"type": "timestamp[us, UTC]", "nullable": true, "description": "Acquisition midpoint"},
       "quality:cloud_cover": {"type": "double", "nullable": true, "description": "Cloud cover percentage (0-100)"},
       "ml:split": {"type": "string", "nullable": false, "description": "Dataset split (train, val, test)"}
     },
@@ -280,14 +293,18 @@ figcaption b{color:var(--fg);font-style:normal}
 <pre><code>{
   "taco:metadata": {
     "sample": {
-      "stac:centroid": {"type": "binary", "nullable": false, "description": "Sample center point (WKB)"},
-      "stac:geometry": {"type": "binary", "nullable": false, "description": "Sample spatial footprint (WKB)"},
       "stac:crs": {"type": "string", "nullable": false, "description": "Coordinate reference system"},
+      "stac:tensor_shape": {"type": "list&lt;int64&gt;", "nullable": false, "description": "Tensor dimensions ending in height and width"},
+      "stac:geotransform": {"type": "list&lt;double&gt;", "nullable": false, "description": "Six-value GDAL affine transform"},
+      "stac:centroid": {"type": "binary", "nullable": false, "description": "Sample center point (WKB)"},
+      "stac:time_start": {"type": "timestamp[us, UTC]", "nullable": false, "description": "Sample acquisition timestamp"},
+      "stac:time_end": {"type": "timestamp[us, UTC]", "nullable": true, "description": "Sample acquisition end"},
+      "stac:time_middle": {"type": "timestamp[us, UTC]", "nullable": true, "description": "Sample acquisition midpoint"},
       "ml:split": {"type": "string", "nullable": false, "description": "Dataset split"},
       "change:ratio": {"type": "double", "nullable": false, "description": "Percentage of changed pixels"}
     },
     "children": {
-      "stac:time_start": {"type": "timestamp[us, UTC]", "nullable": true, "description": "Acquisition timestamp"},
+      "acquisition:time_start": {"type": "timestamp[us, UTC]", "nullable": true, "description": "Acquisition timestamp"},
       "quality:cloud_cover": {"type": "double", "nullable": true, "description": "Cloud cover percentage"},
       "eo:sensor": {"type": "string", "nullable": true, "description": "Sensor name"}
     },
@@ -322,13 +339,13 @@ figcaption b{color:var(--fg);font-style:normal}
 <tr><td><code>title</code></td><td>string</td><td>MAY</td><td>Human-readable title</td></tr>
 <tr><td><code>curators</code></td><td>list[object]</td><td>MAY</td><td>Dataset curators</td></tr>
 <tr><td><code>keywords</code></td><td>list[string]</td><td>MAY</td><td>Keywords for discovery</td></tr>
-<tr><td><code>extent</code></td><td>object</td><td>STAC</td><td>Writer-generated spatial and temporal summary</td></tr>
+<tr><td><code>extent</code></td><td>object</td><td>STAC/ISTAC</td><td>Writer-generated spatial and temporal summary</td></tr>
 <tr><td><code>taco:sources</code></td><td>object</td><td>TACOCAT</td><td>Source ZIP partitions</td></tr>
 </table>
 
 <p>A provider MUST have a non-empty <code>name</code>. It MAY have <code>roles</code>, <code>url</code>, and <code>links</code>. A curator MUST have a <code>name</code> or <code>organization</code> and MAY have <code>email</code> and <code>role</code>.</p>
 <p>An extent contains <code>spatial</code> and MAY contain <code>temporal</code>. <code>spatial</code> is <code>[west, south, east, north]</code> in EPSG:4326. A value where west is greater than east crosses the antimeridian. <code>temporal</code> is either null or <code>[start, end]</code> using ISO 8601 timestamps in UTC.</p>
-<p><code>extent</code> is a summary produced by the writer. When a metadata level declares the built-in STAC group, the writer MUST calculate the extent from the rows at the shallowest level containing that group. The spatial interval covers <code>stac:centroid</code>. The temporal interval starts at the earliest <code>stac:time_start</code> and ends at the latest <code>stac:time_end</code>, using <code>stac:time_start</code> when an end is absent. If no row contains STAC metadata, the writer MUST omit <code>extent</code>.</p>
+<p><code>extent</code> is a summary produced by the writer. When a metadata level declares built-in STAC or ISTAC, the writer MUST calculate the extent from the rows at the shallowest level containing either profile. The spatial interval covers that profile's EPSG:4326 <code>centroid</code> values. The temporal interval starts at the earliest <code>time_start</code> and ends at the latest <code>time_end</code>, using <code>time_start</code> when an end is absent. The centroid interval is intentionally a compact index and does not claim to be the union of every footprint. If no row contains STAC or ISTAC metadata, the writer MUST omit <code>extent</code>.</p>
 <p>Each ZIP partition MUST summarize only its own rows. TACOCAT stores each partition extent in <code>taco:sources</code> and uses their union as its collection extent. A FOLDER append MUST summarize both the existing and appended rows.</p>
 
 <h4>Collection metadata</h4>
@@ -351,7 +368,7 @@ figcaption b{color:var(--fg);font-style:normal}
 <p>The <code>dataset_version</code> in <code>COLLECTION.json</code> MUST follow Semantic Versioning. Versions describe successive releases of the same dataset and therefore keep the same <code>id</code>.</p>
 
 <h3><span class="sn">6.1.</span> Version Levels</h3>
-<p><strong>PATCH</strong> such as <code>1.0.0</code> to <code>1.0.1</code> corrects existing content without changing the contract or adding samples. Examples include fixing metadata values, replacing corrupted files, or updating the description or keywords. Corrected STAC metadata may also produce a different extent.</p>
+<p><strong>PATCH</strong> such as <code>1.0.0</code> to <code>1.0.1</code> corrects existing content without changing the contract or adding samples. Examples include fixing metadata values, replacing corrupted files, or updating the description or keywords. Corrected STAC or ISTAC metadata may also produce a different extent.</p>
 <p><strong>MINOR</strong> such as <code>1.0.0</code> to <code>1.1.0</code> adds samples under the existing contract.</p>
 <p><strong>MAJOR</strong> such as <code>1.0.0</code> to <code>2.0.0</code> changes the contract or the meaning of existing fields. Examples include adding, removing, or renaming files, folders, or metadata fields, changing field types, changing derived metadata configuration, or reorganizing the sample hierarchy.</p>
 
@@ -487,7 +504,7 @@ contract = taco.Contract(
         taco.Level("children", raster=taco.metadata.asset.Raster),
     ),
 )</code></pre>
-<p>The keyword is the namespace. The Pydantic model defines its fields, types, nullability, and descriptions. The writer stores them as qualified columns such as <code>stac:geometry</code>, <code>ml:split</code>, and <code>raster:resolution</code>.</p>
+<p>The keyword is the namespace. The Pydantic model defines its fields, types, nullability, and descriptions. The writer stores them as qualified columns such as <code>stac:geotransform</code>, <code>ml:split</code>, and <code>raster:resolution</code>. Built-in STAC and ISTAC are restricted to their canonical namespaces.</p>
 <p>A model assigned directly to a level is required on every row. <code>Model | None</code> allows the complete group to be absent on some rows and makes its stored columns nullable. Within a model, <code>value: T | None</code> makes one field nullable. <code>Field(description=...)</code> supplies its description. Exact Arrow types may use <code>Annotated</code>.</p>
 <pre><code>from datetime import datetime
 from typing import Annotated
@@ -509,7 +526,7 @@ TimestampUTC = Annotated[datetime, pa.timestamp("us", tz="UTC")]</code></pre>
 <p>A collection group is validated once. It is never copied into every sample row. The writer adds <code>taco:version</code> automatically.</p>
 
 <h4>Collection summaries</h4>
-<p>STAC produces <code>extent</code> from the rows written to a container. Users provide STAC metadata on samples and do not repeat its spatial or temporal coverage in <code>Collection</code>.</p>
+<p>STAC and ISTAC produce <code>extent</code> from their centroid and time columns. Users provide one of these profiles on samples and do not repeat its spatial or temporal coverage in <code>Collection</code>.</p>
 <p>Summaries run independently for every output partition. They consume metadata in batches and retain only the values needed for the summary. They do not keep the complete metadata table in memory.</p>
 
 <h4>Sample metadata</h4>
@@ -554,12 +571,12 @@ TimestampUTC = Annotated[datetime, pa.timestamp("us", tz="UTC")]</code></pre>
 <p>FOLDER containers may use <code>append=True</code>. ZIP containers may be partitioned. The writer builds every partition and the TACOCAT before publishing them together. If publication fails, it restores the previous files.</p>
 
 <h4>Example</h4>
-<pre><code>from datetime import datetime, timezone
+<pre><code>import struct
+from datetime import datetime, timezone
 from pathlib import Path
 
 import taco
 from pydantic import BaseModel, Field
-from shapely.geometry import Point
 
 
 class ML(BaseModel):
@@ -595,13 +612,14 @@ collection = taco.Collection(
     ),
 )
 
-point = Point(-76.5, -9.2)
+centroid = struct.pack("&lt;BIdd", 1, 1, -76.5, -9.2)
 sample = taco.Sample(
     metadata=taco.Metadata(
         stac=taco.metadata.sample.STAC(
-            geometry=point.wkb,
-            centroid=point.wkb,
             crs="EPSG:4326",
+            tensor_shape=(13, 256, 256),
+            geotransform=(-76.55, 0.1 / 256, 0, -9.15, 0, -0.1 / 256),
+            centroid=centroid,
             time_start=datetime(2025, 1, 1, tzinfo=timezone.utc),
         ),
         ml=ML(split="train"),
@@ -787,7 +805,7 @@ catalog = taco.open("cloudsen12/.tacocat")</code></pre>
 <h3><span class="sn">A.5.</span> Extension System</h3>
 <p>v2 extensions combined schema definitions with metadata computation through base classes and <code>extend_with()</code>.</p>
 <p>v3 uses namespaced Pydantic models. Groups are separated under <code>taco.metadata.sample</code>, <code>taco.metadata.folder</code>, <code>taco.metadata.asset</code>, and <code>taco.metadata.collection</code>. The namespace determines the stored field prefix, and the model defines and validates its values.</p>
-<p><code>taco</code> includes reusable models such as STAC, Raster, Labels, and Optical. It also provides derived sample groups such as MajorTOM, which compute metadata by batch from explicit dependencies. STAC also calculates the extent of each container from its rows. Datasets can use the built-in groups, extend their models, or define additional groups.</p>
+<p><code>taco</code> includes reusable models such as STAC, ISTAC, Raster, Labels, and Optical. STAC preserves the v2 affine-grid profile for regular chunks, while ISTAC preserves the v2 WKB-footprint profile for irregular data; a level chooses one. TACO also provides derived sample groups such as MajorTOM, which compute metadata by batch from explicit dependencies. STAC and ISTAC calculate the extent of each container from their centroid and time rows. Datasets can extend the built-in models or define additional groups.</p>
 
 <h3><span class="sn">A.6.</span> TACOCAT and TACOLLECTION</h3>
 <p>v2 stored TACOCAT in a binary file with a fixed header. It used a separate TACOLLECTION JSON document for dataset metadata.</p>

@@ -9,32 +9,34 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import lru_cache
-from typing import Annotated, Any, ClassVar, Literal
+from typing import Annotated, Any, ClassVar, Literal, TypeAlias
 
 import pyarrow as pa
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from ..contract.collection import Extent
 from ._base import CollectionSummary, DerivedMetadata, SampleModel
 
 TimestampUTC = Annotated[datetime, pa.timestamp("us", tz="UTC")]
+ShapeND: TypeAlias = tuple[int, ...]
+GeoTransform6: TypeAlias = tuple[float, float, float, float, float, float]
 
 
-def _point(wkb: bytes) -> tuple[float, float]:
+def _point(wkb: bytes, *, field: str = "centroid") -> tuple[float, float]:
     if len(wkb) < 21 or wkb[0] not in (0, 1):
-        raise ValueError("stac:centroid must be a WKB point")
+        raise ValueError(f"{field} must be a WKB point")
     order = "<" if wkb[0] == 1 else ">"
     geometry_type = struct.unpack_from(order + "I", wkb, 1)[0]
     offset = 5
     if geometry_type & 0x20000000:
         offset += 4
     if geometry_type & 0xFF not in (1,):
-        raise ValueError("stac:centroid must be a WKB point")
+        raise ValueError(f"{field} must be a WKB point")
     if len(wkb) < offset + 16:
-        raise ValueError("stac:centroid contains incomplete WKB")
+        raise ValueError(f"{field} contains incomplete WKB")
     lon, lat = struct.unpack_from(order + "dd", wkb, offset)
     if not math.isfinite(lon) or not math.isfinite(lat) or not (-180 <= lon <= 180) or not (-90 <= lat <= 90):
-        raise ValueError("stac:centroid is outside EPSG:4326 bounds")
+        raise ValueError(f"{field} is outside EPSG:4326 bounds")
     return lon, lat
 
 
@@ -48,7 +50,7 @@ def _iso(value: datetime) -> str:
     return _utc(value).isoformat().replace("+00:00", "Z")
 
 
-class _STACExtent(CollectionSummary):
+class _SpatioTemporalExtent(CollectionSummary):
     field = "extent"
     requires = ("centroid", "time_start", "time_end")
 
@@ -115,24 +117,87 @@ class _STACExtent(CollectionSummary):
         self._longitudes.close()
 
 
-class STAC(SampleModel):
-    __taco_summaries__ = (_STACExtent,)
+def _validate_times(model: STAC | ISTAC) -> None:
+    if model.time_end is not None and model.time_start > model.time_end:
+        raise ValueError("time_start must not be after time_end")
+    if model.time_middle is None and model.time_end is not None:
+        middle = model.time_start + (model.time_end - model.time_start) / 2
+        object.__setattr__(model, "time_middle", middle)
 
-    crs: str = Field(description="Coordinate reference system")
-    geometry: bytes = Field(description="Spatial footprint as WKB")
-    centroid: bytes = Field(description="Centroid in EPSG:4326 as WKB")
+
+class STAC(SampleModel):
+    """Spatiotemporal metadata for regular raster chunks.
+
+    The affine grid is sufficient to reconstruct the footprint, so no WKB
+    geometry is stored for every sample. Spatial indexing uses ``centroid``.
+    """
+
+    __taco_namespace__ = "stac"
+    __taco_summaries__ = (_SpatioTemporalExtent,)
+
+    crs: str = Field(min_length=1, description="Coordinate reference system (WKT2, EPSG, or PROJ)")
+    tensor_shape: ShapeND = Field(min_length=2, description="Tensor dimensions, ending in height and width")
+    geotransform: Annotated[GeoTransform6, pa.list_(pa.float64())] = Field(
+        description="Six-value GDAL affine geotransform"
+    )
     time_start: TimestampUTC = Field(description="Acquisition start")
+    centroid: bytes = Field(description="Centroid in EPSG:4326 as WKB")
     time_end: TimestampUTC | None = Field(default=None, description="Acquisition end")
+    time_middle: TimestampUTC | None = Field(default=None, description="Acquisition midpoint")
+
+    @field_validator("tensor_shape")
+    @classmethod
+    def _positive_shape(cls, value: ShapeND) -> ShapeND:
+        if any(size <= 0 for size in value):
+            raise ValueError("tensor_shape dimensions must be positive")
+        return value
+
+    @field_validator("geotransform")
+    @classmethod
+    def _finite_geotransform(cls, value: GeoTransform6) -> GeoTransform6:
+        if not all(math.isfinite(item) for item in value):
+            raise ValueError("geotransform values must be finite")
+        return value
+
+    @field_validator("centroid")
+    @classmethod
+    def _valid_centroid(cls, value: bytes) -> bytes:
+        _point(value, field="stac:centroid")
+        return value
 
     @model_validator(mode="after")
-    def _time_order(self) -> STAC:
-        if self.time_end is not None and self.time_start > self.time_end:
-            raise ValueError("time_start must not be after time_end")
+    def _times(self) -> STAC:
+        _validate_times(self)
         return self
 
 
-class ISTAC(STAC):
-    pass
+class ISTAC(SampleModel):
+    """Spatiotemporal metadata for irregular footprints.
+
+    ``geometry`` is WKB in ``crs``. ``centroid`` remains WKB in EPSG:4326 so
+    collection summaries and point-based derived metadata share one fast path.
+    """
+
+    __taco_namespace__ = "istac"
+    __taco_summaries__ = (_SpatioTemporalExtent,)
+
+    crs: str = Field(min_length=1, description="Coordinate reference system (WKT2, EPSG, or PROJ)")
+    geometry: bytes = Field(min_length=5, description="Spatial footprint in the declared CRS as WKB")
+    time_start: TimestampUTC = Field(description="Acquisition start")
+    time_end: TimestampUTC | None = Field(default=None, description="Acquisition end")
+    time_middle: TimestampUTC | None = Field(default=None, description="Acquisition midpoint")
+    centroid: bytes = Field(description="Centroid in EPSG:4326 as WKB")
+
+    @field_validator("centroid")
+    @classmethod
+    def _valid_centroid(cls, value: bytes) -> bytes:
+        _point(value, field="istac:centroid")
+        return value
+
+    @model_validator(mode="after")
+    def _times(self) -> ISTAC:
+        _validate_times(self)
+        return self
 
 
 class Split(SampleModel):

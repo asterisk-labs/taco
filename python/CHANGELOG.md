@@ -7,6 +7,11 @@ All notable changes to `taco` are documented here. The format follows
 
 ### Changed
 
+- STAC once again represents regular raster chunks with `tensor_shape` and a
+  six-value GDAL `geotransform`; it no longer stores a WKB footprint on every
+  sample. ISTAC is now a distinct irregular-geometry model instead of an alias
+  of STAC. Both retain centroid-based collection summaries, and metadata levels
+  must choose one of the two profiles.
 - The reader keeps one DuckDB connection per thread.
 - Collection and nested sample values are validated before writing.
 - Python checks now cover formatting, strict typing, warnings and branch

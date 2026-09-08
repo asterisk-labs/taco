@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from threading import Barrier
 
+import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 from pydantic import BaseModel
@@ -61,6 +62,9 @@ def test_zip_layout_and_offsets(archive: Path) -> None:
     assert collection["labels:num_classes"] == 2
     assert schema.metadata == {b"taco:level": b"sample"}
     assert schema.field("ml:cloud_cover").nullable
+    assert "stac:geometry" not in schema.names
+    assert schema.field("stac:tensor_shape").type == pa.list_(pa.int64())
+    assert schema.field("stac:geotransform").type == pa.list_(pa.float64())
 
     raw = archive.read_bytes()
     dataset = open_view(archive)
@@ -224,7 +228,8 @@ def test_stac_generates_extent(tmp_path: Path) -> None:
                     metadata=taco.Metadata(
                         stac=taco.metadata.sample.STAC(
                             crs="EPSG:4326",
-                            geometry=location,
+                            tensor_shape=(1, 256, 256),
+                            geotransform=(lon - 0.1, 0.2 / 256, 0, lat + 0.1, 0, -0.2 / 256),
                             centroid=location,
                             time_start=start,
                             time_end=end,
@@ -237,6 +242,51 @@ def test_stac_generates_extent(tmp_path: Path) -> None:
     assert open_view(tmp_path / "data.zip").collection.extent == taco.contract.Extent(
         (-3, -10, -178, 20),
         ("2024-01-01T00:00:00Z", "2024-01-05T00:00:00Z"),
+    )
+
+
+def test_istac_keeps_geometry_and_generates_centroid_extent(tmp_path: Path) -> None:
+    contract = taco.Contract(
+        structure=None,
+        metadata=taco.MetadataSchema(taco.Level("sample", istac=taco.metadata.sample.ISTAC)),
+    )
+    collection = taco.Collection(
+        contract=contract,
+        id="irregular",
+        dataset_version="1.0.0",
+        description="Irregular spatiotemporal sample",
+        licenses=["MIT"],
+        providers=["me"],
+        tasks=["other"],
+    )
+    start = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    end = datetime(2024, 1, 3, tzinfo=timezone.utc)
+    location = point(-76, -12)
+    with taco.open_writer(collection, tmp_path / "irregular.zip") as writer:
+        writer.add(
+            taco.Sample(
+                assets=b"x",
+                metadata=taco.Metadata(
+                    istac=taco.metadata.sample.ISTAC(
+                        crs="EPSG:4326",
+                        geometry=location,
+                        centroid=location,
+                        time_start=start,
+                        time_end=end,
+                    )
+                ),
+            )
+        )
+        writer.run()
+
+    dataset = open_view(tmp_path / "irregular.zip")
+    table = dataset.level("sample")
+    assert "istac:geometry" in table.column_names
+    assert "istac:tensor_shape" not in table.column_names
+    assert table.column("istac:time_middle").to_pylist() == [datetime(2024, 1, 2, tzinfo=timezone.utc)]
+    assert dataset.collection.extent == taco.contract.Extent(
+        (-76, -12, -76, -12),
+        ("2024-01-01T00:00:00Z", "2024-01-03T00:00:00Z"),
     )
 
 

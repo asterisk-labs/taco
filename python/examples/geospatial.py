@@ -39,7 +39,8 @@ with taco.open_writer(collection, "geospatial.zip", overwrite=True) as writer:
         location = point(longitude, latitude)
         stac = taco.metadata.sample.STAC(
             crs="EPSG:4326",
-            geometry=location,
+            tensor_shape=(1, 8, 8),
+            geotransform=(longitude - 0.05, 0.0125, 0, latitude + 0.05, 0, -0.0125),
             centroid=location,
             time_start=datetime(2024, 1, index + 1, tzinfo=timezone.utc),
         )

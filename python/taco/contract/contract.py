@@ -18,6 +18,26 @@ from .types import coerce_value, parse_type, type_name
 SAMPLE_LEVEL = "sample"
 CHILDREN_LEVEL = "children"
 
+_SPATIAL_PROFILE_TYPES = {
+    "stac": {
+        "crs": "string",
+        "tensor_shape": "list<int64>",
+        "geotransform": "list<double>",
+        "time_start": "timestamp[us, UTC]",
+        "centroid": "binary",
+    },
+    "istac": {
+        "crs": "string",
+        "geometry": "binary",
+        "time_start": "timestamp[us, UTC]",
+        "centroid": "binary",
+    },
+}
+_SPATIAL_OPTIONAL_TYPES = {
+    "time_end": "timestamp[us, UTC]",
+    "time_middle": "timestamp[us, UTC]",
+}
+
 
 def _raw_field(name: str, spec: Any, *, level: str) -> Field:
     if isinstance(spec, Mapping):
@@ -147,6 +167,7 @@ class Contract:
             }
             groups = dict.fromkeys(levels, ())
             derived_ = self._normalize_derived(derived or {}, levels, normalized)
+        self._check_spatial_groups(normalized)
 
         object.__setattr__(self, "structure", declarations)
         object.__setattr__(self, "metadata", normalized)
@@ -157,6 +178,34 @@ class Contract:
         object.__setattr__(self, "_children", children)
         object.__setattr__(self, "_types", types_)
         object.__setattr__(self, "_groups", groups)
+
+    @staticmethod
+    def _check_spatial_groups(metadata: Mapping[str, Mapping[str, Field]]) -> None:
+        for level, fields in metadata.items():
+            namespaces = {name.partition(":")[0] for name in fields}
+            if {"stac", "istac"}.issubset(namespaces):
+                raise ContractError(f"metadata level {level!r} must choose either STAC or ISTAC, not both")
+            if "stac:geometry" in fields:
+                raise ContractError(
+                    f"metadata level {level!r} puts geometry in STAC; use the ISTAC group for irregular footprints"
+                )
+            irregular_grid_fields = {"istac:tensor_shape", "istac:geotransform"}.intersection(fields)
+            if irregular_grid_fields:
+                raise ContractError(
+                    f"metadata level {level!r} puts affine-grid fields in ISTAC; use the STAC group for regular chunks"
+                )
+            for namespace, expected in _SPATIAL_PROFILE_TYPES.items():
+                present = {name.partition(":")[2] for name in fields if name.startswith(f"{namespace}:")}
+                if not present:
+                    continue
+                missing = sorted(set(expected) - present)
+                if missing:
+                    raise ContractError(f"{namespace.upper()} metadata at level {level!r} is missing fields {missing}")
+                for name, expected_type in {**expected, **_SPATIAL_OPTIONAL_TYPES}.items():
+                    qualified = f"{namespace}:{name}"
+                    if qualified in fields and fields[qualified].type != expected_type:
+                        actual = fields[qualified].type
+                        raise ContractError(f"field {level}.{qualified} must have type {expected_type}, got {actual}")
 
     @staticmethod
     def _derive_levels(children: Mapping[tuple[str, ...], Any], null_structure: bool) -> tuple[str, ...]:

@@ -30,6 +30,7 @@ class ScopedModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     __taco_scopes__: ClassVar[frozenset[str]] = frozenset()
+    __taco_namespace__: ClassVar[str | None] = None
     __taco_summaries__: ClassVar[tuple[type[CollectionSummary], ...]] = ()
 
 

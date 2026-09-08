@@ -44,11 +44,113 @@ def test_stac_time_order() -> None:
     with pytest.raises(ValueError, match="time_start"):
         taco.metadata.sample.STAC(
             crs="EPSG:4326",
-            geometry=point(0, 0),
+            tensor_shape=(3, 256, 256),
+            geotransform=(-0.5, 1 / 256, 0, 0.5, 0, -1 / 256),
             centroid=point(0, 0),
             time_start=now,
             time_end=datetime(2020, 1, 1, tzinfo=timezone.utc),
         )
+
+
+def test_stac_and_istac_have_distinct_v2_profiles() -> None:
+    now = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    end = datetime(2024, 1, 3, tzinfo=timezone.utc)
+    stac = taco.metadata.sample.STAC(
+        crs="EPSG:4326",
+        tensor_shape=(13, 256, 256),
+        geotransform=(-76.1, 0.2 / 256, 0, -11.9, 0, -0.2 / 256),
+        time_start=now,
+        centroid=point(-76, -12),
+        time_end=end,
+    )
+    istac = taco.metadata.sample.ISTAC(
+        crs="EPSG:4326",
+        geometry=point(-76, -12),
+        time_start=now,
+        time_end=end,
+        centroid=point(-76, -12),
+    )
+
+    assert tuple(type(stac).model_fields) == (
+        "crs",
+        "tensor_shape",
+        "geotransform",
+        "time_start",
+        "centroid",
+        "time_end",
+        "time_middle",
+    )
+    assert tuple(type(istac).model_fields) == (
+        "crs",
+        "geometry",
+        "time_start",
+        "time_end",
+        "time_middle",
+        "centroid",
+    )
+    assert stac.time_middle == istac.time_middle == datetime(2024, 1, 2, tzinfo=timezone.utc)
+    assert not issubclass(taco.metadata.sample.ISTAC, taco.metadata.sample.STAC)
+
+
+def test_stac_grid_validation() -> None:
+    now = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    common = {"crs": "EPSG:4326", "time_start": now, "centroid": point(0, 0)}
+    with pytest.raises(ValueError, match="at least 2"):
+        taco.metadata.sample.STAC(tensor_shape=(256,), geotransform=(0, 1, 0, 0, 0, -1), **common)
+    with pytest.raises(ValueError, match="positive"):
+        taco.metadata.sample.STAC(tensor_shape=(0, 256), geotransform=(0, 1, 0, 0, 0, -1), **common)
+    with pytest.raises(ValueError, match="Field required"):
+        taco.metadata.sample.STAC(tensor_shape=(256, 256), geotransform=(0, 1, 0), **common)
+
+
+def test_spatial_models_require_canonical_namespaces() -> None:
+    with pytest.raises(ContractError, match="must use metadata namespace 'stac'"):
+        taco.Level("sample", location=taco.metadata.sample.STAC)
+    with pytest.raises(ContractError, match="must use metadata namespace 'istac'"):
+        taco.Level("sample", stac=taco.metadata.sample.ISTAC)
+
+
+def test_contract_rejects_stac_and_istac_on_same_level() -> None:
+    with pytest.raises(ContractError, match="either STAC or ISTAC"):
+        taco.Contract(
+            structure=None,
+            metadata=taco.MetadataSchema(
+                taco.Level("sample", stac=taco.metadata.sample.STAC, istac=taco.metadata.sample.ISTAC)
+            ),
+        )
+
+    with pytest.raises(ContractError, match="puts geometry in STAC"):
+        taco.Contract(
+            structure=None,
+            metadata={
+                "sample": {
+                    "stac:geometry": "binary",
+                    "stac:centroid": "binary",
+                }
+            },
+        )
+
+    with pytest.raises(ContractError, match="puts affine-grid fields in ISTAC"):
+        taco.Contract(
+            structure=None,
+            metadata={
+                "sample": {
+                    "istac:geometry": "binary",
+                    "istac:tensor_shape": "list<int64>",
+                }
+            },
+        )
+
+    with pytest.raises(ContractError, match=r"STAC metadata.*missing fields"):
+        taco.Contract(structure=None, metadata={"sample": {"stac:centroid": "binary"}})
+
+    serialized = taco.Contract(
+        structure=None,
+        metadata=taco.MetadataSchema(taco.Level("sample", stac=taco.metadata.sample.STAC)),
+    ).to_dict()
+    serialized["taco:metadata"]["sample"]["stac:centroid"]["type"] = "string"
+    with pytest.raises(ContractError, match="stac:centroid must have type binary"):
+        taco.Contract.from_dict(serialized)
 
 
 def test_collection_models() -> None:

@@ -85,16 +85,22 @@ def polygon(west: float, south: float, east: float, north: float) -> bytes:
 
 def stac(
     index: int,
-    model: type[taco.metadata.sample.STAC] = taco.metadata.sample.STAC,
+    model: type[taco.metadata.sample.STAC] | type[taco.metadata.sample.ISTAC] = taco.metadata.sample.STAC,
     **values: object,
-) -> taco.metadata.sample.STAC:
+) -> taco.metadata.sample.STAC | taco.metadata.sample.ISTAC:
     x = -76.0 + index
-    return model(
+    common = dict(
         crs="EPSG:4326",
-        geometry=polygon(x - 0.1, -12.1, x + 0.1, -11.9),
         centroid=point(x, -12.0),
         time_start=datetime(2024, 1, index + 1, tzinfo=timezone.utc),
         **values,
+    )
+    if issubclass(model, taco.metadata.sample.ISTAC):
+        return model(geometry=polygon(x - 0.1, -12.1, x + 0.1, -11.9), **common)
+    return model(
+        tensor_shape=(13, 256, 256),
+        geotransform=(x - 0.1, 0.2 / 256, 0, -11.9, 0, -0.2 / 256),
+        **common,
     )
 
 

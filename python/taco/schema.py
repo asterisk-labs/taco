@@ -152,6 +152,11 @@ def _model_binding(namespace: str, value: Any) -> Group:
     annotation, optional = _optional(value)
     if not isinstance(annotation, type) or not issubclass(annotation, BaseModel):
         raise ContractError(f"metadata group {namespace!r} must be a Pydantic model, Model | None, or derived group")
+    expected_namespace = getattr(annotation, "__taco_namespace__", None)
+    if expected_namespace is not None and namespace != expected_namespace:
+        raise ContractError(
+            f"{annotation.__name__} must use metadata namespace {expected_namespace!r}, got {namespace!r}"
+        )
     fields = _model_fields(namespace, annotation, optional)
     return Group(namespace, annotation, optional, fields, summaries=_summary_types(annotation, fields))
 

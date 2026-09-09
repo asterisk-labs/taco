@@ -42,7 +42,9 @@ MIT.
 
 <div align="center">
   <br>
+  Made with ♥ by
+  <br><br>
   <a href="https://asterisk.coop">
-    <img src="spec/assets/asterisk_logo.svg" alt="Asterisk Labs" width="400"/>
+    <img src="https://raw.githubusercontent.com/asterisk-labs/cozip/refs/heads/main/images/asterisk_logo.svg" alt="Asterisk Labs" width="320"/>
   </a>
 </div>

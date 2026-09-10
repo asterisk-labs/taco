@@ -239,6 +239,7 @@ figcaption b{color:var(--fg);font-style:normal}
 <h4>Namespaces</h4>
 <p>Every user field MUST use the form <code>namespace:field</code>. Namespaces MUST match <code>[a-z][a-z0-9_]*</code>. Field names MUST be non-empty and MUST NOT contain <code>:</code>, <code>/</code>, or <code>__</code>. The qualified name MUST be unique within its level.</p>
 <p>The same namespace MAY appear at multiple levels and MAY use a different schema at each level. The <code>internal</code>, <code>taco</code>, and <code>cozip</code> namespaces are reserved. Producers MUST NOT create fields in these namespaces.</p>
+<p>The column names <code>cozip:location</code> and <code>taco:location</code> are owned exclusively by readers. A producer MUST NOT store either column in any Parquet file under <code>METADATA/</code>. A reader that encounters a stored value under either name MUST ignore or remove it, and MUST calculate locations at read time from the physical payload location, offset, size, and containing file.</p>
 <p>On disk, a namespace only qualifies a column name. It does not create a nested struct or identify a Python class. Contracts are equivalent when their structure, levels, qualified fields, types, nullability, descriptions, and derived group declarations are the same.</p>
 
 <h4>STAC and ISTAC profiles</h4>
@@ -649,7 +650,7 @@ with taco.open_writer(collection, "clouds.zip") as writer:
 <pre><code>INSTALL cozip FROM community;
 LOAD cozip;</code></pre>
 
-<h4>read_taco(path, idx, level, pivoted, files, gdal_vsi)</h4>
+<h4>read_taco(path, idx, level, pivoted, files, location)</h4>
 <p><code>read_taco</code> returns a table and detects ZIP, FOLDER, or TACOCAT from the path.</p>
 <p><strong>path</strong> is required and accepts any local or remote filesystem supported by DuckDB, including HTTP, S3, Azure, GCS, and Hugging Face. For ZIP containers, DuckDB reads the byte-0 index and scans the indexed Parquet ranges with predicate and projection pushdown.</p>
 <pre><code>SELECT * FROM read_taco('/data/cloudsen12.zip');
@@ -663,7 +664,7 @@ SELECT * FROM read_taco('hf://datasets/tacofoundation/cloudsen12/cloudsen12.zip'
 SELECT * FROM read_taco('dataset.zip', idx := 5);         -- sample 5
 SELECT * FROM read_taco('dataset.zip', idx := [0, 100]);  -- first 100 samples</code></pre>
 
-<p><strong>level</strong> selects a metadata level. <code>NULL</code> returns the default dataset view. A level name reads its Parquet directly without joins. When <code>level</code> is set, <code>idx</code>, <code>pivoted</code>, <code>files</code>, and <code>gdal_vsi</code> do not apply.</p>
+<p><strong>level</strong> selects a metadata level. <code>NULL</code> returns the default dataset view. A level name reads its Parquet directly without joins. When <code>level</code> is set, <code>idx</code>, <code>pivoted</code>, <code>files</code>, and <code>location</code> do not apply. A raw level read does not synthesize a location column and removes any stored <code>cozip:location</code> or <code>taco:location</code> column.</p>
 <pre><code>SELECT * FROM read_taco('dataset.zip');                         -- joined view
 SELECT * FROM read_taco('dataset.zip', level := 'sample');          -- sample.parquet
 SELECT * FROM read_taco('dataset.zip', level := 'children');        -- children.parquet
@@ -671,17 +672,17 @@ SELECT * FROM read_taco('dataset.zip', level := 'children/before'); -- children_
 
 <p><strong>pivoted</strong> controls the result shape. The default value is <code>true</code>, which returns one row per sample, its sample metadata, and one VSI path column per selected file. When <code>false</code>, the result contains one row per file. Each row includes the metadata of that file and its ancestor folders, with the nearest declaration taking precedence when the same qualified field appears at more than one level.</p>
 <p><strong>files</strong> limits which structure declarations appear in a pivoted result. A fixed file is selected by its full contract path. A variable sequence is selected by its declaration, such as <code>img*[4,16].tif</code>. <code>NULL</code> returns every declared file.</p>
-<p><strong>gdal_vsi</strong> controls whether path columns contain GDAL VSI paths. The default is <code>true</code>. When <code>false</code>, path columns are <code>NULL</code>, which allows metadata-only queries.</p>
-<p>Both shapes include <code>sample_id</code>. TACOCAT also includes <code>source_file</code>, and the pair identifies a sample. The flat shape adds <code>path</code> and <code>cozip:gdal_vsi</code>. These are reader output columns and are not stored as user metadata.</p>
+<p><strong>location</strong> controls whether the reader calculates file locations. The default is <code>true</code>. In a pivoted result, calculated values populate the file columns defined by <code>taco:structure</code>. In an unpivoted result, each file row includes <code>taco:location</code>. When <code>false</code>, a reader MAY replace calculated locations with <code>NULL</code> or omit them.</p>
+<p>Both shapes include <code>sample_id</code>. TACOCAT also includes <code>source_file</code>, and the pair identifies a sample. The unpivoted shape adds <code>path</code> and the reader-calculated <code>taco:location</code>. <code>cozip:location</code> belongs to the Flat profile and MUST NOT be emitted by a TACO reader.</p>
 <p>Collection metadata is not repeated in every result row. It is available through <code>taco_collection()</code> and the language wrappers.</p>
 <pre><code>-- Pivoted (default), one row per sample, one column per file
 SELECT * FROM read_taco('cloudsen12.zip');
 -- sample_id | ml:split | quality:cloud_cover | s2_l1c.tif      | s2_l2a.tif      | target.tif
 -- 0         | train    | 23.5                | /vsisubfile/... | /vsisubfile/... | /vsisubfile/...
 
--- Flat, one row per file
+-- Unpivoted, one row per file
 SELECT * FROM read_taco('cloudsen12.zip', pivoted := false);
--- sample_id | ml:split | raster:resolution | raster:num_bands | path       | cozip:gdal_vsi
+-- sample_id | ml:split | raster:resolution | raster:num_bands | path       | taco:location
 -- 0         | train    | 10.0              | 13               | s2_l1c.tif | /vsisubfile/...
 -- 0         | train    | 10.0              | 13               | s2_l2a.tif | /vsisubfile/...
 -- 0         | train    | 10.0              | 1                | target.tif | /vsisubfile/...
@@ -696,7 +697,7 @@ SELECT * FROM read_taco('change_detection.zip', files := ['before/B02.tif', 'aft
 -- 0         | train    | [/vsisubfile/..., /vsisubfile/..., ...]
 -- 1         | val      | [/vsisubfile/..., /vsisubfile/..., ...]</code></pre>
 <p>The list is ordered by the numeric sequence index. A sequence with no files returns an empty list.</p>
-<p>When <code>taco:structure</code> is null, the default result contains one <code>cozip:gdal_vsi</code> column for the sample file. Query results have no implicit row order. Callers MUST use <code>ORDER BY</code> when order matters.</p>
+<p>When <code>taco:structure</code> is null, the default result contains one reader-calculated <code>taco:location</code> column for the sample file. Query results have no implicit row order. Callers MUST use <code>ORDER BY</code> when order matters.</p>
 
 <h4>taco_contract(path)</h4>
 <p><code>taco_contract</code> returns the structure, levels, and derived group declarations as <code>kind</code> and <code>value</code> rows. Structure and level values are names. When derived groups exist, one derived row contains the complete <code>taco:derived</code> object as JSON. The extension also provides <code>taco_structure</code>, <code>taco_levels</code>, <code>taco_derived</code>, and <code>taco_collection</code> for direct inspection. <code>taco_sql</code> shows the SQL generated by <code>read_taco</code>.</p>

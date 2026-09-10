@@ -1,1040 +1,789 @@
-(() => {
-  "use strict";
-
-  const INDEX_NAME = "__cozip__";
-  const PADDING_NAME = "__cozip_padding__";
-  const INDEX_OFFSET = 51;
-  const HASH_WINDOW_SIZE = 32768;
-  const MIN_ARCHIVE_SIZE = HASH_WINDOW_SIZE + INDEX_OFFSET;
-  const FORMAT_VERSION = 1;
-  const PROFILE_NONE = 0;
-  const ZIP32_MAX = 0xffffffff;
-  const ZIP16_MAX = 0xffff;
-  const GP_UTF8 = 1 << 11;
-  const METHOD_STORE = 0;
-  const DOS_TIME = 0;
-  const DOS_DATE = 0x0021;
-  const FNV_OFFSET = 0xcbf29ce484222325n;
-  const FNV_PRIME = 0x100000001b3n;
-  const U64_MASK = 0xffffffffffffffffn;
-
-  const textEncoder = new TextEncoder();
-  const crcTable = makeCrcTable();
-
-  const state = {
-    files: [],
-    nextId: 1,
-    objectUrl: null,
-    lastResult: null,
-  };
-
-  const els = {
-    filePicker: document.getElementById("filePicker"),
-    dropZone: document.getElementById("dropZone"),
-    sampleBtn: document.getElementById("sampleBtn"),
-    archiveName: document.getElementById("archiveName"),
-    profileSelect: document.getElementById("profileSelect"),
-    buildBtn: document.getElementById("buildBtn"),
-    clearBtn: document.getElementById("clearBtn"),
-    fileRows: document.getElementById("fileRows"),
-    downloadLink: document.getElementById("downloadLink"),
-    metrics: document.getElementById("metrics"),
-    byteMap: document.getElementById("byteMap"),
-    planList: document.getElementById("planList"),
-    indexPreview: document.getElementById("indexPreview"),
-    layoutRows: document.getElementById("layoutRows"),
-    hashPreview: document.getElementById("hashPreview"),
-    log: document.getElementById("log"),
-  };
-
-  init();
-
-  function init() {
-    bindEvents();
-    renderFiles();
-    renderEmptyOutput();
-    setLog("Ready. Add files or load the sample payloads.");
-  }
-
-  function bindEvents() {
-    els.filePicker.addEventListener("change", () => {
-      addFiles(Array.from(els.filePicker.files).map((file) => ({ file })));
-      els.filePicker.value = "";
-    });
-
-    els.sampleBtn.addEventListener("click", () => {
-      addFiles(createSampleFiles(), { replace: true });
-      setLog("Loaded deterministic sample files.");
-    });
-
-    els.buildBtn.addEventListener("click", () => {
-      buildFromUi();
-    });
-
-    els.clearBtn.addEventListener("click", () => {
-      state.files = [];
-      state.lastResult = null;
-      setDownload(null);
-      renderFiles();
-      renderEmptyOutput();
-      setLog("Cleared input files and output archive.");
-    });
-
-    els.fileRows.addEventListener("input", (event) => {
-      const input = event.target.closest(".path-input");
-      if (!input) return;
-      const item = findFile(input.dataset.id);
-      if (item) item.name = input.value;
-    });
-
-    els.fileRows.addEventListener("change", (event) => {
-      const toggle = event.target.closest(".index-toggle");
-      if (!toggle) return;
-      const item = findFile(toggle.dataset.id);
-      if (item) item.inIndex = toggle.checked;
-    });
-
-    els.fileRows.addEventListener("click", (event) => {
-      const button = event.target.closest("[data-remove]");
-      if (!button) return;
-      const id = button.dataset.remove;
-      state.files = state.files.filter((item) => String(item.id) !== String(id));
-      renderFiles();
-      setLog("Removed one input file.");
-    });
-
-    for (const eventName of ["dragenter", "dragover"]) {
-      els.dropZone.addEventListener(eventName, (event) => {
-        event.preventDefault();
-        els.dropZone.classList.add("dragging");
-      });
-    }
-
-    for (const eventName of ["dragleave", "drop"]) {
-      els.dropZone.addEventListener(eventName, () => {
-        els.dropZone.classList.remove("dragging");
-      });
-    }
-
-    els.dropZone.addEventListener("drop", (event) => {
-      event.preventDefault();
-      const dropped = Array.from(event.dataTransfer.files).map((file) => ({ file }));
-      addFiles(dropped);
-    });
-
-    document.querySelectorAll(".tab").forEach((tab) => {
-      tab.addEventListener("click", () => selectTab(tab.dataset.tab));
-    });
-  }
-
-  function addFiles(items, options = {}) {
-    if (options.replace) state.files = [];
-
-    const seen = new Set(state.files.map((item) => item.name));
-    let added = 0;
-    let rejected = 0;
-
-    for (const item of items) {
-      const file = item.file;
-      if (!file || typeof file.arrayBuffer !== "function") continue;
-
-      if (file.size === 0) {
-        rejected += 1;
-        continue;
-      }
-
-      const rawName = item.name || file.name || `payload-${state.nextId}.bin`;
-      const name = makeUniqueName(cleanArchiveName(rawName), seen);
-      state.files.push({
-        id: state.nextId++,
-        file,
-        name,
-        inIndex: item.inIndex !== false,
-      });
-      added += 1;
-    }
-
-    renderFiles();
-    state.lastResult = null;
-    setDownload(null);
-    renderEmptyOutput();
-
-    if (added || rejected) {
-      const parts = [];
-      if (added) parts.push(`${added} file${added === 1 ? "" : "s"} added`);
-      if (rejected) parts.push(`${rejected} zero-byte file${rejected === 1 ? "" : "s"} rejected`);
-      setLog(`${parts.join("; ")}.`);
-    }
-  }
-
-  async function buildFromUi() {
-    if (!state.files.length) {
-      setLog("Add at least one non-empty file before building.");
-      return;
-    }
-
-    els.buildBtn.disabled = true;
-    els.buildBtn.textContent = "Building...";
-
-    try {
-      const prepared = await prepareEntries();
-      if (prepared.renamed.length) renderFiles();
-
-      const profile = Number(els.profileSelect.value || PROFILE_NONE);
-      const result = buildCozipArchive(prepared.entries, profile);
-      state.lastResult = result;
-      setDownload(result);
-      renderResult(result, prepared.renamed);
-      setLog(buildSuccessMessage(result));
-    } catch (error) {
-      console.error(error);
-      state.lastResult = null;
-      setDownload(null);
-      setLog(`Build failed: ${error.message}`);
-    } finally {
-      els.buildBtn.disabled = false;
-      els.buildBtn.textContent = "Build cozip";
-    }
-  }
-
-  async function prepareEntries() {
-    const seen = new Set();
-    const renamed = [];
-    const entries = [];
-
-    for (const item of state.files) {
-      const previousName = item.name;
-      const cleaned = cleanArchiveName(item.name || item.file.name);
-      const name = makeUniqueName(cleaned, seen);
-      if (name !== previousName) {
-        renamed.push({ from: previousName, to: name });
-        item.name = name;
-      }
-
-      const data = new Uint8Array(await item.file.arrayBuffer());
-      if (data.length === 0) {
-        throw new Error(`${name} is empty. cozip entries must have non-zero payloads.`);
-      }
-      assertZip32(data.length, `${name} payload`);
-
-      const nameBytes = encodeName(name);
-      entries.push({
-        kind: "file",
-        name,
-        nameBytes,
-        data,
-        payloadSize: data.length,
-        inIndex: item.inIndex,
-      });
-    }
-
-    return { entries, renamed };
-  }
-
-  function buildCozipArchive(inputEntries, profile) {
-    const entries = inputEntries.map((entry) => ({ ...entry }));
-    const indexPayloadSize = computeIndexPayloadSize(entries);
-
-    planEntries(entries, indexPayloadSize);
-    let archiveSize = predictArchiveSize(entries, indexPayloadSize);
-
-    let paddingEntry = null;
-    if (archiveSize < MIN_ARCHIVE_SIZE) {
-      const padNameBytes = encodeName(PADDING_NAME);
-      const overhead = localHeaderSize(padNameBytes) + centralHeaderSize(padNameBytes);
-      const paddingSize = Math.max(1, MIN_ARCHIVE_SIZE - archiveSize - overhead);
-      paddingEntry = {
-        kind: "padding",
-        name: PADDING_NAME,
-        nameBytes: padNameBytes,
-        data: makePaddingBytes(paddingSize),
-        payloadSize: paddingSize,
-        inIndex: false,
-      };
-      entries.push(paddingEntry);
-      planEntries(entries, indexPayloadSize);
-      archiveSize = predictArchiveSize(entries, indexPayloadSize);
-    }
-
-    if (archiveSize < MIN_ARCHIVE_SIZE) {
-      throw new Error("internal padding calculation did not reach the minimum cozip archive size");
-    }
-
-    const indexPayload = buildIndexPayload(entries, profile);
-    const indexEntry = {
-      kind: "index",
-      name: INDEX_NAME,
-      nameBytes: encodeName(INDEX_NAME),
-      data: indexPayload,
-      payloadSize: indexPayload.length,
-      inIndex: false,
-      lfhOffset: 0,
-      lfhSize: INDEX_OFFSET,
-      payloadOffset: INDEX_OFFSET,
-    };
-
-    indexEntry.crc = crc32(indexPayload);
-    for (const entry of entries) {
-      entry.crc = crc32(entry.data);
-    }
-
-    const parts = [];
-    let cursor = 0;
-
-    parts.push(makeLocalHeader(indexEntry, makeCozipExtraField()));
-    cursor += parts[parts.length - 1].length;
-    parts.push(indexPayload);
-    cursor += indexPayload.length;
-
-    for (const entry of entries) {
-      if (cursor !== entry.lfhOffset) {
-        throw new Error(`planned offset mismatch for ${entry.name}`);
-      }
-      const header = makeLocalHeader(entry, new Uint8Array(0));
-      parts.push(header, entry.data);
-      cursor += header.length + entry.data.length;
-    }
-
-    const cdOffset = cursor;
-    const zipEntries = [indexEntry, ...entries];
-    for (const entry of zipEntries) {
-      const centralHeader = makeCentralHeader(entry);
-      parts.push(centralHeader);
-      cursor += centralHeader.length;
-    }
-
-    const cdSize = cursor - cdOffset;
-    const eocdOffset = cursor;
-    const eocd = makeEndOfCentralDirectory(zipEntries.length, cdSize, cdOffset);
-    parts.push(eocd);
-    cursor += eocd.length;
-
-    const bytes = concatBytes(parts);
-    if (bytes.length !== cursor) {
-      throw new Error("archive byte assembly produced an unexpected length");
-    }
-    if (bytes.length !== archiveSize) {
-      throw new Error("predicted archive size does not match assembled bytes");
-    }
-
-    const hash = computeIntegrityHash(bytes, indexPayload.length);
-    putU64(bytes, 43, hash);
-
-    const segments = buildSegments(entries, indexPayload.length, cdOffset, cdSize, eocdOffset, bytes.length);
-    const indexedCount = entries.filter((entry) => entry.inIndex).length;
-
-    return {
-      bytes,
-      indexPayload,
-      indexEntry,
-      entries,
-      zipEntries,
-      cdOffset,
-      cdSize,
-      eocdOffset,
-      hash,
-      hashHex: hex64(hash),
-      paddingEntry,
-      segments,
-      profile,
-      indexedCount,
-      suffixStart: bytes.length - HASH_WINDOW_SIZE,
-      indexEnd: INDEX_OFFSET + indexPayload.length,
-    };
-  }
-
-  function buildSuccessMessage(result) {
-    return `Built ${formatBytes(result.bytes.length)} archive with ${result.indexedCount} indexed file${result.indexedCount === 1 ? "" : "s"}; engine: educational JavaScript writer.`;
-  }
-
-  function computeIndexPayloadSize(entries) {
-    let total = 11;
-    for (const entry of entries) {
-      if (!entry.inIndex) continue;
-      total += 18 + entry.nameBytes.length;
-    }
-    assertZip32(total, "index payload");
-    return total;
-  }
-
-  function planEntries(entries, indexPayloadSize) {
-    let cursor = INDEX_OFFSET + indexPayloadSize;
-    for (const entry of entries) {
-      entry.lfhOffset = cursor;
-      entry.lfhSize = localHeaderSize(entry.nameBytes);
-      entry.payloadOffset = entry.lfhOffset + entry.lfhSize;
-      entry.payloadSize = entry.data.length;
-      cursor = entry.payloadOffset + entry.payloadSize;
-      assertZip32(entry.lfhOffset, `${entry.name} local header offset`);
-      assertZip32(entry.payloadOffset, `${entry.name} payload offset`);
-    }
-  }
-
-  function predictArchiveSize(entries, indexPayloadSize) {
-    let localEnd = INDEX_OFFSET + indexPayloadSize;
-    for (const entry of entries) {
-      localEnd = entry.payloadOffset + entry.payloadSize;
-    }
-
-    let centralSize = centralHeaderSize(encodeName(INDEX_NAME));
-    for (const entry of entries) {
-      centralSize += centralHeaderSize(entry.nameBytes);
-    }
-
-    assertZip32(localEnd, "Central Directory offset");
-    assertZip32(centralSize, "Central Directory size");
-    assertZip32(localEnd + centralSize + 22, "archive size");
-
-    return localEnd + centralSize + 22;
-  }
-
-  function buildIndexPayload(entries, profile) {
-    const indexed = entries.filter((entry) => entry.inIndex);
-    const size = computeIndexPayloadSize(entries);
-    const out = new Uint8Array(size);
-    let cursor = 0;
-
-    out.set(textEncoder.encode("CZIP"), cursor);
-    cursor += 4;
-    putU16(out, cursor, FORMAT_VERSION);
-    cursor += 2;
-    out[cursor++] = profile & 0xff;
-    putU32(out, cursor, indexed.length);
-    cursor += 4;
-
-    for (const entry of indexed) {
-      putU16(out, cursor, entry.nameBytes.length);
-      cursor += 2;
-    }
-
-    for (const entry of indexed) {
-      out.set(entry.nameBytes, cursor);
-      cursor += entry.nameBytes.length;
-    }
-
-    for (const entry of indexed) {
-      putU64(out, cursor, BigInt(entry.payloadOffset));
-      cursor += 8;
-    }
-
-    for (const entry of indexed) {
-      putU64(out, cursor, BigInt(entry.payloadSize));
-      cursor += 8;
-    }
-
-    return out;
-  }
-
-  function makeCozipExtraField() {
-    const out = new Uint8Array(12);
-    putU16(out, 0, 0xca0c);
-    putU16(out, 2, 8);
-    return out;
-  }
-
-  function makeLocalHeader(entry, extra) {
-    const size = 30 + entry.nameBytes.length + extra.length;
-    const out = new Uint8Array(size);
-    putU32(out, 0, 0x04034b50);
-    putU16(out, 4, 20);
-    putU16(out, 6, GP_UTF8);
-    putU16(out, 8, METHOD_STORE);
-    putU16(out, 10, DOS_TIME);
-    putU16(out, 12, DOS_DATE);
-    putU32(out, 14, entry.crc);
-    putU32(out, 18, entry.payloadSize);
-    putU32(out, 22, entry.payloadSize);
-    putU16(out, 26, entry.nameBytes.length);
-    putU16(out, 28, extra.length);
-    out.set(entry.nameBytes, 30);
-    out.set(extra, 30 + entry.nameBytes.length);
-    return out;
-  }
-
-  function makeCentralHeader(entry) {
-    const out = new Uint8Array(46 + entry.nameBytes.length);
-    putU32(out, 0, 0x02014b50);
-    putU16(out, 4, 20);
-    putU16(out, 6, 20);
-    putU16(out, 8, GP_UTF8);
-    putU16(out, 10, METHOD_STORE);
-    putU16(out, 12, DOS_TIME);
-    putU16(out, 14, DOS_DATE);
-    putU32(out, 16, entry.crc);
-    putU32(out, 20, entry.payloadSize);
-    putU32(out, 24, entry.payloadSize);
-    putU16(out, 28, entry.nameBytes.length);
-    putU16(out, 30, 0);
-    putU16(out, 32, 0);
-    putU16(out, 34, 0);
-    putU16(out, 36, 0);
-    putU32(out, 38, 0);
-    putU32(out, 42, entry.lfhOffset);
-    out.set(entry.nameBytes, 46);
-    return out;
-  }
-
-  function makeEndOfCentralDirectory(entryCount, cdSize, cdOffset) {
-    if (entryCount > ZIP16_MAX) {
-      throw new Error("this playground does not implement ZIP64 entry counts");
-    }
-    assertZip32(cdSize, "Central Directory size");
-    assertZip32(cdOffset, "Central Directory offset");
-
-    const out = new Uint8Array(22);
-    putU32(out, 0, 0x06054b50);
-    putU16(out, 4, 0);
-    putU16(out, 6, 0);
-    putU16(out, 8, entryCount);
-    putU16(out, 10, entryCount);
-    putU32(out, 12, cdSize);
-    putU32(out, 16, cdOffset);
-    putU16(out, 20, 0);
-    return out;
-  }
-
-  function buildSegments(entries, indexSize, cdOffset, cdSize, eocdOffset, archiveSize) {
-    const segments = [
-      { label: "__cozip__ LFH", start: 0, end: INDEX_OFFSET, kind: "index-lfh" },
-      { label: "CZIP index", start: INDEX_OFFSET, end: INDEX_OFFSET + indexSize, kind: "index" },
-    ];
-
-    for (const entry of entries) {
-      segments.push({
-        label: entry.kind === "padding" ? "padding" : entry.name,
-        start: entry.lfhOffset,
-        end: entry.payloadOffset + entry.payloadSize,
-        kind: entry.kind === "padding" ? "padding" : "file",
-      });
-    }
-
-    segments.push({ label: "Central Directory", start: cdOffset, end: cdOffset + cdSize, kind: "cd" });
-    segments.push({ label: "EOCD", start: eocdOffset, end: archiveSize, kind: "eocd" });
-    return segments;
-  }
-
-  function computeIntegrityHash(bytes, indexSize) {
-    const indexEnd = INDEX_OFFSET + indexSize;
-    const suffixStart = bytes.length - HASH_WINDOW_SIZE;
-    let hash = FNV_OFFSET;
-
-    hash = fnv1aUpdate(hash, bytes, INDEX_OFFSET, indexEnd);
-    if (indexEnd <= suffixStart) {
-      hash = fnv1aUpdate(hash, bytes, suffixStart, bytes.length);
-    } else {
-      hash = fnv1aUpdate(hash, bytes, indexEnd, bytes.length);
-    }
-
-    return hash;
-  }
-
-  function fnv1aUpdate(hash, bytes, start, end) {
-    let out = hash;
-    for (let index = start; index < end; index += 1) {
-      out ^= BigInt(bytes[index]);
-      out = (out * FNV_PRIME) & U64_MASK;
-    }
-    return out;
-  }
-
-  function crc32(bytes) {
-    let crc = 0xffffffff;
-    for (let index = 0; index < bytes.length; index += 1) {
-      crc = (crc >>> 8) ^ crcTable[(crc ^ bytes[index]) & 0xff];
-    }
-    return (crc ^ 0xffffffff) >>> 0;
-  }
-
-  function makeCrcTable() {
-    const table = new Uint32Array(256);
-    for (let i = 0; i < 256; i += 1) {
-      let value = i;
-      for (let bit = 0; bit < 8; bit += 1) {
-        value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
-      }
-      table[i] = value >>> 0;
-    }
-    return table;
-  }
-
-  function setDownload(result) {
-    if (state.objectUrl) {
-      URL.revokeObjectURL(state.objectUrl);
-      state.objectUrl = null;
-    }
-
-    if (!result) {
-      els.downloadLink.href = "#";
-      els.downloadLink.removeAttribute("download");
-      els.downloadLink.classList.add("disabled");
-      els.downloadLink.setAttribute("aria-disabled", "true");
-      return;
-    }
-
-    const name = cleanDownloadName(els.archiveName.value);
-    const blob = new Blob([result.bytes], { type: "application/zip" });
-    state.objectUrl = URL.createObjectURL(blob);
-    els.downloadLink.href = state.objectUrl;
-    els.downloadLink.download = name;
-    els.downloadLink.classList.remove("disabled");
-    els.downloadLink.setAttribute("aria-disabled", "false");
-  }
-
-  function renderFiles() {
-    els.fileRows.replaceChildren();
-
-    if (!state.files.length) {
-      const row = document.createElement("tr");
-      row.className = "empty-row";
-      const cell = document.createElement("td");
-      cell.colSpan = 4;
-      cell.textContent = "No files loaded yet.";
-      row.appendChild(cell);
-      els.fileRows.appendChild(row);
-      return;
-    }
-
-    for (const item of state.files) {
-      const row = document.createElement("tr");
-
-      const pathCell = document.createElement("td");
-      const input = document.createElement("input");
-      input.type = "text";
-      input.value = item.name;
-      input.spellcheck = false;
-      input.className = "path-input";
-      input.dataset.id = item.id;
-      input.title = "Archive path";
-      pathCell.appendChild(input);
-
-      const sizeCell = document.createElement("td");
-      sizeCell.className = "num";
-      sizeCell.textContent = formatBytes(item.file.size);
-
-      const indexCell = document.createElement("td");
-      const switchLabel = document.createElement("label");
-      switchLabel.className = "switch";
-      switchLabel.title = "Include in byte-zero index";
-      const checkbox = document.createElement("input");
-      checkbox.type = "checkbox";
-      checkbox.className = "index-toggle";
-      checkbox.dataset.id = item.id;
-      checkbox.checked = item.inIndex;
-      const toggleUi = document.createElement("span");
-      toggleUi.className = "toggle-ui";
-      switchLabel.append(checkbox, toggleUi);
-      indexCell.appendChild(switchLabel);
-
-      const actionCell = document.createElement("td");
-      const remove = document.createElement("button");
-      remove.type = "button";
-      remove.className = "remove-btn";
-      remove.dataset.remove = item.id;
-      remove.title = "Remove file";
-      remove.setAttribute("aria-label", `Remove ${item.name}`);
-      remove.innerHTML = "&times;";
-      actionCell.appendChild(remove);
-
-      row.append(pathCell, sizeCell, indexCell, actionCell);
-      els.fileRows.appendChild(row);
-    }
-  }
-
-  function renderEmptyOutput() {
-    renderMetrics(null);
-    renderByteMap(null);
-    renderPlan(null);
-    els.indexPreview.textContent = "No index yet.";
-    els.hashPreview.textContent = "No hash yet.";
-    els.layoutRows.replaceChildren(makeEmptyTableRow(4, "No layout yet."));
-  }
-
-  function renderResult(result, renamed) {
-    renderMetrics(result);
-    renderByteMap(result);
-    renderPlan(result, renamed);
-    renderIndexPreview(result);
-    renderHashPreview(result);
-    renderLayoutRows(result);
-  }
-
-  function renderMetrics(result) {
-    const values = els.metrics.querySelectorAll("strong");
-    if (!result) {
-      values[0].textContent = "-";
-      values[1].textContent = "-";
-      values[2].textContent = "-";
-      values[3].textContent = "-";
-      return;
-    }
-
-    values[0].textContent = formatBytes(result.bytes.length);
-    values[1].textContent = formatBytes(result.indexPayload.length);
-    const userEntryCount = result.entries.filter((entry) => entry.kind === "file").length;
-    values[2].textContent = `${result.indexedCount}/${userEntryCount}`;
-    values[3].textContent = result.hashHex;
-  }
-
-  function renderByteMap(result) {
-    els.byteMap.replaceChildren();
-    if (!result) {
-      const placeholder = document.createElement("span");
-      placeholder.className = "byte-placeholder";
-      placeholder.textContent = "Build an archive to see byte ranges.";
-      els.byteMap.appendChild(placeholder);
-      return;
-    }
-
-    for (const segment of result.segments) {
-      const el = document.createElement("span");
-      const length = Math.max(1, segment.end - segment.start);
-      el.className = `byte-segment byte-${segment.kind}`;
-      el.style.flex = `${Math.max(length, result.bytes.length * 0.012)} 1 0`;
-      el.textContent = segment.label;
-      el.title = `${segment.label}: [${segment.start}, ${segment.end})`;
-      els.byteMap.appendChild(el);
-    }
-  }
-
-  function renderPlan(result, renamed = []) {
-    els.planList.replaceChildren();
-
-    if (!result) {
-      [
-        "Choose one or more non-empty files.",
-        "Mark the files that should appear in the byte-zero cozip index.",
-        "Build the archive to compute Local File Header offsets, index payload, Central Directory, EOCD, and the final FNV-1a 64 hash.",
-      ].forEach((step) => appendListItem(els.planList, step));
-      return;
-    }
-
-    const indexFormula = explainIndexFormula(result.entries);
-    const paddingText = result.paddingEntry
-      ? `Added ${formatBytes(result.paddingEntry.payloadSize)} of padding so the archive reaches the ${formatBytes(MIN_ARCHIVE_SIZE)} cozip minimum.`
-      : "No padding entry was needed because the archive already satisfies the cozip minimum size.";
-
-    [
-      "Normalized archive paths and rejected empty payloads.",
-      `Computed the index payload size: ${indexFormula}.`,
-      "Planned every user Local File Header before writing bytes, so indexed payload offsets are final.",
-      "Serialized the CZIP index payload at archive byte 51.",
-      paddingText,
-      `Wrote ${result.zipEntries.length} ZIP entries, the Central Directory at byte ${result.cdOffset}, and EOCD at byte ${result.eocdOffset}.`,
-      `Patched ${result.hashHex} into archive bytes 43..50 after hashing the index and final 32 KiB.`,
-    ].forEach((step) => appendListItem(els.planList, step));
-
-    for (const change of renamed) {
-      appendListItem(els.planList, `Renamed ${change.from || "(empty)"} to ${change.to} for cozip path safety.`);
-    }
-  }
-
-  function renderIndexPreview(result) {
-    const indexed = result.entries.filter((entry) => entry.inIndex);
-    const nameBytes = indexed.reduce((sum, entry) => sum + entry.nameBytes.length, 0);
-    const lines = [
-      "CZIP index payload",
-      `archive range: [${INDEX_OFFSET}, ${INDEX_OFFSET + result.indexPayload.length})`,
-      `magic: CZIP`,
-      `version: ${FORMAT_VERSION}`,
-      `profile: NONE (${result.profile})`,
-      `n_entries: ${indexed.length}`,
-      "",
-      "section sizes",
-      `header: 11 bytes`,
-      `name lengths: ${indexed.length * 2} bytes`,
-      `names: ${nameBytes} bytes`,
-      `offsets: ${indexed.length * 8} bytes`,
-      `sizes: ${indexed.length * 8} bytes`,
-      "",
-      "priority entries",
-    ];
-
-    if (!indexed.length) {
-      lines.push("  (none)");
-    }
-
-    for (const entry of indexed) {
-      lines.push(`  - ${entry.name}`);
-      lines.push(`    offset: ${entry.payloadOffset}`);
-      lines.push(`    size: ${entry.payloadSize}`);
-    }
-
-    els.indexPreview.textContent = lines.join("\n");
-  }
-
-  function renderHashPreview(result) {
-    const overlap = Math.max(0, result.indexEnd - result.suffixStart);
-    const lines = [
-      "Integrity patch",
-      "hash slot: archive bytes 43..50",
-      `patched value: ${result.hashHex}`,
-      "",
-      "hash input",
-      `index region: [${INDEX_OFFSET}, ${result.indexEnd})`,
-      `suffix region: [${result.suffixStart}, ${result.bytes.length})`,
-      `overlap skipped: ${overlap} bytes`,
-      "",
-      "note: FNV-1a 64 is a compact structural check, not an authentication layer.",
-    ];
-    els.hashPreview.textContent = lines.join("\n");
-  }
-
-  function renderLayoutRows(result) {
-    els.layoutRows.replaceChildren();
-
-    for (const entry of result.zipEntries) {
-      const row = document.createElement("tr");
-      const name = document.createElement("td");
-      name.textContent = entry.kind === "padding" ? `${entry.name} (padding)` : entry.name;
-
-      const lfh = document.createElement("td");
-      lfh.className = "num";
-      lfh.textContent = String(entry.lfhOffset);
-
-      const payload = document.createElement("td");
-      payload.className = "num";
-      payload.textContent = String(entry.payloadOffset);
-
-      const size = document.createElement("td");
-      size.className = "num";
-      size.textContent = String(entry.payloadSize);
-
-      row.append(name, lfh, payload, size);
-      els.layoutRows.appendChild(row);
-    }
-  }
-
-  function appendListItem(list, text) {
-    const item = document.createElement("li");
-    item.textContent = text;
-    list.appendChild(item);
-  }
-
-  function makeEmptyTableRow(columns, text) {
-    const row = document.createElement("tr");
-    row.className = "empty-row";
-    const cell = document.createElement("td");
-    cell.colSpan = columns;
-    cell.textContent = text;
-    row.appendChild(cell);
-    return row;
-  }
-
-  function selectTab(name) {
-    document.querySelectorAll(".tab").forEach((tab) => {
-      tab.classList.toggle("active", tab.dataset.tab === name);
-    });
-    document.querySelectorAll(".tab-panel").forEach((panel) => {
-      panel.classList.toggle("active", panel.id === `tab-${name}`);
-    });
-  }
-
-  function findFile(id) {
-    return state.files.find((item) => String(item.id) === String(id));
-  }
-
-  function cleanArchiveName(raw) {
-    let name = String(raw || "").replace(/\0/g, "").replace(/\\/g, "/").trim();
-    name = name.replace(/^[a-zA-Z]:+/, "");
-    name = name.replace(/^\/+/, "");
-
-    const parts = name
-      .split("/")
-      .map((part) => part.trim())
-      .filter((part) => part && part !== "." && part !== "..");
-
-    name = parts.join("/");
-    if (!name) name = "payload.bin";
-    if (name === INDEX_NAME || name === PADDING_NAME) {
-      name = `payload/${name}.bin`;
-    }
-    return name;
-  }
-
-  function makeUniqueName(name, seen) {
-    let candidate = name;
-    let counter = 2;
-    while (seen.has(candidate)) {
-      candidate = addNameSuffix(name, counter);
-      counter += 1;
-    }
-    seen.add(candidate);
-    return candidate;
-  }
-
-  function addNameSuffix(name, counter) {
-    const slash = name.lastIndexOf("/");
-    const dir = slash >= 0 ? `${name.slice(0, slash + 1)}` : "";
-    const leaf = slash >= 0 ? name.slice(slash + 1) : name;
-    const dot = leaf.lastIndexOf(".");
-    if (dot > 0) {
-      return `${dir}${leaf.slice(0, dot)}-${counter}${leaf.slice(dot)}`;
-    }
-    return `${dir}${leaf}-${counter}`;
-  }
-
-  function cleanDownloadName(raw) {
-    const requested = String(raw || "").trim();
-    const cleaned = cleanArchiveName(requested || "dataset.zip").replace(/\//g, "-");
-    return cleaned || "dataset.zip";
-  }
-
-  function encodeName(name) {
-    const bytes = textEncoder.encode(name);
-    if (bytes.length === 0) {
-      throw new Error("archive names must not be empty");
-    }
-    if (bytes.length > ZIP16_MAX) {
-      throw new Error(`${name} is too long for a ZIP filename field`);
-    }
-    return bytes;
-  }
-
-  function localHeaderSize(nameBytes) {
-    return 30 + nameBytes.length;
-  }
-
-  function centralHeaderSize(nameBytes) {
-    return 46 + nameBytes.length;
-  }
-
-  function putU16(out, offset, value) {
-    const v = Number(value);
-    out[offset] = v & 0xff;
-    out[offset + 1] = (v >>> 8) & 0xff;
-  }
-
-  function putU32(out, offset, value) {
-    const v = Number(value) >>> 0;
-    out[offset] = v & 0xff;
-    out[offset + 1] = (v >>> 8) & 0xff;
-    out[offset + 2] = (v >>> 16) & 0xff;
-    out[offset + 3] = (v >>> 24) & 0xff;
-  }
-
-  function putU64(out, offset, value) {
-    let v = BigInt(value);
-    for (let index = 0; index < 8; index += 1) {
-      out[offset + index] = Number(v & 0xffn);
-      v >>= 8n;
-    }
-  }
-
-  function concatBytes(parts) {
-    const total = parts.reduce((sum, part) => sum + part.length, 0);
-    const out = new Uint8Array(total);
-    let cursor = 0;
-    for (const part of parts) {
-      out.set(part, cursor);
-      cursor += part.length;
-    }
-    return out;
-  }
-
-  function assertZip32(value, label) {
-    if (value < 0 || value >= ZIP32_MAX) {
-      throw new Error(`${label} exceeds the ZIP32 limit; the playground does not implement ZIP64`);
-    }
-  }
-
-  function makePaddingBytes(size) {
-    const out = new Uint8Array(size);
-    out.fill(0x5a);
-    return out;
-  }
-
-  function createSampleFiles() {
-    const collection = JSON.stringify(
-      {
-        id: "demo-collection",
-        title: "cozip playground sample",
-        profile: "NONE",
-        generated_by: "deck/playground",
-      },
-      null,
-      2,
+import { openDataset } from "../../javascript/src/index.js";
+
+const FIXTURE_ROOT = "https://huggingface.co/datasets/asterisk-labs/taco-api-fixtures/resolve/main";
+const MANIFEST_URL = `${FIXTURE_ROOT}/manifest.json`;
+const CENTROID_PROFILES = new Set(["stac", "stac-interval", "shared-stac", "istac"]);
+const COLORS = { train: "#0f766e", validation: "#d97706", test: "#7c3aed" };
+
+const element = Object.fromEntries(
+  [
+    "fixtureSelect", "datasetMetadata", "status", "message",
+    "metadataPanel", "pointPosition", "pointTitle", "pointCoordinates", "metadataBody", "closeMetadata",
+    "metadataPath", "metadataSource", "metadataCount", "loading",
+  ].map((id) => [id, document.getElementById(id)]),
+);
+
+const map = L.map("map", { attributionControl: false, zoomControl: false, worldCopyJump: true }).setView([12, 0], 2);
+L.control.zoom({ position: "bottomright" }).addTo(map);
+L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}", {
+  maxZoom: 16,
+}).addTo(map);
+L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}", {
+  maxZoom: 16,
+  pane: "overlayPane",
+}).addTo(map);
+
+const state = {
+  manifest: null,
+  fixtures: [],
+  centroidCases: new Set(),
+  fixtureIndex: -1,
+  dataset: null,
+  points: [],
+  markers: [],
+  selectedPoint: -1,
+  panelMode: null,
+  metadataPages: [],
+  metadataPageIndex: -1,
+  metadataToken: 0,
+  messageTimer: null,
+  loadToken: 0,
+};
+
+bindEvents();
+initialize();
+
+async function initialize() {
+  setStatus("loading", "Loading fixtures");
+  try {
+    const response = await fetch(MANIFEST_URL);
+    if (!response.ok) throw new Error(`Fixture manifest returned HTTP ${response.status}`);
+    state.manifest = await response.json();
+    state.fixtures = state.manifest.datasets || [];
+    state.centroidCases = new Set(
+      (state.manifest.logical_cases || [])
+        .filter((item) => CENTROID_PROFILES.has(item.coordinate_profile))
+        .map((item) => item.id),
     );
+    if (state.fixtures.length !== 50) throw new Error(`Expected 50 fixtures, found ${state.fixtures.length}`);
+    populateFixtureSelect();
+    const first = state.fixtures.findIndex((item) => state.centroidCases.has(item.case));
+    await loadFixture(first < 0 ? 0 : first);
+  } catch (error) {
+    fail(error);
+  }
+}
 
-    const metadata = [
-      '{"name":"DATA/image_001.bin","offset":0,"size":4096}',
-      '{"name":"DATA/image_002.bin","offset":0,"size":2048}',
-      '{"name":"NOTES/readme.txt","offset":0,"size":112}',
-      "",
-    ].join("\n");
+function bindEvents() {
+  element.fixtureSelect.addEventListener("change", () => {
+    const requested = Number(element.fixtureSelect.value);
+    if (!Number.isInteger(requested)) return;
+    const fixture = state.fixtures[requested];
+    if (state.centroidCases.has(fixture.case)) {
+      loadFixture(requested);
+      return;
+    }
+    const next = findCompatibleFixture(requested, 1, fixture.topology);
+    if (next < 0) return fail(new Error("No fixture with a sample-level STAC or ISTAC centroid was found."));
+    showMessage(`${fixture.case} has no sample centroid. Opened ${state.fixtures[next].case}.`);
+    loadFixture(next);
+  });
+  element.datasetMetadata.addEventListener("click", () => {
+    if (state.panelMode === "dataset" && element.metadataPanel.classList.contains("open")) closeMetadata();
+    else showDatasetMetadata();
+  });
+  element.closeMetadata.addEventListener("click", closeMetadata);
+  document.addEventListener("keydown", (event) => {
+    if (!element.metadataPanel.classList.contains("open")) return;
+    if (event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement || event.target instanceof HTMLButtonElement) return;
+    if (event.key === "Escape") closeMetadata();
+    if (event.key === "ArrowLeft") navigateMetadata(-1);
+    if (event.key === "ArrowRight") navigateMetadata(1);
+  });
+}
 
-    return [
-      {
-        file: makeFile([textEncoder.encode(collection)], "COLLECTION.json", "application/json"),
-        name: "COLLECTION.json",
-        inIndex: true,
-      },
-      {
-        file: makeFile([textEncoder.encode(metadata)], "items.ndjson", "application/x-ndjson"),
-        name: "METADATA/items.ndjson",
-        inIndex: true,
-      },
-      {
-        file: makeFile([makePatternBytes(4096, 17)], "image_001.bin", "application/octet-stream"),
-        name: "DATA/image_001.bin",
-        inIndex: true,
-      },
-      {
-        file: makeFile([makePatternBytes(2048, 91)], "image_002.bin", "application/octet-stream"),
-        name: "DATA/image_002.bin",
-        inIndex: false,
-      },
-      {
-        file: makeFile([textEncoder.encode("This archive is built entirely in the browser.\n")], "readme.txt", "text/plain"),
-        name: "NOTES/readme.txt",
-        inIndex: false,
-      },
-    ];
+function populateFixtureSelect() {
+  element.fixtureSelect.replaceChildren();
+  const groups = new Map();
+  state.fixtures.forEach((fixture, index) => {
+    if (!state.centroidCases.has(fixture.case)) return;
+    if (!groups.has(fixture.case)) groups.set(fixture.case, []);
+    groups.get(fixture.case).push({ fixture, index });
+  });
+  for (const [caseId, fixtures] of groups) {
+    const group = document.createElement("optgroup");
+    group.label = caseId;
+    for (const { fixture, index } of fixtures) {
+      const option = document.createElement("option");
+      option.value = String(index);
+      option.textContent = `${caseId} / ${topologyLabel(fixture.topology)}`;
+      group.append(option);
+    }
+    element.fixtureSelect.append(group);
+  }
+}
+
+async function loadFixture(index) {
+  if (index < 0 || index >= state.fixtures.length) return;
+  const token = ++state.loadToken;
+  const fixture = state.fixtures[index];
+  setLoading(true);
+  closeMetadata();
+  clearMarkers();
+  state.points = [];
+  setStatus("loading", "Reading TACO");
+  disableDatasetNavigation(true);
+  element.fixtureSelect.value = String(index);
+
+  try {
+    const dataset = await openDataset(fixtureUrl(fixture));
+    const sampleFields = dataset.contract.metadata.sample || {};
+    const centroidField = "stac:centroid" in sampleFields
+      ? "stac:centroid"
+      : "istac:centroid" in sampleFields
+        ? "istac:centroid"
+        : null;
+    if (!centroidField) {
+      const next = findCompatibleFixture(index, 1, fixture.topology);
+      if (next >= 0 && next !== index) {
+        showMessage(`${fixture.case} has no sample centroid. Moving to ${state.fixtures[next].case}.`);
+        if (token === state.loadToken) await loadFixture(next);
+        return;
+      }
+      throw new Error("This fixture has no sample-level STAC or ISTAC centroid.");
+    }
+
+    const rows = await dataset.read({ layout: "wide", location: false });
+    const points = rows.flatMap((row) => {
+      const centroid = decodeWkbPoint(row[centroidField]);
+      return centroid ? [{ row, centroidField, longitude: centroid[0], latitude: centroid[1] }] : [];
+    });
+    if (!points.length) throw new Error(`The ${centroidField} column contains no readable points.`);
+    if (token !== state.loadToken) return;
+
+    state.fixtureIndex = index;
+    state.dataset = dataset;
+    state.points = points;
+    renderDataset(fixture);
+    renderPoints();
+    setStatus("ready", `${points.length} points`);
+  } catch (error) {
+    if (token === state.loadToken) fail(error);
+  } finally {
+    if (token === state.loadToken) {
+      setLoading(false);
+      disableDatasetNavigation(false);
+    }
+  }
+}
+
+function renderDataset(fixture) {
+  element.fixtureSelect.value = String(state.fixtureIndex);
+}
+
+function renderPoints() {
+  clearMarkers();
+  const bounds = [];
+  state.points.forEach((point, index) => {
+    const split = String(point.row["ml:split"] || "train");
+    const color = COLORS[split] || COLORS.train;
+    const marker = L.circleMarker([point.latitude, point.longitude], {
+      radius: 7,
+      color: "#ffffff",
+      weight: 2,
+      fillColor: color,
+      fillOpacity: .94,
+    });
+    marker.bindTooltip(pointName(point), { direction: "top", offset: [0, -6] });
+    marker.on("click", () => { void selectPoint(index); });
+    marker.addTo(map);
+    state.markers.push(marker);
+    bounds.push([point.latitude, point.longitude]);
+  });
+  if (bounds.length === 1) map.setView(bounds[0], 7);
+  else map.fitBounds(bounds, { padding: [70, 70], maxZoom: 5 });
+}
+
+async function selectPoint(index) {
+  if (!state.points.length) return;
+  const normalized = (index + state.points.length) % state.points.length;
+  const token = ++state.metadataToken;
+  state.selectedPoint = normalized;
+  state.markers.forEach((marker, markerIndex) => {
+    marker.setStyle(markerIndex === normalized
+      ? { radius: 9, color: "#20251f", weight: 3 }
+      : { radius: 7, color: "#ffffff", weight: 2 });
+  });
+  const point = state.points[normalized];
+  map.panTo([point.latitude, point.longitude]);
+  state.panelMode = "point";
+  element.metadataPanel.classList.remove("dataset-mode");
+  element.datasetMetadata.setAttribute("aria-expanded", "false");
+  element.pointPosition.textContent = `Point ${normalized + 1} of ${state.points.length}`;
+  element.pointTitle.textContent = pointName(point);
+  element.pointCoordinates.textContent = `${formatLatitude(point.latitude)}, ${formatLongitude(point.longitude)}`;
+  element.metadataPanel.classList.add("open");
+  element.metadataPanel.setAttribute("aria-hidden", "false");
+  renderMetadataLoading();
+
+  try {
+    const pages = await metadataPagesForPoint(point);
+    if (token !== state.metadataToken || normalized !== state.selectedPoint) return;
+    state.metadataPages = pages;
+    state.metadataPageIndex = 0;
+    renderMetadataNavigation();
+    renderMetadataPage();
+  } catch (error) {
+    if (token !== state.metadataToken) return;
+    element.metadataSource.textContent = "Metadata error";
+    element.metadataCount.textContent = "";
+    element.metadataBody.replaceChildren(metadataMessage(messageOf(error)));
+  }
+}
+
+async function metadataPagesForPoint(point) {
+  const sourceFile = point.row.source_file;
+  const sampleId = Number(point.row.sample_id);
+  const [levelRows, longRows] = await Promise.all([
+    Promise.all(state.dataset.levels.map((level) => state.dataset.readLevel(level))),
+    state.dataset.read({ layout: "long", idx: sampleId, location: true }),
+  ]);
+
+  const selectedLongRows = longRows.filter((row) => sourceFile === undefined || row.source_file === sourceFile);
+  const locations = new Map(
+    selectedLongRows.map((row) => [locationKey(row.source_file, row.path), row["taco:location"]]),
+  );
+  const pages = [];
+
+  const selectedRows = new Map();
+  const samples = levelRows[0].filter((row) =>
+    Number(row["internal:current_id"]) === sampleId && sameSource(row["internal:source_file"], sourceFile),
+  );
+  selectedRows.set("sample", samples);
+  pages.push(parquetPage("sample", samples, locations));
+
+  for (let index = 1; index < state.dataset.levels.length; index += 1) {
+    const level = state.dataset.levels[index];
+    const parents = selectedRows.get(parentMetadataLevel(level)) ?? [];
+    const parentIds = new Set(parents.map(rowIdentity));
+    const rows = levelRows[index].filter((row) =>
+      parentIds.has(parentIdentity(row)) && sameSource(row["internal:source_file"], sourceFile),
+    );
+    selectedRows.set(level, rows);
+    pages.push(parquetPage(level, rows, locations));
+  }
+  return pages;
+}
+
+function parquetPage(level, rows, locations) {
+  return {
+    label: levelFilename(level),
+    depth: metadataLevelDepth(level),
+    records: rows.map((row, index) => {
+      const path = contractPath(row["internal:relative_path"]);
+      const values = {};
+      if (path) values.path = path;
+      values.current_id = row["internal:current_id"];
+      if (row["internal:parent_id"] !== undefined) values.parent_id = row["internal:parent_id"];
+      if (row["internal:source_file"] !== undefined) values.source_file = row["internal:source_file"];
+      if (row["internal:offset"] !== undefined) values.offset = row["internal:offset"];
+      if (row["internal:size"] !== undefined) values.size = row["internal:size"];
+      for (const [key, value] of Object.entries(row)) {
+        if (!key.startsWith("internal:")) values[key] = value;
+      }
+      const location = locations.get(locationKey(row["internal:source_file"], path));
+      if (location) values["taco:location"] = location;
+      return { title: path || String(row["fixture:sample_key"] ?? `row ${index}`), values };
+    }),
+  };
+}
+
+function renderMetadataLoading() {
+  state.metadataPages = [];
+  state.metadataPageIndex = -1;
+  element.metadataPath.replaceChildren();
+  element.metadataSource.textContent = "Reading hierarchy…";
+  element.metadataCount.textContent = "";
+  element.metadataBody.replaceChildren();
+  element.metadataBody.append(metadataMessage("Reading Parquet metadata for this point…"));
+}
+
+function renderMetadataNavigation() {
+  element.metadataPath.replaceChildren();
+  state.metadataPages.forEach((page, index) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = page.label;
+    button.style.setProperty("--depth", String(page.depth));
+    button.setAttribute("aria-current", index === state.metadataPageIndex ? "page" : "false");
+    button.addEventListener("click", () => {
+      state.metadataPageIndex = index;
+      renderMetadataNavigation();
+      renderMetadataPage();
+    });
+    if (index === state.metadataPageIndex) button.classList.add("active");
+    element.metadataPath.append(button);
+  });
+  element.metadataPath.querySelector("button.active")?.scrollIntoView({ block: "nearest", inline: "center" });
+}
+
+function renderMetadataPage() {
+  const page = state.metadataPages[state.metadataPageIndex];
+  if (!page) return;
+  element.metadataSource.textContent = page.label;
+  element.metadataCount.textContent = `${page.records.length} ${page.records.length === 1 ? "row" : "rows"}`;
+  element.metadataBody.replaceChildren();
+  if (!page.records.length) {
+    element.metadataBody.append(metadataMessage("No row for this point at this level."));
+    return;
+  }
+  page.records.forEach((record) => appendMetadataRecord(record));
+}
+
+function navigateMetadata(direction) {
+  if (!state.metadataPages.length) return;
+  const next = Math.max(0, Math.min(state.metadataPages.length - 1, state.metadataPageIndex + direction));
+  if (next === state.metadataPageIndex) return;
+  state.metadataPageIndex = next;
+  renderMetadataNavigation();
+  renderMetadataPage();
+}
+
+function appendMetadataRecord(record) {
+  const section = document.createElement("section");
+  section.className = "metadata-record";
+  const heading = document.createElement("h3");
+  heading.textContent = record.title;
+  const list = document.createElement("dl");
+  for (const [name, value] of orderedMetadataEntries(record.values)) {
+    if (name === "stac:centroid" || name === "istac:centroid") continue;
+    const wrapper = document.createElement("div");
+    wrapper.className = "metadata-row";
+    const term = document.createElement("dt");
+    term.textContent = name;
+    const detail = document.createElement("dd");
+    if (name === "taco:location") {
+      wrapper.classList.add("location-row");
+      appendLocation(detail, String(value), String(record.values.path || record.title));
+    } else {
+      detail.textContent = formatValue(value);
+    }
+    wrapper.append(term, detail);
+    list.append(wrapper);
+  }
+  section.append(heading, list);
+  element.metadataBody.append(section);
+}
+
+function appendLocation(parent, location, filename) {
+  const code = document.createElement("code");
+  code.className = "location-value";
+  code.textContent = location;
+  const actions = document.createElement("div");
+  actions.className = "file-actions";
+  const result = document.createElement("span");
+  result.className = "asset-result";
+
+  const copy = fileAction("Copy location", result, async (button) => {
+    await copyText(location);
+    button.textContent = "Copied";
+    result.textContent = "Location copied to clipboard.";
+    window.setTimeout(() => { button.textContent = "Copy location"; }, 1600);
+  });
+  const download = fileAction("Download", result, async (button) => {
+    button.textContent = "Preparing…";
+    const resolved = state.dataset.resolveAsset(location);
+    const blob = await resolved.blob(contentType(filename));
+    const objectUrl = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = objectUrl;
+    anchor.download = basename(filename) || "taco-asset";
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+    result.textContent = `${anchor.download} · ${formatBytes(blob.size)}`;
+    button.textContent = "Download";
+  });
+  actions.append(copy, download);
+
+  if (/\.rumi$/i.test(filename)) {
+    const read = fileAction("Read Rumi", result, async (button) => {
+      button.textContent = "Reading…";
+      const resolved = state.dataset.resolveAsset(location);
+      const bytes = new Uint8Array(await resolved.arrayBuffer());
+      const magic = new TextDecoder("ascii").decode(bytes.subarray(0, 4));
+      result.textContent = `${magic} · ${formatBytes(bytes.length)} · ${resolved.offset === null ? "direct" : `offset ${resolved.offset}`}`;
+      button.textContent = "Read again";
+    });
+    actions.append(read);
   }
 
-  function makeFile(parts, name, type) {
+  parent.append(code, actions, result);
+}
+
+function fileAction(label, result, action) {
+  const button = document.createElement("button");
+  button.className = "file-action";
+  button.type = "button";
+  button.textContent = label;
+  button.addEventListener("click", async () => {
+    button.disabled = true;
+    result.textContent = "";
     try {
-      return new File(parts, name, { type, lastModified: 0 });
-    } catch (_error) {
-      const blob = new Blob(parts, { type });
-      blob.name = name;
-      blob.lastModified = 0;
-      return blob;
+      await action(button);
+    } catch (error) {
+      result.textContent = messageOf(error);
+      button.textContent = label;
+    } finally {
+      button.disabled = false;
     }
-  }
+  });
+  return button;
+}
 
-  function makePatternBytes(size, seed) {
-    const out = new Uint8Array(size);
-    let value = seed & 0xff;
-    for (let index = 0; index < size; index += 1) {
-      value = (value * 33 + index + seed) & 0xff;
-      out[index] = value;
-    }
-    return out;
-  }
+function showDatasetMetadata() {
+  if (!state.dataset || state.fixtureIndex < 0) return;
+  state.metadataToken += 1;
+  clearSelectedPoint();
+  state.panelMode = "dataset";
+  state.metadataPages = [];
+  state.metadataPageIndex = -1;
 
-  function explainIndexFormula(entries) {
-    const indexed = entries.filter((entry) => entry.inIndex);
-    const nameBytes = indexed.reduce((sum, entry) => sum + entry.nameBytes.length, 0);
-    return `11 + (${indexed.length} * 18) + ${nameBytes} name bytes = ${computeIndexPayloadSize(entries)} bytes`;
-  }
+  const fixture = state.fixtures[state.fixtureIndex];
+  const collection = state.dataset.collection;
+  element.metadataPanel.classList.add("dataset-mode", "open");
+  element.metadataPanel.setAttribute("aria-hidden", "false");
+  element.datasetMetadata.setAttribute("aria-expanded", "true");
+  element.pointPosition.textContent = `Dataset · ${topologyLabel(fixture.topology)}`;
+  element.pointTitle.textContent = String(collection.title || collection.id);
+  element.metadataPath.replaceChildren();
+  element.metadataSource.textContent = "COLLECTION.json";
+  element.metadataCount.textContent = `${state.dataset.levels.length} metadata ${state.dataset.levels.length === 1 ? "level" : "levels"}`;
+  element.metadataBody.replaceChildren();
 
-  function formatBytes(bytes) {
-    if (bytes < 1024) return `${bytes} B`;
-    const units = ["KiB", "MiB", "GiB"];
-    let value = bytes / 1024;
-    let unitIndex = 0;
-    while (value >= 1024 && unitIndex < units.length - 1) {
-      value /= 1024;
-      unitIndex += 1;
-    }
-    return `${value.toFixed(value >= 10 ? 1 : 2)} ${units[unitIndex]}`;
-  }
+  appendDatasetOverview(fixture, collection);
+  appendContractGraph();
+  appendContractSchemas();
+}
 
-  function hex64(value) {
-    return `0x${value.toString(16).padStart(16, "0")}`;
-  }
+function appendDatasetOverview(fixture, collection) {
+  const providers = (collection.providers || []).map((provider) =>
+    typeof provider === "string" ? provider : provider.name || provider.url || "provider",
+  );
+  appendMetadataRecord({
+    title: "Collection",
+    values: compactObject({
+      id: collection.id,
+      format_version: collection["taco:version"],
+      dataset_version: collection.dataset_version,
+      title: collection.title,
+      description: collection.description,
+      licenses: collection.licenses,
+      providers,
+      tasks: collection.tasks,
+      samples: collection["taco:sources"]?.samples ?? state.points.length,
+      partitions: collection["taco:sources"]?.partitions?.length,
+      container: topologyLabel(fixture.topology),
+      source: state.dataset.url,
+    }),
+  });
 
-  function setLog(message) {
-    els.log.textContent = message;
+  const extent = collection.extent;
+  if (extent && typeof extent === "object") {
+    const spatial = extent.spatial?.bbox ?? extent.spatial;
+    const temporal = extent.temporal?.interval ?? extent.temporal;
+    const coverage = compactObject({
+      spatial_bbox: Array.isArray(spatial) ? spatial.flat(1).join(", ") : spatial,
+      temporal_interval: Array.isArray(temporal)
+        ? temporal.map((interval) => Array.isArray(interval) ? interval.map((value) => value ?? "open").join(" → ") : interval ?? "open").join(" → ")
+        : temporal,
+    });
+    if (Object.keys(coverage).length) appendMetadataRecord({ title: "Coverage", values: coverage });
   }
-})();
+}
+
+function appendContractGraph() {
+  const section = document.createElement("section");
+  section.className = "dataset-section";
+  const heading = document.createElement("h3");
+  heading.textContent = "Contract graph";
+  const graph = document.createElement("div");
+  graph.className = "contract-graph";
+
+  state.dataset.levels.forEach((level) => {
+    const fields = Object.keys(state.dataset.contract.metadata[level] || {}).length;
+    graph.append(contractNode("▦", levelFilename(level), `${fields} ${fields === 1 ? "field" : "fields"}`, metadataLevelDepth(level)));
+  });
+
+  if (state.dataset.structure === null) {
+    graph.append(contractNode("○", "No payload structure", "metadata only", 1, true));
+  } else {
+    state.dataset.structure.forEach((declaration) => {
+      const depth = 2 + (declaration.match(/\//g)?.length ?? 0);
+      graph.append(contractNode("◆", declaration, "payload", depth, true));
+    });
+  }
+  section.append(heading, graph);
+  element.metadataBody.append(section);
+}
+
+function contractNode(icon, label, detail, depth, payload = false) {
+  const node = document.createElement("div");
+  node.className = `contract-node${payload ? " payload" : ""}`;
+  node.style.setProperty("--depth", String(depth));
+  const mark = document.createElement("span");
+  mark.className = "node-icon";
+  mark.textContent = icon;
+  const name = document.createElement("span");
+  name.textContent = label;
+  const description = document.createElement("span");
+  description.className = "node-detail";
+  description.textContent = detail;
+  node.append(mark, name, description);
+  return node;
+}
+
+function appendContractSchemas() {
+  const section = document.createElement("section");
+  section.className = "dataset-section";
+  const heading = document.createElement("h3");
+  heading.textContent = "Metadata schemas";
+  section.append(heading);
+
+  state.dataset.levels.forEach((level) => {
+    const fields = Object.entries(state.dataset.contract.metadata[level] || {});
+    const card = document.createElement("article");
+    card.className = "schema-card";
+    const header = document.createElement("header");
+    const name = document.createElement("strong");
+    name.textContent = levelFilename(level);
+    const count = document.createElement("span");
+    count.textContent = `${fields.length} ${fields.length === 1 ? "field" : "fields"}`;
+    header.append(name, count);
+    card.append(header);
+
+    fields.forEach(([fieldName, declaration]) => {
+      const field = document.createElement("div");
+      field.className = "schema-field";
+      const line = document.createElement("div");
+      const code = document.createElement("code");
+      code.textContent = fieldName;
+      const type = document.createElement("span");
+      type.textContent = `${declaration.type}${declaration.nullable ? " · nullable" : ""}`;
+      line.append(code, type);
+      const description = document.createElement("p");
+      description.textContent = declaration.description;
+      field.append(line, description);
+      card.append(field);
+    });
+    section.append(card);
+  });
+  element.metadataBody.append(section);
+}
+
+function findCompatibleFixture(start, direction, preferredTopology) {
+  for (let step = 1; step <= state.fixtures.length; step += 1) {
+    const index = (start + direction * step + state.fixtures.length) % state.fixtures.length;
+    const fixture = state.fixtures[index];
+    if (state.centroidCases.has(fixture.case) && fixture.topology === preferredTopology) return index;
+  }
+  for (let step = 1; step <= state.fixtures.length; step += 1) {
+    const index = (start + direction * step + state.fixtures.length) % state.fixtures.length;
+    if (state.centroidCases.has(state.fixtures[index].case)) return index;
+  }
+  return -1;
+}
+
+function closeMetadata() {
+  state.metadataToken += 1;
+  element.metadataPanel.classList.remove("open");
+  element.metadataPanel.setAttribute("aria-hidden", "true");
+  element.datasetMetadata.setAttribute("aria-expanded", "false");
+  clearSelectedPoint();
+  state.panelMode = null;
+  state.metadataPages = [];
+  state.metadataPageIndex = -1;
+}
+
+function clearSelectedPoint() {
+  if (state.selectedPoint >= 0 && state.markers[state.selectedPoint]) {
+    state.markers[state.selectedPoint].setStyle({ radius: 7, color: "#ffffff", weight: 2 });
+  }
+  state.selectedPoint = -1;
+}
+
+function clearMarkers() {
+  state.markers.forEach((marker) => marker.remove());
+  state.markers = [];
+}
+
+function decodeWkbPoint(value) {
+  let bytes;
+  if (value instanceof Uint8Array) bytes = value;
+  else if (value instanceof ArrayBuffer) bytes = new Uint8Array(value);
+  else if (ArrayBuffer.isView(value)) bytes = new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+  else return null;
+  if (bytes.byteLength < 21) return null;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const littleEndian = view.getUint8(0) === 1;
+  const rawType = view.getUint32(1, littleEndian);
+  const type = rawType & 0xff;
+  if (type !== 1) return null;
+  const coordinateOffset = 5 + ((rawType & 0x20000000) === 0 ? 0 : 4);
+  if (bytes.byteLength < coordinateOffset + 16) return null;
+  const longitude = view.getFloat64(coordinateOffset, littleEndian);
+  const latitude = view.getFloat64(coordinateOffset + 8, littleEndian);
+  return Number.isFinite(longitude) && Number.isFinite(latitude)
+    && longitude >= -180 && longitude <= 180 && latitude >= -90 && latitude <= 90
+    ? [longitude, latitude]
+    : null;
+}
+
+function locationKey(sourceFile, path) {
+  return `${sourceFile ?? ""}\0${path ?? ""}`;
+}
+
+function sameSource(left, right) {
+  return (left ?? "") === (right ?? "");
+}
+
+function rowIdentity(row) {
+  return locationKey(row["internal:source_file"], Number(row["internal:current_id"]));
+}
+
+function parentIdentity(row) {
+  return locationKey(row["internal:source_file"], Number(row["internal:parent_id"]));
+}
+
+function contractPath(path) {
+  if (typeof path !== "string") return "";
+  const slash = path.indexOf("/");
+  return slash < 0 ? "" : path.slice(slash + 1);
+}
+
+function levelFilename(level) {
+  return `${level.replaceAll("/", "__")}.parquet`;
+}
+
+function parentMetadataLevel(level) {
+  if (level === "children") return "sample";
+  const folder = level.slice("children/".length);
+  const slash = folder.lastIndexOf("/");
+  return slash < 0 ? "children" : `children/${folder.slice(0, slash)}`;
+}
+
+function metadataLevelDepth(level) {
+  if (level === "sample") return 0;
+  return 1 + (level.match(/\//g)?.length ?? 0);
+}
+
+function compactObject(values) {
+  return Object.fromEntries(Object.entries(values).filter(([, value]) => value !== undefined && value !== null));
+}
+
+function orderedMetadataEntries(values) {
+  const entries = Object.entries(values);
+  const priority = ["id", "dataset_version", "title", "description", "path", "sample_id", "current_id", "parent_id", "source_file", "offset", "size"];
+  const first = priority.flatMap((key) => entries.filter(([name]) => name === key));
+  const middle = entries.filter(([name]) => !priority.includes(name) && name !== "taco:location");
+  const location = entries.filter(([name]) => name === "taco:location");
+  return [...first, ...middle, ...location];
+}
+
+function metadataMessage(text) {
+  const paragraph = document.createElement("p");
+  paragraph.className = "metadata-empty";
+  paragraph.textContent = text;
+  return paragraph;
+}
+
+function pointName(point) {
+  return String(point.row["fixture:sample_key"] || `sample ${point.row.sample_id ?? "—"}`);
+}
+
+function fixtureUrl(fixture) {
+  return `${FIXTURE_ROOT}/${String(fixture.path).replace(/^\/+/, "")}`;
+}
+
+function topologyLabel(value) {
+  return ({ folder: "folder", "single-zip": "zip", "by-size": "cat / size", "by-split": "cat / split", "manual-catalog": "cat / manual" })[value] || value;
+}
+
+function formatValue(value) {
+  if (value === null || value === undefined) return "—";
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === "bigint") return value.toString();
+  if (Array.isArray(value)) return value.map(formatValue).join(", ");
+  if (value instanceof ArrayBuffer || ArrayBuffer.isView(value)) return `binary · ${formatBytes(value.byteLength)}`;
+  if (typeof value === "object") {
+    return JSON.stringify(value, (_key, item) => typeof item === "bigint" ? item.toString() : item, 2);
+  }
+  return String(value);
+}
+
+function formatLatitude(value) { return `${Math.abs(value).toFixed(5)}° ${value >= 0 ? "N" : "S"}`; }
+function formatLongitude(value) { return `${Math.abs(value).toFixed(5)}° ${value >= 0 ? "E" : "W"}`; }
+
+function formatBytes(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KiB`;
+  return `${(bytes / 1024 ** 2).toFixed(1)} MiB`;
+}
+
+function basename(path) {
+  const clean = String(path).split(/[?#]/, 1)[0];
+  return clean.slice(clean.lastIndexOf("/") + 1);
+}
+
+function contentType(path) {
+  const extension = basename(path).split(".").pop()?.toLowerCase();
+  return ({
+    json: "application/json",
+    geojson: "application/geo+json",
+    tif: "image/tiff",
+    tiff: "image/tiff",
+    png: "image/png",
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+  })[extension] || "application/octet-stream";
+}
+
+async function copyText(value) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value);
+    return;
+  }
+  const input = document.createElement("textarea");
+  input.value = value;
+  input.setAttribute("readonly", "");
+  input.style.position = "fixed";
+  input.style.opacity = "0";
+  document.body.append(input);
+  input.select();
+  const copied = document.execCommand("copy");
+  input.remove();
+  if (!copied) throw new Error("Clipboard is unavailable in this browser.");
+}
+
+function disableDatasetNavigation(disabled) {
+  element.fixtureSelect.disabled = disabled;
+  element.datasetMetadata.disabled = disabled || !state.dataset;
+}
+
+function setLoading(loading) {
+  element.loading.hidden = !loading;
+}
+
+function setStatus(kind, text) {
+  element.status.className = `status ${kind}`;
+  element.status.querySelector("span").textContent = text;
+}
+
+function showMessage(text) {
+  clearTimeout(state.messageTimer);
+  element.message.textContent = text;
+  element.message.hidden = false;
+  state.messageTimer = setTimeout(() => { element.message.hidden = true; }, 5000);
+}
+
+function fail(error) {
+  setLoading(false);
+  disableDatasetNavigation(false);
+  setStatus("error", "Could not read dataset");
+  showMessage(messageOf(error));
+}
+
+function messageOf(error) {
+  return error instanceof Error ? error.message : String(error);
+}

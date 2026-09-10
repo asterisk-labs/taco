@@ -5,6 +5,31 @@ All notable changes to `taco` are documented here. The format follows
 
 ## Unreleased
 
+## 0.4.0 - 2026-09-10
+
+### Added
+
+- `@asterisk-labs/taco` 1.0.0, a standalone JavaScript reader for TACO v3
+  FOLDER, ZIP, and TACOCAT datasets over HTTP. It supports raw-level reads,
+  wide and long layouts, sample and file selection, semantic filters,
+  reader-calculated `taco:location` values, and targeted payload range reads.
+- A browser TACO viewer backed by the JavaScript reader and the public
+  TACO/Rumi fixtures. It maps STAC and ISTAC centroids, navigates the Parquet
+  hierarchy for each sample, presents the dataset-wide contract separately,
+  and provides copy, download, and Rumi-read actions for payloads.
+
+### Changed
+
+- Python, R, and Julia now expose only the `location` reader argument. Stored
+  `cozip:location` and `taco:location` values remain protected and are never
+  surfaced as trusted locations.
+- The project README now presents all four language bindings and links to the
+  viewer, specification, package registries, and release checks.
+- Python release checks enforce formatting, linting, strict typing, warnings,
+  and branch coverage before building and publishing artifacts.
+
+## 0.3.0 - 2026-09-08
+
 ### Changed
 
 - Python, R, and Julia now share `open_dataset()` and `read()`. An open dataset

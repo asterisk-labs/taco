@@ -6,7 +6,7 @@
 \alias{taco-package}
 \title{taco: Read TACO Datasets}
 \description{
-R reader for TACO v3 datasets. Wraps read_taco() in the DuckDB cozip extension, so the contract and the metadata are read the same way in every language.
+Read TACO v3 datasets through the DuckDB 'cozip' extension. The package exposes dataset contracts and reads ZIP, FOLDER, and TACOCAT containers through one API.
 }
 \seealso{
 Useful links:

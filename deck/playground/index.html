@@ -3,151 +3,83 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>cozip Playground</title>
+  <meta name="author" content="Sammy Carlos Romualdo">
+  <meta name="description" content="Browse TACO fixture samples by STAC or ISTAC centroid.">
+  <title>TACO viewer</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
   <link rel="stylesheet" href="styles.css">
+  <script type="importmap">
+    {
+      "imports": {
+        "hyparquet": "https://cdn.jsdelivr.net/npm/hyparquet@1.30.0/+esm",
+        "hyparquet-compressors": "https://cdn.jsdelivr.net/npm/hyparquet-compressors@1.1.1/+esm"
+      }
+    }
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
 </head>
 <body>
-  <div class="app-shell">
-    <header class="topbar">
-      <div class="brand">
-        <a href="https://github.com/asterisk-labs/cozip" target="_blank" rel="noopener noreferrer">
-          <img src="https://asterisk.coop/cozip/images/cozip_logo.svg" alt="cozip">
-        </a>
-        <div>
-          <h1>cozip Playground</h1>
-          <p>Build a byte-zero indexed ZIP and inspect every moving part.</p>
-        </div>
+  <header class="topbar">
+    <a class="brand" href="../overview/" aria-label="TACO overview">
+      <span class="brand-mark" aria-hidden="true">🌮</span>
+      <span><strong>TACO</strong><small>viewer</small></span>
+    </a>
+
+    <div class="dataset-picker">
+      <label>
+        <span>Fixture</span>
+        <select id="fixtureSelect" aria-label="TACO fixture">
+          <option>Loading fixtures…</option>
+        </select>
+      </label>
+      <button id="datasetMetadata" class="dataset-button" type="button" disabled>Dataset</button>
+    </div>
+
+    <div id="status" class="status"><i></i><span>Loading</span></div>
+  </header>
+
+  <main>
+    <div id="map" aria-label="Map of TACO sample centroids"></div>
+
+    <div class="legend" aria-label="Split legend">
+      <span><i class="train"></i>train</span>
+      <span><i class="validation"></i>validation</span>
+      <span><i class="test"></i>test</span>
+    </div>
+
+    <div id="message" class="message" role="status" hidden></div>
+
+    <aside id="metadataPanel" class="metadata-panel" aria-labelledby="pointTitle" aria-hidden="true">
+      <header>
+        <div><p id="pointPosition">Point —</p><h2 id="pointTitle">Sample metadata</h2></div>
+        <button id="closeMetadata" class="icon-button" type="button" aria-label="Close metadata">×</button>
+      </header>
+      <div class="coordinates"><span>Centroid</span><strong id="pointCoordinates">—</strong></div>
+      <nav id="metadataPath" class="metadata-path" aria-label="Metadata hierarchy"></nav>
+      <div class="metadata-context">
+        <strong id="metadataSource">—</strong>
+        <span id="metadataCount">—</span>
       </div>
-      <div class="status-strip" aria-label="Playground status">
-        <span class="status-pill ok">Client-side</span>
-        <span class="status-pill">STORE only</span>
-        <a class="status-pill" href="https://github.com/asterisk-labs/cozip" target="_blank" rel="noopener noreferrer">cozip project ↗</a>
+      <div id="metadataBody" class="metadata-body"></div>
+    </aside>
+
+    <div id="loading" class="loading" hidden>
+      <div class="taco-loader" aria-hidden="true">
+        <div class="loader-center"><span class="loader-taco">🌮</span><span class="loader-earth">🌍</span></div>
+        <div class="loader-orbit"><span class="loader-satellite">🛰️</span></div>
       </div>
-    </header>
+      <span>Reading TACO</span>
+    </div>
 
-    <main class="workspace">
-      <section class="panel input-panel" aria-labelledby="inputTitle">
-        <div class="panel-head">
-          <div>
-            <h2 id="inputTitle">Input Files</h2>
-            <p>Drop files here, or start with deterministic sample payloads.</p>
-          </div>
-          <button id="sampleBtn" type="button">Sample Files</button>
-        </div>
+    <a class="credit" href="https://asterisk.coop" target="_blank" rel="noopener">
+      <span>Made with</span>
+      <svg class="heart" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+      </svg>
+      <span>by Asterisk Labs</span>
+    </a>
+  </main>
 
-        <label id="dropZone" class="drop-zone" for="filePicker">
-          <input id="filePicker" type="file" multiple>
-          <span class="drop-title">Drop files or browse</span>
-          <span class="drop-copy">Files stay in this browser tab. Zero-byte files are rejected by the cozip core format.</span>
-        </label>
-
-        <div class="control-grid">
-          <label>
-            Archive name
-            <input id="archiveName" type="text" value="dataset.zip" spellcheck="false">
-          </label>
-          <label>
-            Profile
-            <select id="profileSelect">
-              <option value="0">NONE - core index</option>
-            </select>
-          </label>
-        </div>
-
-        <div class="button-row">
-          <button id="buildBtn" type="button" class="primary">Build cozip</button>
-          <button id="clearBtn" type="button">Clear</button>
-        </div>
-
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Archive path</th>
-                <th class="num">Size</th>
-                <th>Index</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody id="fileRows">
-              <tr class="empty-row"><td colspan="4">No files loaded yet.</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section class="panel output-panel" aria-labelledby="outputTitle">
-        <div class="panel-head">
-          <div>
-            <h2 id="outputTitle">Archive Output</h2>
-            <p>Download the generated archive and inspect the planned offsets.</p>
-          </div>
-          <a id="downloadLink" class="download disabled" href="#" aria-disabled="true">Download</a>
-        </div>
-
-        <div class="metrics" id="metrics">
-          <div><span>Archive</span><strong>-</strong></div>
-          <div><span>Index bytes</span><strong>-</strong></div>
-          <div><span>Indexed files</span><strong>-</strong></div>
-          <div><span>FNV-1a hash</span><strong>-</strong></div>
-        </div>
-
-        <div class="byte-map" aria-label="Archive byte layout">
-          <div id="byteMap" class="byte-track">
-            <span class="byte-placeholder">Build an archive to see byte ranges.</span>
-          </div>
-        </div>
-
-        <div class="tabs" role="tablist" aria-label="Explainer tabs">
-          <button type="button" class="tab active" data-tab="plan">Plan</button>
-          <button type="button" class="tab" data-tab="index">Index</button>
-          <button type="button" class="tab" data-tab="zip">ZIP</button>
-          <button type="button" class="tab" data-tab="hash">Hash</button>
-          <button type="button" class="tab" data-tab="project">cozip project</button>
-        </div>
-
-        <div class="tab-panels">
-          <article class="tab-panel active" id="tab-plan">
-            <h3>Planned construction</h3>
-            <p>The writer computes every Local File Header and payload offset before the archive is written. That is why the byte-zero index can contain final offsets.</p>
-            <ol id="planList"></ol>
-          </article>
-          <article class="tab-panel" id="tab-index">
-            <h3>CZIP index payload</h3>
-            <p>The first entry payload starts at byte 51 and stores names, offsets, and sizes in compact little-endian columns.</p>
-            <pre id="indexPreview">No index yet.</pre>
-          </article>
-          <article class="tab-panel" id="tab-zip">
-            <h3>ZIP compatibility</h3>
-            <p>The output remains a normal ZIP: every user file is a STORE entry, then the Central Directory and EOCD close the archive.</p>
-            <div class="table-wrap small">
-              <table>
-                <thead><tr><th>Entry</th><th class="num">LFH</th><th class="num">Payload</th><th class="num">Size</th></tr></thead>
-                <tbody id="layoutRows"><tr class="empty-row"><td colspan="4">No layout yet.</td></tr></tbody>
-              </table>
-            </div>
-          </article>
-          <article class="tab-panel" id="tab-hash">
-            <h3>Integrity patch</h3>
-            <p>The FNV-1a 64 value covers the index payload and final 32 KiB of the archive. It is a structural check, not a cryptographic signature.</p>
-            <pre id="hashPreview">No hash yet.</pre>
-          </article>
-          <article class="tab-panel" id="tab-project">
-            <h3>Official cozip implementation</h3>
-            <p>This page is an educational JavaScript explainer. The production C writer, language bindings, JavaScript reader, specification, and releases live in the separate <a href="https://github.com/asterisk-labs/cozip" target="_blank" rel="noopener noreferrer">asterisk-labs/cozip</a> project.</p>
-            <ul>
-              <li><a href="https://github.com/asterisk-labs/cozip/blob/main/SPEC.md" target="_blank" rel="noopener noreferrer">Read the cozip specification</a>.</li>
-              <li><a href="https://github.com/asterisk-labs/cozip#bindings" target="_blank" rel="noopener noreferrer">Install an official language binding</a>.</li>
-              <li><a href="https://github.com/asterisk-labs/cozip/releases" target="_blank" rel="noopener noreferrer">Download a cozip release</a>.</li>
-            </ul>
-          </article>
-        </div>
-
-        <div class="log" id="log" aria-live="polite">Ready.</div>
-      </section>
-    </main>
-  </div>
-
-  <script src="app.js" defer></script>
+  <script type="module" src="app.js"></script>
 </body>
 </html>

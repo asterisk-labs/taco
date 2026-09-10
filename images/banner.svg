@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 500" role="img" aria-labelledby="title description">
+  <title id="title">TACO</title>
+  <desc id="description">The TACO overview logo with an animated taco, Earth, and orbiting satellite. AI-ready Earth Observation datasets.</desc>
+
+  <defs>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#50a0ff" stop-opacity=".2"/>
+      <stop offset=".5" stop-color="#50a0ff" stop-opacity=".05"/>
+      <stop offset=".72" stop-color="#50a0ff" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="earth-shadow" x="-60%" y="-60%" width="220%" height="220%">
+      <feDropShadow dx="0" dy="0" stdDeviation="18" flood-color="#50a0ff" flood-opacity=".28"/>
+    </filter>
+    <filter id="satellite-glow" x="-80%" y="-80%" width="260%" height="260%">
+      <feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#64b4ff" flood-opacity=".5"/>
+    </filter>
+  </defs>
+
+  <style>
+    .title-text {
+      font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+      font-size: 168px;
+      font-weight: 900;
+      letter-spacing: 20px;
+      fill: #20251f;
+      stroke: #ffffff;
+      stroke-width: 8px;
+      paint-order: stroke fill;
+      stroke-linejoin: round;
+    }
+    .subtitle-text {
+      font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+      font-size: 46px;
+      font-weight: 500;
+      letter-spacing: 3px;
+      fill: #677067;
+      stroke: #ffffff;
+      stroke-width: 4px;
+      paint-order: stroke fill;
+      stroke-linejoin: round;
+    }
+    .earth { opacity: 0; }
+
+    @media (prefers-reduced-motion: no-preference) {
+      .logo-glow { animation: pulse 4s ease-in-out infinite; transform-origin: 300px 250px; }
+      .morph-center { animation: float 6s ease-in-out infinite; transform-origin: 300px 250px; }
+      .taco { animation: morph-taco 8s infinite; transform-origin: 300px 250px; }
+      .earth { animation: morph-planet 8s infinite; transform-origin: 300px 250px; }
+      .satellite-orbit { animation: spin 12s linear infinite; transform-origin: 300px 250px; }
+      .satellite { animation: counter-spin 12s linear infinite; transform-origin: 300px 108px; }
+    }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); opacity: .6; }
+      50% { transform: scale(1.35); opacity: 1; }
+    }
+    @keyframes float {
+      0%, 100% { transform: translateY(0) rotate(-1deg); }
+      50% { transform: translateY(-12px) rotate(1deg); }
+    }
+    @keyframes morph-taco {
+      0%, 36% { opacity: 1; transform: scale(1) rotate(0deg); filter: blur(0); }
+      40%, 90% { opacity: 0; transform: scale(.4) rotate(-15deg); filter: blur(3px); }
+      95%, 100% { opacity: 1; transform: scale(1) rotate(0deg); filter: blur(0); }
+    }
+    @keyframes morph-planet {
+      0%, 36% { opacity: 0; transform: scale(.4) rotate(15deg); filter: blur(3px); }
+      40%, 90% { opacity: 1; transform: scale(1) rotate(0deg); filter: blur(0); }
+      95%, 100% { opacity: 0; transform: scale(.4) rotate(15deg); filter: blur(3px); }
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes counter-spin { to { transform: rotate(-360deg); } }
+  </style>
+
+  <g aria-hidden="true">
+    <circle class="logo-glow" cx="300" cy="250" r="105" fill="url(#glow)"/>
+    <circle cx="300" cy="250" r="135" fill="none" stroke="#64b4ff" stroke-opacity=".24" stroke-width="1.5"/>
+
+    <g class="morph-center" filter="url(#earth-shadow)">
+      <text class="taco" x="300" y="287" text-anchor="middle" font-size="112">🌮</text>
+      <text class="earth" x="300" y="287" text-anchor="middle" font-size="112">🌍</text>
+    </g>
+
+    <g class="satellite-orbit">
+      <text class="satellite" x="300" y="108" text-anchor="middle" font-size="36" filter="url(#satellite-glow)">🛰️</text>
+    </g>
+  </g>
+
+  <text class="title-text" x="535" y="250">TACO</text>
+  <text class="subtitle-text" x="548" y="340">AI-ready Earth Observation datasets.</text>
+</svg>

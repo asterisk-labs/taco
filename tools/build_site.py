@@ -12,6 +12,7 @@ SOURCES = {
     "spec": ROOT / "spec",
     "deck": ROOT / "deck",
     "onepager": ROOT / "onepager",
+    "javascript/src": ROOT / "javascript" / "src",
 }
 IGNORED = shutil.ignore_patterns("README.md", ".DS_Store", "LICENSE", "__pycache__")
 REQUIRED = (
@@ -21,6 +22,7 @@ REQUIRED = (
     "deck/overview/index.html",
     "deck/playground/index.html",
     "deck/playground/app.js",
+    "javascript/src/index.js",
     "onepager/index.html",
     "onepager/style.css",
 )
@@ -50,7 +52,7 @@ LANDING = """<!doctype html>
   <ul>
     <li><a href="spec/">Specification<span>TACO v3.0.0 normative document</span></a></li>
     <li><a href="deck/overview/">Overview deck<span>What TACO is and how the pipeline works</span></a></li>
-    <li><a href="deck/playground/">cozip playground<span>Plan and write a cloud-optimized ZIP in the browser</span></a></li>
+    <li><a href="deck/playground/">TACO viewer<span>Explore FOLDER, ZIP and TACOCAT fixtures in the browser</span></a></li>
     <li><a href="onepager/">One pager<span>Print-ready summary for sharing</span></a></li>
     <li><a href="https://github.com/asterisk-labs/taco">Source code<span>Writer package, spec and site</span></a></li>
   </ul>

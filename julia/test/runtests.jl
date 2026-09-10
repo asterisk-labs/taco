@@ -21,6 +21,7 @@ const FIXTURE = joinpath(@__DIR__, "data", "taco.zip")
         @test_throws "must not exceed" Taco.read(FIXTURE; idx=(5, 2))
         @test_throws "non-empty" Taco.read(FIXTURE; level="")
         @test_throws "entries must be non-empty" Taco.read(FIXTURE; files=[""])
+        @test_throws TypeError Taco.read(FIXTURE; location="yes")
     end
 
     @testset "read a TACO dataset" begin
@@ -46,6 +47,9 @@ const FIXTURE = joinpath(@__DIR__, "data", "taco.zip")
         @test size(long, 1) == 6
         @test sort(unique(long.path)) == ["image.bin", "mask.bin"]
         @test sort(unique(long[!, "file:role"])) == ["image", "mask"]
+        @test "taco:location" in names(long)
+        @test !("cozip:location" in names(long))
+        @test !("cozip:gdal_vsi" in names(long))
 
         @test size(Taco.read(FIXTURE; idx=1), 1) == 1
         @test size(Taco.read(FIXTURE; idx=(0, 2)), 1) == 2
@@ -65,9 +69,16 @@ const FIXTURE = joinpath(@__DIR__, "data", "taco.zip")
         level = Taco.read(FIXTURE; level="children")
         @test size(level, 1) == 6
         @test "internal:current_id" in names(level)
+        @test isempty(intersect(
+            ["cozip:location", "taco:location", "cozip:gdal_vsi"],
+            names(level),
+        ))
 
-        quiet = Taco.read(FIXTURE; layout="long", gdal_vsi=false)
-        @test all(ismissing, quiet[!, "cozip:gdal_vsi"])
+        quiet = Taco.read(FIXTURE; layout="long", location=false)
+        @test isempty(intersect(
+            ["cozip:location", "taco:location", "cozip:gdal_vsi"],
+            names(quiet),
+        ))
     end
 
     @testset "paths and partitions" begin

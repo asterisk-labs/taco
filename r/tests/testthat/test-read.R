@@ -9,7 +9,7 @@ describe("read input validation", {
     expect_error(taco::read("a.zip", layout = "tall"), "should be one of")
     expect_error(taco::read("a.zip", level = c("sample", "children")), "single level")
     expect_error(taco::read("a.zip", files = ""), "non-empty")
-    expect_error(taco::read("a.zip", gdal_vsi = "yes"), "TRUE or FALSE")
+    expect_error(taco::read("a.zip", location = "yes"), "TRUE or FALSE")
   })
 
   it("checks sample indices", {
@@ -49,6 +49,8 @@ describe("read a TACO dataset", {
     expect_identical(nrow(result), 6L)
     expect_identical(sort(unique(result[["path"]])), c("image.bin", "mask.bin"))
     expect_identical(sort(unique(result[["file:role"]])), c("image", "mask"))
+    expect_true("taco:location" %in% names(result))
+    expect_false(any(c("cozip:location", "cozip:gdal_vsi") %in% names(result)))
   })
 
   it("selects samples", {
@@ -75,11 +77,12 @@ describe("read a TACO dataset", {
     result <- taco::read(taco_fixture(), level = "children")
     expect_identical(nrow(result), 6L)
     expect_true("internal:current_id" %in% names(result))
+    expect_false(any(c("cozip:location", "taco:location", "cozip:gdal_vsi") %in% names(result)))
   })
 
-  it("can omit GDAL paths", {
-    result <- taco::read(taco_fixture(), layout = "long", gdal_vsi = FALSE)
-    expect_true(all(is.na(result[["cozip:gdal_vsi"]])))
+  it("can omit locations", {
+    result <- taco::read(taco_fixture(), layout = "long", location = FALSE)
+    expect_false(any(c("cozip:location", "taco:location", "cozip:gdal_vsi") %in% names(result)))
   })
 
   it("reads Unicode paths", {

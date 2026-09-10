@@ -1,6 +1,6 @@
 name = "Taco"
 uuid = "3d6f1a92-7b48-4e05-9c31-6a2f8d5b7e14"
-version = "0.3.0"
+version = "0.4.0"
 authors = ["Cesar Aybar <cesar@asterisk.coop>"]
 description = "Read TACO datasets in Julia."
 

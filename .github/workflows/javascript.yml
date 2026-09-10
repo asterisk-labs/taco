@@ -1,0 +1,43 @@
+name: JavaScript
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/javascript.yml"
+      - "javascript/**"
+      - "r/tests/testthat/data/taco.zip"
+  pull_request:
+    paths:
+      - ".github/workflows/javascript.yml"
+      - "javascript/**"
+      - "r/tests/testthat/data/taco.zip"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: npm package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: javascript/package-lock.json
+
+      - working-directory: javascript
+        run: npm ci
+
+      - working-directory: javascript
+        run: npm run types
+
+      - working-directory: javascript
+        run: npm test
+
+      - working-directory: javascript
+        run: npm pack --dry-run

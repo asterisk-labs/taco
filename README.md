@@ -1,6 +1,6 @@
-<h1>TACO</h1>
-
-<p>
+<div align="center">
+  <img src="images/banner.svg" alt="TACO — AI-ready Earth Observation datasets." width="700"/>
+  <p>
     <a href="spec/LICENSE"><img src="https://img.shields.io/badge/license-MIT-EAB308?style=flat-square" alt="License MIT"/></a>
     <a href="https://github.com/asterisk-labs/taco/actions/workflows/release.yml"><img src="https://img.shields.io/github/actions/workflow/status/asterisk-labs/taco/release.yml?label=python%20tests&style=flat-square" alt="Python tests"/></a>
     <a href="https://github.com/asterisk-labs/taco/actions/workflows/release.yml"><img src="https://img.shields.io/badge/python%20coverage-88%25-brightgreen?style=flat-square" alt="Python coverage 88%"/></a>
@@ -8,9 +8,10 @@
     <a href="https://pypi.org/project/taco-eo"><img src="https://img.shields.io/pypi/pyversions/taco-eo?style=flat-square" alt="Supported Python versions"/></a>
     <a href="https://asterisk-labs.r-universe.dev/taco"><img src="https://img.shields.io/badge/r--universe-taco-276DC3?logo=r&logoColor=white&style=flat-square" alt="R"/></a>
     <a href="https://github.com/asterisk-labs/AsteriskRegistry"><img src="https://img.shields.io/badge/julia-Taco.jl-9558B2?logo=julia&logoColor=white&style=flat-square" alt="Julia"/></a>
-    <img src="https://img.shields.io/badge/javascript-coming%20soon-F7DF1E?logo=javascript&logoColor=black&style=flat-square" alt="JavaScript coming soon"/>
+    <a href="javascript/"><img src="https://img.shields.io/badge/javascript-v1.0.0-F7DF1E?logo=javascript&logoColor=black&style=flat-square" alt="JavaScript 1.0.0"/></a>
     <a href="https://asterisk.coop/taco/spec"><img src="https://img.shields.io/badge/spec-v3-A8B9CC?style=flat-square" alt="Specification"/></a>
-</p>
+  </p>
+</div>
 
 ---
 
@@ -29,7 +30,10 @@ access from folders, cloud-optimized ZIPs, and partitioned catalogs.
 | Python | `pip install taco-eo` | read + write | [README](python/README.md) |
 | R | `install.packages("taco", repos = "https://asterisk-labs.r-universe.dev")` | **reader** | [README](r/README.md) |
 | Julia | `Pkg.Registry.add(url="https://github.com/asterisk-labs/AsteriskRegistry"); Pkg.add("Taco")` | **reader** | [README](julia/README.md) |
-| JavaScript | Coming soon | **reader** | Coming soon |
+| JavaScript | `npm install @asterisk-labs/taco` | **reader** | [README](javascript/README.md) |
+
+The [TACO viewer](deck/playground/) uses the JavaScript reader with the public
+TACO/Rumi fixtures.
 
 ## Specification
 

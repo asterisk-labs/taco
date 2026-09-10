@@ -92,10 +92,55 @@ def test_dataset_api(monkeypatch: pytest.MonkeyPatch, collection: taco.Collectio
     assert dataset.contract == collection.contract
     assert taco.read(dataset).num_rows == 1
     assert taco.read(path).num_rows == 1
-    assert taco.read(dataset, layout="long", idx=3, level="children", files=["mask.tif"], gdal_vsi=False).num_rows == 1
+    assert taco.read(dataset, layout="long", idx=3, level="children", files=["mask.tif"], location=False).num_rows == 1
     assert "pivoted := ?" in connection.calls[-1][0]
     assert connection.calls[-1][1] == [str(path.resolve()), "3", "children", False, ["mask.tif"], False]
     assert repr(dataset).startswith("Dataset(")
+
+
+def test_reader_uses_location_and_normalizes_legacy_extension(monkeypatch: pytest.MonkeyPatch) -> None:
+    class LegacyConnection(Connection):
+        def execute(self, query, arguments=None) -> Result:
+            if "location := ?" in query:
+                raise RuntimeError("read_taco location does not support the supplied arguments; candidate has gdal_vsi")
+            self.calls.append((query, arguments))
+            return Result(
+                table=pa.table(
+                    {
+                        "path": ["scene.rumi"],
+                        "cozip:location": ["stored-flat"],
+                        "taco:location": ["stored-taco"],
+                        "cozip:gdal_vsi": ["/vsisubfile/1_2,/vsicurl/data.zip"],
+                    }
+                )
+            )
+
+    connection = LegacyConnection()
+    monkeypatch.setattr(reader, "connect", lambda: connection)
+
+    table = reader.read("data.zip", pivoted=False)
+
+    assert table.column_names == ["path", "taco:location"]
+    assert table["taco:location"].to_pylist() == ["/vsisubfile/1_2,/vsicurl/data.zip"]
+    assert "gdal_vsi := ?" in connection.calls[-1][0]
+
+
+def test_reader_removes_locations_from_raw_and_opt_out(monkeypatch: pytest.MonkeyPatch) -> None:
+    connection = Connection()
+    connection.execute = lambda query, arguments=None: Result(  # type: ignore[method-assign]
+        table=pa.table(
+            {
+                "value": [1],
+                "cozip:location": ["stored-flat"],
+                "taco:location": ["generated-or-stored"],
+                "cozip:gdal_vsi": ["legacy"],
+            }
+        )
+    )
+    monkeypatch.setattr(reader, "connect", lambda: connection)
+
+    assert reader.read("data.zip", level="children").column_names == ["value"]
+    assert reader.read("data.zip", pivoted=False, location=False).column_names == ["value"]
 
 
 def test_dataset_multiple_sources(monkeypatch: pytest.MonkeyPatch, collection: taco.Collection, tmp_path: Path) -> None:

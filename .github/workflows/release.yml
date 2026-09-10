@@ -34,6 +34,7 @@ jobs:
           python -m pip install -e "./python[dev]"
           python -m ruff format --check --config python/pyproject.toml python/taco python/tests python/examples
           python -m ruff check --config python/pyproject.toml python/taco python/tests python/examples tools
+          python -m mypy --config-file python/pyproject.toml python/taco
           python -m pytest python --cov=taco --cov-config=python/pyproject.toml --cov-report=term-missing
 
       - name: Build

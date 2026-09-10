@@ -1,0 +1,55 @@
+{
+  "name": "@asterisk-labs/taco",
+  "version": "1.0.0",
+  "description": "Pure-JavaScript reader for TACO datasets over HTTP.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./types/index.d.ts",
+      "default": "./src/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "types": "./types/index.d.ts",
+  "files": [
+    "src",
+    "types",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "types": "tsc",
+    "test": "node --test test/*.test.js",
+    "test:remote": "node --test test/remote.integration.js",
+    "prepublishOnly": "npm run types && npm test"
+  },
+  "dependencies": {
+    "hyparquet": "^1.25.0",
+    "hyparquet-compressors": "^1.1.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0"
+  },
+  "keywords": [
+    "taco",
+    "earth-observation",
+    "geospatial",
+    "parquet",
+    "cloud-optimized",
+    "range-requests"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/asterisk-labs/taco.git",
+    "directory": "javascript"
+  },
+  "homepage": "https://github.com/asterisk-labs/taco/tree/main/javascript#readme",
+  "bugs": "https://github.com/asterisk-labs/taco/issues",
+  "license": "MIT"
+}

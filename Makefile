@@ -1,6 +1,7 @@
 # make python    install taco, lint, test and build the wheel
 # make r         check the R reader
 # make julia     check the Julia reader
+# make javascript check and package the JavaScript reader
 # make deck      assemble the deck into _site/deck
 # make onepager  assemble the onepager into _site/onepager
 # make site      deck + onepager + spec (what GitHub Pages deploys)
@@ -16,7 +17,7 @@ COZIP_PYTHON ?= ../cozip/python
 COZIP_EXTENSION ?= $(abspath ../cozip_reader/build/release/extension/cozip/cozip.duckdb_extension)
 export COZIP_EXTENSION
 
-.PHONY: python r julia deck onepager site clean
+.PHONY: python r julia javascript deck onepager site clean
 
 python:
 	$(PYTHON) -m pip install -q "duckdb==$(DUCKDB_VERSION)" -e $(COZIP_PYTHON) -e python --no-deps
@@ -33,8 +34,12 @@ r:
 julia:
 	cd julia && julia --project=. -e 'using Pkg; Pkg.test()'
 
+javascript:
+	cd javascript && npm ci && npm run types && npm test && npm pack --dry-run
+
 deck:
-	rm -rf $(SITE)/deck && mkdir -p $(SITE) && cp -R deck $(SITE)/deck && touch $(SITE)/.nojekyll
+	rm -rf $(SITE)/deck $(SITE)/javascript && mkdir -p $(SITE)/javascript && \
+	  cp -R deck $(SITE)/deck && cp -R javascript/src $(SITE)/javascript/src && touch $(SITE)/.nojekyll
 	@echo "open $(SITE)/deck/overview/index.html"
 
 onepager:
@@ -46,5 +51,6 @@ site:
 
 clean:
 	rm -rf $(SITE) python/dist python/build python/*.egg-info .pytest_cache python/.pytest_cache \
-	  .ruff_cache python/.ruff_cache .mypy_cache python/.mypy_cache numpy_demo.zip
+	  .ruff_cache python/.ruff_cache .mypy_cache python/.mypy_cache numpy_demo.zip \
+	  javascript/types javascript/node_modules javascript/*.tgz
 	find . -type d -name __pycache__ -prune -exec rm -rf {} +

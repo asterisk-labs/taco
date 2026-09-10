@@ -12,7 +12,7 @@ read(
   idx = NULL,
   level = NULL,
   files = NULL,
-  gdal_vsi = TRUE
+  location = TRUE
 )
 
 \method{read}{character}(
@@ -21,7 +21,7 @@ read(
   idx = NULL,
   level = NULL,
   files = NULL,
-  gdal_vsi = TRUE
+  location = TRUE
 )
 
 \method{read}{taco_dataset}(
@@ -30,7 +30,7 @@ read(
   idx = NULL,
   level = NULL,
   files = NULL,
-  gdal_vsi = TRUE
+  location = TRUE
 )
 }
 \arguments{
@@ -47,7 +47,9 @@ instead of the joined view.}
 
 \item{files}{Restrict which structure leaves are read. \code{NULL} reads all.}
 
-\item{gdal_vsi}{Fill the \code{cozip:gdal_vsi} column with GDAL paths.}
+\item{location}{Fill structure columns in a wide read, or include the
+calculated \code{taco:location} column in a long read. Raw level reads never
+synthesize a location column.}
 }
 \value{
 A tibble.

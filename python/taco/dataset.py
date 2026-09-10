@@ -65,7 +65,7 @@ def read(
     idx: reader.Index = None,
     level: str | None = None,
     files: Sequence[str] | None = None,
-    gdal_vsi: bool = True,
+    location: bool = True,
 ) -> pa.Table:
     if layout not in ("wide", "long"):
         raise ValueError("layout must be 'wide' or 'long'")
@@ -81,7 +81,7 @@ def read(
         level=level,
         pivoted=layout == "wide",
         files=files,
-        gdal_vsi=gdal_vsi,
+        location=location,
     )
 
 

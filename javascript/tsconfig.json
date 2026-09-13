@@ -4,6 +4,7 @@
     "checkJs": true,
     "declaration": true,
     "emitDeclarationOnly": true,
+    "rootDir": "./src",
     "declarationDir": "./types",
     "target": "ES2022",
     "module": "ESNext",

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import math
-import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
@@ -13,12 +12,6 @@ from .contract import Contract
 from .schema import CollectionMetadata
 
 TACO_VERSION = "3.0.0"
-SEMVER = re.compile(
-    r"(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)"
-    r"(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?"
-    r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?"
-)
-
 KNOWN_TASKS = frozenset(
     {
         "regression",
@@ -50,7 +43,6 @@ _CORE_KEYS = frozenset(
     {
         "taco:version",
         "id",
-        "dataset_version",
         "description",
         "licenses",
         "providers",
@@ -266,7 +258,6 @@ class Extent:
 class Collection:
     contract: Contract
     id: str
-    dataset_version: str
     description: str
     licenses: tuple[str, ...]
     providers: tuple[Provider, ...]
@@ -283,8 +274,6 @@ class Collection:
             raise CollectionError("contract must be a Contract")
         if not isinstance(self.id, str) or not self.id.strip() or any(char in self.id for char in "/\\:\x00"):
             raise CollectionError("collection id is invalid")
-        if not isinstance(self.dataset_version, str) or not SEMVER.fullmatch(self.dataset_version):
-            raise CollectionError("dataset_version must follow Semantic Versioning")
         if not isinstance(self.description, str) or not self.description.strip():
             raise CollectionError("collection description is required")
         object.__setattr__(self, "licenses", _string_list(self.licenses, name="licenses", required=True))
@@ -302,6 +291,10 @@ class Collection:
                 json.dumps(self.metadata.flatten(), allow_nan=False)
             except (TypeError, ValueError) as exc:
                 raise CollectionError("collection metadata must be JSON serializable") from exc
+        supplied_metadata = {} if self.metadata is None else self.metadata.flatten()
+        for name, value in self.contract.extension_metadata().items():
+            if name in supplied_metadata and supplied_metadata[name] != value:
+                raise CollectionError(f"collection metadata {name!r} conflicts with the active extension")
         if self.curators is not None:
             object.__setattr__(self, "curators", tuple(Curator.from_any(value) for value in self.curators))
         if self.keywords is not None:
@@ -321,7 +314,6 @@ class Collection:
         data: dict[str, Any] = {
             "taco:version": TACO_VERSION,
             "id": self.id,
-            "dataset_version": self.dataset_version,
             "description": self.description,
             "licenses": list(self.licenses),
             "providers": [provider.to_dict() for provider in self.providers],
@@ -341,6 +333,7 @@ class Collection:
             data["taco:sources"] = self.sources
         if self.metadata is not None:
             data.update(self.metadata.flatten())
+        data.update(self.contract.extension_metadata())
         json.dumps(data, allow_nan=False)
         return data
 
@@ -354,7 +347,6 @@ class Collection:
         required = (
             "taco:version",
             "id",
-            "dataset_version",
             "description",
             "licenses",
             "providers",
@@ -386,7 +378,6 @@ class Collection:
         return cls(
             contract=Contract.from_dict(data),
             id=data["id"],
-            dataset_version=data["dataset_version"],
             description=data["description"],
             licenses=data["licenses"],
             providers=tuple(Provider.from_any(value) for value in providers),

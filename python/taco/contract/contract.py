@@ -18,6 +18,7 @@ from .types import coerce_value, parse_type, type_name
 
 SAMPLE_LEVEL = "sample"
 CHILDREN_LEVEL = "children"
+SAMPLE_ID = "id"
 
 _PROFILE_TYPES = {
     "spatial": {
@@ -33,24 +34,26 @@ _PROFILE_TYPES = {
     },
     "temporal": {
         "time_start": "timestamp[us, UTC]",
+        "time_end": "timestamp[us, UTC]",
+        "time_middle": "timestamp[us, UTC]",
     },
     "stac": {
         "crs": "string",
         "tensor_shape": "list<int64>",
         "geotransform": "list<double>",
         "time_start": "timestamp[us, UTC]",
+        "time_end": "timestamp[us, UTC]",
         "centroid": "binary",
+        "time_middle": "timestamp[us, UTC]",
     },
     "istac": {
         "crs": "string",
         "geometry": "binary",
         "time_start": "timestamp[us, UTC]",
+        "time_end": "timestamp[us, UTC]",
         "centroid": "binary",
+        "time_middle": "timestamp[us, UTC]",
     },
-}
-_PROFILE_OPTIONAL_TYPES = {
-    "time_end": "timestamp[us, UTC]",
-    "time_middle": "timestamp[us, UTC]",
 }
 
 
@@ -147,7 +150,7 @@ def _check_row_independent(
 
 @dataclass(frozen=True, init=False, eq=False)
 class Contract:
-    structure: tuple[str, ...] | None
+    structure: tuple[str, ...]
     metadata: dict[str, dict[str, Field]]
     derived: dict[str, dict[str, dict[str, Any]]]
     extensions: dict[str, dict[str, dict[str, Any]]]
@@ -161,24 +164,20 @@ class Contract:
     def __init__(
         self,
         *,
-        structure: Iterable[str] | None,
+        structure: Iterable[str],
         metadata: MetadataSchema | Mapping[str, Mapping[str, Any]] | None = None,
         derived: Mapping[str, Mapping[str, Mapping[str, Any]]] | None = None,
     ) -> None:
-        if structure is None:
-            declarations = None
-            leaves: tuple[Leaf, ...] = ()
-        else:
-            if isinstance(structure, (str, bytes)):
-                raise ContractError("structure must be a list of paths or None")
-            declarations = tuple(structure)
-            if not declarations:
-                raise ContractError("structure must contain at least one leaf, or be None")
-            leaves = tuple(parse_leaf(item) for item in declarations)
+        if structure is None or isinstance(structure, (str, bytes)):
+            raise ContractError("structure must be a non-empty list of paths")
+        declarations = tuple(structure)
+        if not declarations:
+            raise ContractError("structure must contain at least one path")
+        leaves = tuple(parse_leaf(item) for item in declarations)
 
         children = build_tree(leaves)
         folders = frozenset(folder for folder in children if folder)
-        levels = self._derive_levels(children, structure is None)
+        levels = self._derive_levels(children)
         if isinstance(metadata, MetadataSchema):
             normalized, types_, groups, derived_ = self._from_models(metadata, levels, children)
         else:
@@ -237,17 +236,15 @@ class Contract:
                 missing = sorted(set(expected) - present)
                 if missing:
                     raise ContractError(f"{namespace.upper()} metadata at level {level!r} is missing fields {missing}")
-                optional = _PROFILE_OPTIONAL_TYPES if namespace in {"temporal", "stac", "istac"} else {}
-                for name, expected_type in {**expected, **optional}.items():
+                for name, expected_type in expected.items():
                     qualified = f"{namespace}:{name}"
-                    if qualified in fields and fields[qualified].type != expected_type:
-                        actual = fields[qualified].type
+                    field = fields[qualified]
+                    if field.type != expected_type:
+                        actual = field.type
                         raise ContractError(f"field {level}.{qualified} must have type {expected_type}, got {actual}")
 
     @staticmethod
-    def _derive_levels(children: Mapping[tuple[str, ...], Any], null_structure: bool) -> tuple[str, ...]:
-        if null_structure:
-            return (SAMPLE_LEVEL,)
+    def _derive_levels(children: Mapping[tuple[str, ...], Any]) -> tuple[str, ...]:
         folders = [folder for folder in children if folder]
         order = {folder: index for index, folder in enumerate(folders)}
         folders.sort(key=lambda item: (len(item), order[item]))
@@ -433,12 +430,22 @@ class Contract:
             _check_extension_descriptors(level, result[level], metadata[level])
         return result
 
-    @property
-    def is_null(self) -> bool:
-        return self.structure is None
-
     def arrow_types(self, level: str) -> dict[str, pa.DataType]:
         return self._types[level]
+
+    def extension_metadata(self) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for groups in self._groups.values():
+            for group in groups:
+                if group.extension is None:
+                    continue
+                for name, value in group.extension.collection_metadata().items():
+                    validate_qualified_field(f"{group.namespace}:{name}")
+                    qualified = f"{group.namespace}:{name}"
+                    if qualified in result and result[qualified] != value:
+                        raise ContractError(f"extensions declare conflicting collection metadata {qualified!r}")
+                    result[qualified] = value
+        return result
 
     def children(self, folder: tuple[str, ...]) -> tuple[tuple[str, Any], ...]:
         return self._children[folder]
@@ -450,14 +457,18 @@ class Contract:
         return CHILDREN_LEVEL if not folder else CHILDREN_LEVEL + "/" + "/".join(folder)
 
     def _resolve_assets(self, assets: Sequence[Asset]) -> tuple[Asset, ...]:
-        if self.is_null:
-            if len(assets) != 1 or assets[0].path is not None:
-                raise SampleError("a contract without structure accepts one asset without a path")
-            return tuple(assets)
         resolved = []
         for asset in assets:
             if asset.path is not None:
                 resolved.append(asset)
+                continue
+            if (
+                not isinstance(asset.source, Path)
+                and len(self.leaves) == 1
+                and not self.leaves[0].folder
+                and not self.leaves[0].variable
+            ):
+                resolved.append(asset.replace(path=self.leaves[0].declaration))
                 continue
             if not isinstance(asset.source, Path):
                 raise SampleError("inline assets need an explicit contract path")
@@ -471,8 +482,6 @@ class Contract:
 
     def expand(self, assets: Sequence[Asset], folders: Sequence[Folder] = ()) -> dict[tuple[str, ...], list[Node]]:
         assets = self._resolve_assets(assets)
-        if self.is_null:
-            return {(): []}
         folder_metadata = {PurePosixPath(item.path).parts: item.metadata for item in folders}
         unknown_folders = sorted("/".join(path) for path in set(folder_metadata) - set(self.folders))
         if unknown_folders:
@@ -530,34 +539,38 @@ class Contract:
         assets = self._resolve_assets(sample.assets)
         tree = self.expand(assets, sample.folders)
         self.flatten_metadata(SAMPLE_LEVEL, sample.metadata, scope="sample")
-        if not self.is_null:
-            for folder, nodes in tree.items():
-                level = self.level_of_folder(folder)
-                for node in nodes:
-                    self.flatten_metadata(level, node.metadata, scope="folder" if node.is_folder else "asset")
+        for folder, nodes in tree.items():
+            level = self.level_of_folder(folder)
+            for node in nodes:
+                self.flatten_metadata(level, node.metadata, scope="folder" if node.is_folder else "asset")
         ordered = tuple(node.asset for nodes in tree.values() for node in nodes if node.asset is not None)
-        return Sample(assets=assets if self.is_null else ordered, metadata=sample.metadata, folders=sample.folders)
+        return Sample(
+            id=sample.id,
+            assets=ordered,
+            metadata=sample.metadata,
+            folders=sample.folders,
+        )
 
     def prepare_sample(self, sample: Sample) -> _PreparedSample:
         sample = self.validate_sample(sample)
         rows: dict[str, tuple[_PreparedNode, ...]] = {}
-        if not self.is_null:
-            tree = self.expand(sample.assets, sample.folders)
-            for folder, nodes in tree.items():
-                level = self.level_of_folder(folder)
-                rows[level] = tuple(
-                    _PreparedNode(
-                        node.name,
-                        node.is_folder,
-                        self.flatten_metadata(
-                            level,
-                            node.metadata,
-                            scope="folder" if node.is_folder else "asset",
-                        ),
-                    )
-                    for node in nodes
+        tree = self.expand(sample.assets, sample.folders)
+        for folder, nodes in tree.items():
+            level = self.level_of_folder(folder)
+            rows[level] = tuple(
+                _PreparedNode(
+                    node.name,
+                    node.is_folder,
+                    self.flatten_metadata(
+                        level,
+                        node.metadata,
+                        scope="folder" if node.is_folder else "asset",
+                    ),
                 )
+                for node in nodes
+            )
         return _PreparedSample(
+            sample.id,
             tuple(_PreparedAsset(asset.source, asset.path) for asset in sample.assets),
             self.flatten_metadata(SAMPLE_LEVEL, sample.metadata, scope="sample"),
             rows,
@@ -700,7 +713,7 @@ class Contract:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "taco:structure": None if self.structure is None else list(self.structure),
+            "taco:structure": list(self.structure),
             "taco:metadata": {
                 level: {name: spec.to_dict() for name, spec in fields.items()}
                 for level, fields in self.metadata.items()

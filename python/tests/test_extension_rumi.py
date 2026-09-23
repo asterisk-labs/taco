@@ -15,7 +15,6 @@ def collection(contract: taco.Contract) -> taco.Collection:
     return taco.Collection(
         contract=contract,
         id="rumi-extension",
-        dataset_version="1.0.0",
         description="Rumi extension tests",
         licenses=["MIT"],
         providers=["TACO tests"],
@@ -43,11 +42,11 @@ def write_fake_rumi(
     source.write_bytes(b"RUMI fixture")
     fake_rumi(monkeypatch, array)
     contract = taco.Contract(
-        structure=None,
+        structure=["data.rumi"],
         metadata=taco.MetadataSchema(taco.Level("sample", rumi=taco.extensions.Rumi(stats=stats, nodata=nodata))),
     )
     with taco.open_writer(collection(contract), tmp_path / "dataset") as writer:
-        writer.add(taco.Sample(assets=source))
+        writer.add(taco.Sample(id="u10", assets=taco.Asset(source, path="data.rumi")))
         writer.run()
     return open_view(tmp_path / "dataset").level("sample").to_pylist()[0]
 
@@ -87,11 +86,11 @@ def test_rumi_header_only_does_not_decode(tmp_path: Path, monkeypatch: pytest.Mo
     )
     monkeypatch.setitem(sys.modules, "rumi", fake)
     contract = taco.Contract(
-        structure=None,
+        structure=["data.rumi"],
         metadata=taco.MetadataSchema(taco.Level("sample", rumi=taco.extensions.Rumi())),
     )
     with taco.open_writer(collection(contract), tmp_path / "dataset") as writer:
-        writer.add(taco.Sample(assets=source))
+        writer.add(taco.Sample(id="u11", assets=taco.Asset(source, path="data.rumi")))
         writer.run()
     row = open_view(tmp_path / "dataset").level("sample").to_pylist()[0]
     assert row["rumi:header"] == b"header-only"
@@ -150,7 +149,7 @@ def test_rumi_extension_runs_at_asset_scope(tmp_path: Path, monkeypatch: pytest.
         structure=["dem.rumi"],
         metadata=taco.MetadataSchema(taco.Level("children", rumi=taco.extensions.Rumi())),
     )
-    sample = taco.Sample(assets=taco.Asset(source, path="dem.rumi"))
+    sample = taco.Sample(id="u12", assets=taco.Asset(source, path="dem.rumi"))
     with taco.open_writer(collection(contract), tmp_path / "dataset") as writer:
         writer.add(sample)
         writer.run()
@@ -162,11 +161,11 @@ def test_rumi_extension_rejects_a_non_rumi_asset_without_importing_rumi(tmp_path
     source = tmp_path / "dem.tif"
     source.write_bytes(b"not rumi")
     contract = taco.Contract(
-        structure=None,
+        structure=["data.rumi"],
         metadata=taco.MetadataSchema(taco.Level("sample", rumi=taco.extensions.Rumi())),
     )
     with taco.open_writer(collection(contract), tmp_path / "dataset") as writer:
-        writer.add(taco.Sample(assets=source))
+        writer.add(taco.Sample(id="u13", assets=taco.Asset(source, path="data.rumi")))
         with pytest.raises(ValueError, match=r"\.rumi"):
             writer.run()
 
@@ -184,11 +183,11 @@ def test_rumi_extension_reads_a_real_rumi_file(tmp_path: Path) -> None:
     _, expected_header = rumi.write(source, frames)
 
     contract = taco.Contract(
-        structure=None,
+        structure=["data.rumi"],
         metadata=taco.MetadataSchema(taco.Level("sample", rumi=taco.extensions.Rumi(stats=True))),
     )
     with taco.open_writer(collection(contract), tmp_path / "dataset") as writer:
-        writer.add(taco.Sample(assets=source))
+        writer.add(taco.Sample(id="u14", assets=taco.Asset(source, path="data.rumi")))
         writer.run()
     row = open_view(tmp_path / "dataset").level("sample").to_pylist()[0]
     assert row["rumi:header"] == expected_header
@@ -205,13 +204,14 @@ def test_wide_reads_carry_rumi_headers_next_to_locations(tmp_path: Path, monkeyp
     for name in ("optical.rumi", "img0.rumi", "img1.rumi", "mask.bin"):
         (tmp_path / name).write_bytes(name.encode())
     contract = taco.Contract(
-        structure=["scene/optical.rumi", "scene/img*[0,2].rumi", "mask.bin"],
+        structure=["scene/optical.rumi", "scene/img*[1,2].rumi", "mask.bin"],
         metadata=taco.MetadataSchema(taco.Level("children/scene", rumi=taco.extensions.Rumi())),
     )
     output = tmp_path / "rumi.zip"
     with taco.open_writer(collection(contract), output) as writer:
         writer.add(
             taco.Sample(
+                id="s0",
                 assets=[
                     taco.Asset(tmp_path / "optical.rumi", path="scene/optical.rumi"),
                     taco.Asset(tmp_path / "img1.rumi", path="scene/img1.rumi"),

@@ -77,8 +77,8 @@ def parse_leaf(declaration: str) -> Leaf:
         validate_component("x" + suffix, context="variable leaf suffix")
     if minimum > maximum:
         raise ContractError(f"variable leaf {declaration!r} has min > max")
-    if maximum == 0:
-        raise ContractError(f"variable leaf {declaration!r} can never produce a file")
+    if minimum < 1:
+        raise ContractError(f"variable leaf {declaration!r} must require at least one file")
     return Leaf(declaration, folder, basename, prefix, minimum, maximum, suffix)
 
 

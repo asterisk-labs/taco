@@ -89,15 +89,22 @@ def _arrow_type(annotation: Any) -> pa.DataType:
     if annotation is Decimal:
         return pa.decimal128(38, 9)
     if origin is list:
-        return pa.list_(_arrow_type(args[0]))
+        item, nullable = _optional(args[0])
+        return pa.list_(pa.field("item", _arrow_type(item), nullable=nullable))
     if origin is tuple:
         if len(args) == 2 and args[1] is Ellipsis:
-            return pa.list_(_arrow_type(args[0]))
+            item, nullable = _optional(args[0])
+            return pa.list_(pa.field("item", _arrow_type(item), nullable=nullable))
         if args and len(set(args)) == 1:
-            return pa.list_(_arrow_type(args[0]), len(args))
+            item, nullable = _optional(args[0])
+            return pa.list_(pa.field("item", _arrow_type(item), nullable=nullable), len(args))
         raise ContractError("tuple metadata fields must contain one repeated type")
     if origin is dict:
-        return pa.map_(_arrow_type(args[0]), _arrow_type(args[1]))
+        key, key_nullable = _optional(args[0])
+        if key_nullable:
+            raise ContractError("map keys cannot be optional")
+        item, item_nullable = _optional(args[1])
+        return pa.map_(_arrow_type(key), pa.field("value", _arrow_type(item), nullable=item_nullable))
     if isinstance(annotation, type) and issubclass(annotation, BaseModel):
         return pa.struct(
             pa.field(

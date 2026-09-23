@@ -13,6 +13,7 @@ from typing import Any, ClassVar
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from ..contract.naming import validate_field_name
 from ._base import DerivedMetadata
 from .spatiotemporal import point_from_wkb
 
@@ -21,6 +22,11 @@ def _centroid_field(value: str) -> str:
     if not isinstance(value, str) or re.fullmatch(r"[a-z][a-z0-9_]*:centroid", value) is None:
         raise ValueError("centroid must be a qualified metadata field ending in ':centroid'")
     return value
+
+
+def _distance_label(value: float) -> str:
+    text = repr(float(value))
+    return text[:-2] if text.endswith(".0") else text
 
 
 @lru_cache(maxsize=32)
@@ -71,6 +77,7 @@ class MajorTOM(DerivedMetadata):
     __taco_scopes__: ClassVar[frozenset[str]] = frozenset({"sample"})
 
     dist_km: float = 100
+    extra: Mapping[str, float] | tuple[tuple[str, float], ...] = ()
     latitude_range: tuple[float, float] = (-85.0, 85.0)
     longitude_range: tuple[float, float] = (-180.0, 180.0)
     sep: str = "_"
@@ -89,6 +96,27 @@ class MajorTOM(DerivedMetadata):
         object.__setattr__(self, "latitude_range", tuple(float(value) for value in self.latitude_range))
         object.__setattr__(self, "longitude_range", tuple(float(value) for value in self.longitude_range))
         object.__setattr__(self, "centroid", _centroid_field(self.centroid))
+        object.__setattr__(self, "extra", self._normalized_extra())
+
+    def _normalized_extra(self) -> tuple[tuple[str, float], ...]:
+        """Validate the extra grids and freeze them so the class stays hashable."""
+        normalized = []
+        for name, distance in dict(self.extra).items():
+            validate_field_name(name, context="MajorTOM extra")
+            if ":" in name:
+                raise ValueError(f"extra grid {name!r} must not contain ':'")
+            if name == "code":
+                raise ValueError("an extra grid cannot be named 'code'")
+            if isinstance(distance, bool) or not isinstance(distance, (int, float)):
+                raise ValueError(f"extra grid {name!r} needs a positive distance in kilometres")
+            if not math.isfinite(distance) or distance <= 0:
+                raise ValueError(f"extra grid {name!r} needs a positive distance in kilometres")
+            normalized.append((name, float(distance)))
+        return tuple(normalized)
+
+    def _grids(self) -> tuple[tuple[str, float], ...]:
+        """The primary grid first, then the extra ones."""
+        return (("code", self.dist_km), *self.extra)
 
     @property
     def requires(self) -> tuple[str, ...]:
@@ -96,9 +124,20 @@ class MajorTOM(DerivedMetadata):
 
     @property
     def fields(self) -> pa.Schema:
-        description = "MajorTOM spherical grid cell identifier"
         return pa.schema(
-            [pa.field("code", pa.string(), nullable=False, metadata={b"description": description.encode()})]
+            [
+                pa.field(
+                    name,
+                    pa.string(),
+                    nullable=False,
+                    metadata={
+                        b"description": (
+                            f"MajorTOM spherical grid cell identifier at {_distance_label(distance)} km"
+                        ).encode()
+                    },
+                )
+                for name, distance in self._grids()
+            ]
         )
 
     def configuration(self) -> dict[str, Any]:
@@ -108,20 +147,29 @@ class MajorTOM(DerivedMetadata):
             "longitude_range": list(self.longitude_range),
             "sep": self.sep,
         }
+        if self.extra:
+            configuration["extra"] = dict(self.extra)
         if self.centroid != "stac:centroid":
             configuration["centroid"] = self.centroid
         return configuration
 
-    def compute(self, columns: Mapping[str, Sequence[Any]]) -> Mapping[str, Sequence[Any]]:
+    def collection_metadata(self) -> Mapping[str, Any]:
+        return {
+            "dist_km": self.dist_km,
+            "extra": dict(self.extra),
+            "latitude_range": list(self.latitude_range),
+            "longitude_range": list(self.longitude_range),
+            "sep": self.sep,
+            "centroid": self.centroid,
+        }
+
+    def _codes(self, longitudes: Any, latitudes: Any, dist_km: float) -> list[str]:
         try:
             import numpy as np
         except ImportError as exc:
             raise ImportError("MajorTOM requires numpy") from exc
 
-        points = [point_from_wkb(value, field=self.centroid) for value in columns[self.centroid]]
-        longitudes = np.asarray([point[0] for point in points])
-        latitudes = np.asarray([point[1] for point in points])
-        lats, row_labels, longitude_rows, column_labels = _grid(self.dist_km, self.latitude_range, self.longitude_range)
+        lats, row_labels, longitude_rows, column_labels = _grid(dist_km, self.latitude_range, self.longitude_range)
         row_indexes = np.searchsorted(lats, latitudes, side="left") - 1
         row_indexes = np.clip(row_indexes, 0, len(lats) - 1)
         column_indexes: Any = np.empty_like(row_indexes)
@@ -134,8 +182,8 @@ class MajorTOM(DerivedMetadata):
             indexes[indexes < 0] = row_lons.size - 1
             column_indexes[selected] = indexes
 
-        distance = f"MT{int(self.dist_km)}km"
-        codes = [
+        distance = f"MT{_distance_label(dist_km)}km"
+        return [
             self.sep.join(
                 (
                     distance,
@@ -145,7 +193,17 @@ class MajorTOM(DerivedMetadata):
             )
             for row_index, column_index in zip(row_indexes, column_indexes, strict=True)
         ]
-        return {"code": codes}
+
+    def compute(self, columns: Mapping[str, Sequence[Any]]) -> Mapping[str, Sequence[Any]]:
+        try:
+            import numpy as np
+        except ImportError as exc:
+            raise ImportError("MajorTOM requires numpy") from exc
+
+        points = [point_from_wkb(value, field=self.centroid) for value in columns[self.centroid]]
+        longitudes = np.asarray([point[0] for point in points])
+        latitudes = np.asarray([point[1] for point in points])
+        return {name: self._codes(longitudes, latitudes, distance) for name, distance in self._grids()}
 
 
 def _morton_key(longitude: float, latitude: float, bits: int = 24) -> int:

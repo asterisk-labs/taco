@@ -67,6 +67,16 @@ def _strip_label(text: str) -> str:
     return text
 
 
+def _nested_type(spec: str) -> tuple[pa.DataType, bool]:
+    text = _strip_label(spec).strip()
+    nullable = text.endswith("?")
+    if nullable:
+        text = text[:-1].rstrip()
+    if not text:
+        raise TypeSpecError(f"nested type must precede '?' in {spec!r}")
+    return parse_type(text), nullable
+
+
 def parse_type(spec: str | pa.DataType) -> pa.DataType:
     """Return the :mod:`pyarrow` type described by ``spec``."""
     if isinstance(spec, pa.DataType):
@@ -115,19 +125,21 @@ def parse_type(spec: str | pa.DataType) -> pa.DataType:
             args = _split_top_level(contents)
             if len(args) != 1:
                 raise TypeSpecError(f"{head} takes exactly one type in {spec!r}")
-            inner = parse_type(_strip_label(args[0]))
-            return pa.list_(inner) if head == "list" else pa.large_list(inner)
+            inner, nullable = _nested_type(args[0])
+            field = pa.field("item", inner, nullable=nullable)
+            return pa.list_(field) if head == "list" else pa.large_list(field)
         if head == "fixed_size_list":
             # fixed_size_list<T, n> or pyarrow's fixed_size_list<item: T>[n]
             size_match = re.fullmatch(r"<(.*)>\s*\[(\d+)\]", rest, re.S)
             if size_match is not None:
-                inner = parse_type(_strip_label(size_match.group(1)))
-                return pa.list_(inner, int(size_match.group(2)))
+                inner, nullable = _nested_type(size_match.group(1))
+                return pa.list_(pa.field("item", inner, nullable=nullable), int(size_match.group(2)))
             if angle is not None:
                 args = _split_top_level(angle)
                 if len(args) != 2 or not args[1].strip().isdigit():
                     raise TypeSpecError(f"fixed_size_list needs <type, size> in {spec!r}")
-                return pa.list_(parse_type(_strip_label(args[0])), int(args[1]))
+                inner, nullable = _nested_type(args[0])
+                return pa.list_(pa.field("item", inner, nullable=nullable), int(args[1]))
         if head == "struct" and angle is not None:
             fields = []
             for item in _split_top_level(angle):
@@ -136,13 +148,18 @@ def parse_type(spec: str | pa.DataType) -> pa.DataType:
                 name, sep, inner = item.partition(":")
                 if not sep or not name.strip():
                     raise TypeSpecError(f"struct fields need 'name: type' in {spec!r}")
-                fields.append(pa.field(name.strip(), parse_type(inner)))
+                dtype, nullable = _nested_type(inner)
+                fields.append(pa.field(name.strip(), dtype, nullable=nullable))
             return pa.struct(fields)
         if head == "map" and angle is not None:
             args = _split_top_level(angle)
             if len(args) != 2:
                 raise TypeSpecError(f"map needs <key, value> in {spec!r}")
-            return pa.map_(parse_type(_strip_label(args[0])), parse_type(_strip_label(args[1])))
+            key_type, key_nullable = _nested_type(args[0])
+            if key_nullable:
+                raise TypeSpecError(f"map keys must not be nullable in {spec!r}")
+            item_type, item_nullable = _nested_type(args[1])
+            return pa.map_(key_type, pa.field("value", item_type, nullable=item_nullable))
         if head in {"decimal", "decimal128", "decimal256"} and paren is not None:
             args = _split_top_level(paren)
             if len(args) != 2:
@@ -168,16 +185,16 @@ def type_name(dtype: pa.DataType) -> str:
             return f"timestamp[{dtype.unit}, {dtype.tz}]"
         return f"timestamp[{dtype.unit}]"
     if pa.types.is_fixed_size_list(dtype):
-        return f"fixed_size_list<{type_name(dtype.value_type)}, {dtype.list_size}>"
+        return f"fixed_size_list<{_field_type_name(dtype.value_field)}, {dtype.list_size}>"
     if pa.types.is_large_list(dtype):
-        return f"large_list<{type_name(dtype.value_type)}>"
+        return f"large_list<{_field_type_name(dtype.value_field)}>"
     if pa.types.is_list(dtype):
-        return f"list<{type_name(dtype.value_type)}>"
+        return f"list<{_field_type_name(dtype.value_field)}>"
     if pa.types.is_struct(dtype):
-        inner = ", ".join(f"{field.name}: {type_name(field.type)}" for field in dtype)
+        inner = ", ".join(f"{field.name}: {_field_type_name(field)}" for field in dtype)
         return f"struct<{inner}>"
     if pa.types.is_map(dtype):
-        return f"map<{type_name(dtype.key_type)}, {type_name(dtype.item_type)}>"
+        return f"map<{type_name(dtype.key_type)}, {_field_type_name(dtype.item_field)}>"
     if pa.types.is_decimal(dtype):
         head = "decimal256" if pa.types.is_decimal256(dtype) else "decimal128"
         return f"{head}({dtype.precision}, {dtype.scale})"
@@ -190,6 +207,11 @@ def type_name(dtype: pa.DataType) -> str:
     if pa.types.is_float16(dtype):
         return "float16"
     return str(dtype)
+
+
+def _field_type_name(field: pa.Field) -> str:
+    suffix = "?" if field.nullable else ""
+    return type_name(field.type) + suffix
 
 
 def _reject(value: object, dtype: pa.DataType, reason: str) -> None:

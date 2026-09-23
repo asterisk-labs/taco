@@ -106,7 +106,6 @@ def collection(contract: taco.Contract) -> taco.Collection:
     return taco.Collection(
         contract=contract,
         id="extension-contract",
-        dataset_version="1.0.0",
         description="Extension contract tests",
         licenses=["MIT"],
         providers=["TACO tests"],
@@ -123,11 +122,17 @@ def test_extension_combines_inputs_with_local_assets(tmp_path: Path) -> None:
     source = tmp_path / "value.bin"
     source.write_bytes(b"value")
     contract = taco.Contract(
-        structure=None,
+        structure=["data.bin"],
         metadata=taco.MetadataSchema(taco.Level("sample", value=AssetValue())),
     )
     with taco.open_writer(collection(contract), tmp_path / "dataset") as writer:
-        writer.add(taco.Sample(assets=source, metadata=taco.Metadata(value=Value(value=4))))
+        writer.add(
+            taco.Sample(
+                id="u7",
+                assets=taco.Asset(source, path="data.bin"),
+                metadata=taco.Metadata(value=Value(value=4)),
+            )
+        )
         writer.run()
     row = open_view(tmp_path / "dataset").level("sample").to_pylist()[0]
     assert row["value:value"] == 4
@@ -135,14 +140,39 @@ def test_extension_combines_inputs_with_local_assets(tmp_path: Path) -> None:
     assert row["value:asset_name"] == "value.bin"
 
 
+def test_sample_extension_asset_is_defined_by_the_contract(tmp_path: Path) -> None:
+    contract = taco.Contract(
+        structure=["image*[1,2].bin"],
+        metadata=taco.MetadataSchema(taco.Level("sample", value=AssetValue())),
+    )
+    samples = [
+        taco.Sample(
+            id="one",
+            assets=[taco.Asset(b"one", path="image0.bin")],
+            metadata=taco.Metadata(value=Value(value=1)),
+        ),
+        taco.Sample(
+            id="two",
+            assets=[taco.Asset(b"one", path="image0.bin"), taco.Asset(b"two", path="image1.bin")],
+            metadata=taco.Metadata(value=Value(value=2)),
+        ),
+    ]
+    with taco.open_writer(collection(contract), tmp_path / "dataset") as writer:
+        writer.extend(samples)
+        writer.run()
+
+    table = open_view(tmp_path / "dataset").level("sample")
+    assert table.column("value:asset_name").to_pylist() == [None, None]
+
+
 def test_complete_level_extension_receives_all_rows(tmp_path: Path) -> None:
     COMPLETE_BATCHES.clear()
     contract = taco.Contract(
-        structure=None,
+        structure=["data.bin"],
         metadata=taco.MetadataSchema(taco.Level("sample", complete=CompleteGenerated())),
     )
     with taco.open_writer(collection(contract), tmp_path / "complete", batch_size=1) as writer:
-        writer.extend([taco.Sample(assets=b"x") for _ in range(3)])
+        writer.extend(taco.Sample(id=f"u8-{index}", assets=b"x") for index in range(3))
         writer.run()
 
     # The second call is the writer's one-row independence check.
@@ -154,7 +184,7 @@ def test_complete_level_extension_receives_all_rows(tmp_path: Path) -> None:
 def test_executable_extensions_reject_a_dependency_cycle() -> None:
     with pytest.raises(ContractError, match="cycle"):
         taco.Contract(
-            structure=None,
+            structure=["data.bin"],
             metadata=taco.MetadataSchema(
                 taco.Level("sample", first=Generated("second:value"), second=Generated("first:value"))
             ),
@@ -172,11 +202,11 @@ def test_executable_extensions_reject_a_dependency_cycle() -> None:
 )
 def test_writer_rejects_invalid_extension_outputs(behavior: str, message: str, tmp_path: Path) -> None:
     contract = taco.Contract(
-        structure=None,
+        structure=["data.bin"],
         metadata=taco.MetadataSchema(taco.Level("sample", broken=Broken(behavior))),
     )
     with taco.open_writer(collection(contract), tmp_path / behavior) as writer:
-        writer.add(taco.Sample(assets=b"x"))
+        writer.add(taco.Sample(id="u9", assets=b"x"))
         with pytest.raises(SampleError, match=message):
             writer.run()
     assert not (tmp_path / behavior).exists()

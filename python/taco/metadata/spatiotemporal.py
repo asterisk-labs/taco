@@ -178,9 +178,10 @@ class Spatial(SampleModel):
 
     crs: str = Field(min_length=1, description="Coordinate reference system (WKT2, EPSG, or PROJ)")
     tensor_shape: ShapeND = Field(min_length=2, description="Tensor dimensions, ending in height and width")
-    geotransform: Annotated[GeoTransform6, pa.list_(pa.float64())] = Field(
-        description="Six-value GDAL affine geotransform"
-    )
+    geotransform: Annotated[
+        GeoTransform6,
+        pa.list_(pa.field("item", pa.float64(), nullable=False)),
+    ] = Field(description="Six-value GDAL affine geotransform")
     centroid: bytes | None = Field(default=None, description="Optional centroid override in EPSG:4326 as WKB")
 
     _shape = field_validator("tensor_shape")(_positive_shape)
@@ -231,9 +232,10 @@ class STAC(SampleModel):
 
     crs: str = Field(min_length=1, description="Coordinate reference system (WKT2, EPSG, or PROJ)")
     tensor_shape: ShapeND = Field(min_length=2, description="Tensor dimensions, ending in height and width")
-    geotransform: Annotated[GeoTransform6, pa.list_(pa.float64())] = Field(
-        description="Six-value GDAL affine geotransform"
-    )
+    geotransform: Annotated[
+        GeoTransform6,
+        pa.list_(pa.field("item", pa.float64(), nullable=False)),
+    ] = Field(description="Six-value GDAL affine geotransform")
     time_start: TimestampUTC = Field(description="Acquisition start")
     centroid: bytes | None = Field(default=None, description="Optional centroid override in EPSG:4326 as WKB")
     time_end: TimestampUTC | None = Field(default=None, description="Acquisition end")

@@ -25,7 +25,6 @@ def collection(contract: taco.Contract) -> taco.Collection:
     return taco.Collection(
         contract=contract,
         id="spatiotemporal-extensions",
-        dataset_version="1.0.0",
         description="Spatiotemporal extension tests",
         licenses=["MIT"],
         providers=["TACO tests"],
@@ -55,7 +54,7 @@ def spatial(
 
 def test_extension_dependencies_ignore_declaration_order(tmp_path: Path) -> None:
     contract = taco.Contract(
-        structure=None,
+        structure=["data.bin"],
         metadata=taco.MetadataSchema(
             taco.Level(
                 "sample",
@@ -65,7 +64,7 @@ def test_extension_dependencies_ignore_declaration_order(tmp_path: Path) -> None
         ),
     )
     with taco.open_writer(collection(contract), tmp_path / "dataset") as writer:
-        writer.add(taco.Sample(assets=b"x", metadata=taco.Metadata(stac=stac())))
+        writer.add(taco.Sample(id="u15", assets=b"x", metadata=taco.Metadata(stac=stac())))
         writer.run()
     row = open_view(tmp_path / "dataset").level("sample").to_pylist()[0]
     assert row["stac:centroid"] == point(0, 0)
@@ -75,7 +74,7 @@ def test_extension_dependencies_ignore_declaration_order(tmp_path: Path) -> None
 
 def test_spatial_is_regular_only_and_composes_with_majortom(tmp_path: Path) -> None:
     contract = taco.Contract(
-        structure=None,
+        structure=["data.bin"],
         metadata=taco.MetadataSchema(
             taco.Level(
                 "sample",
@@ -85,7 +84,7 @@ def test_spatial_is_regular_only_and_composes_with_majortom(tmp_path: Path) -> N
         ),
     )
     with taco.open_writer(collection(contract), tmp_path / "dataset") as writer:
-        writer.add(taco.Sample(assets=b"x", metadata=taco.Metadata(spatial=spatial())))
+        writer.add(taco.Sample(id="u16", assets=b"x", metadata=taco.Metadata(spatial=spatial())))
         writer.run()
 
     dataset = open_view(tmp_path / "dataset")
@@ -98,7 +97,7 @@ def test_spatial_is_regular_only_and_composes_with_majortom(tmp_path: Path) -> N
 
 def test_temporal_is_temporal_only(tmp_path: Path) -> None:
     contract = taco.Contract(
-        structure=None,
+        structure=["data.bin"],
         metadata=taco.MetadataSchema(taco.Level("sample", temporal=taco.extensions.Temporal())),
     )
     metadata = taco.metadata.sample.Temporal(
@@ -106,7 +105,7 @@ def test_temporal_is_temporal_only(tmp_path: Path) -> None:
         time_end=datetime(2024, 1, 3, tzinfo=timezone.utc),
     )
     with taco.open_writer(collection(contract), tmp_path / "dataset") as writer:
-        writer.add(taco.Sample(assets=b"x", metadata=taco.Metadata(temporal=metadata)))
+        writer.add(taco.Sample(id="u17", assets=b"x", metadata=taco.Metadata(temporal=metadata)))
         writer.run()
 
     dataset = open_view(tmp_path / "dataset")
@@ -118,7 +117,7 @@ def test_temporal_is_temporal_only(tmp_path: Path) -> None:
 
 def test_ispatial_is_irregular_spatial_only(tmp_path: Path) -> None:
     contract = taco.Contract(
-        structure=None,
+        structure=["data.bin"],
         metadata=taco.MetadataSchema(taco.Level("sample", ispatial=taco.extensions.ISpatial())),
     )
     metadata = taco.metadata.sample.ISpatial(
@@ -126,7 +125,7 @@ def test_ispatial_is_irregular_spatial_only(tmp_path: Path) -> None:
         geometry=Polygon([(-77, -13), (-75, -13), (-75, -11), (-77, -11)]).wkb,
     )
     with taco.open_writer(collection(contract), tmp_path / "dataset") as writer:
-        writer.add(taco.Sample(assets=b"x", metadata=taco.Metadata(ispatial=metadata)))
+        writer.add(taco.Sample(id="u18", assets=b"x", metadata=taco.Metadata(ispatial=metadata)))
         writer.run()
 
     dataset = open_view(tmp_path / "dataset")
@@ -155,11 +154,11 @@ def test_stac_preserves_explicit_centroid_and_midpoint(tmp_path: Path) -> None:
         }
     )
     contract = taco.Contract(
-        structure=None,
+        structure=["data.bin"],
         metadata=taco.MetadataSchema(taco.Level("sample", stac=taco.extensions.STAC())),
     )
     with taco.open_writer(collection(contract), tmp_path / "dataset") as writer:
-        writer.add(taco.Sample(assets=b"x", metadata=taco.Metadata(stac=metadata)))
+        writer.add(taco.Sample(id="u19", assets=b"x", metadata=taco.Metadata(stac=metadata)))
         writer.run()
     row = open_view(tmp_path / "dataset").level("sample").to_pylist()[0]
     assert row["stac:centroid"] == point(-76, -12)
@@ -174,6 +173,7 @@ def test_stac_extension_runs_on_folder_metadata(tmp_path: Path) -> None:
         ),
     )
     sample = taco.Sample(
+        id="s0",
         folders=[taco.Folder("scene", metadata=taco.Metadata(stac=stac(taco.metadata.folder.STAC)))],
         assets=[taco.Asset(b"x", path="scene/dem.bin")],
     )
@@ -186,7 +186,7 @@ def test_stac_extension_runs_on_folder_metadata(tmp_path: Path) -> None:
 
 def test_istac_centroid_is_derived_from_geometry(tmp_path: Path) -> None:
     contract = taco.Contract(
-        structure=None,
+        structure=["data.bin"],
         metadata=taco.MetadataSchema(taco.Level("sample", istac=taco.extensions.ISTAC())),
     )
     metadata = taco.metadata.sample.ISTAC(
@@ -195,7 +195,7 @@ def test_istac_centroid_is_derived_from_geometry(tmp_path: Path) -> None:
         time_start=datetime(2024, 1, 1, tzinfo=timezone.utc),
     )
     with taco.open_writer(collection(contract), tmp_path / "dataset") as writer:
-        writer.add(taco.Sample(assets=b"x", metadata=taco.Metadata(istac=metadata)))
+        writer.add(taco.Sample(id="u20", assets=b"x", metadata=taco.Metadata(istac=metadata)))
         writer.run()
     row = open_view(tmp_path / "dataset").level("sample").to_pylist()[0]
     assert coordinates(row["istac:centroid"]) == pytest.approx((-76, -12))
@@ -214,6 +214,7 @@ def test_istac_extension_runs_on_folder_metadata(tmp_path: Path) -> None:
         time_start=datetime(2024, 1, 1, tzinfo=timezone.utc),
     )
     sample = taco.Sample(
+        id="s1",
         folders=[taco.Folder("scene", metadata=taco.Metadata(istac=metadata))],
         assets=[taco.Asset(b"x", path="scene/dem.bin")],
     )

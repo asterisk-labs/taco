@@ -95,6 +95,10 @@ class Extension(ABC):
     def configuration(self) -> Mapping[str, Any]:
         return {}
 
+    def collection_metadata(self) -> Mapping[str, Any]:
+        """Return semantic parameters that must travel with the dataset."""
+        return {}
+
     @abstractmethod
     def run(self, context: ExtensionContext) -> Mapping[str, Sequence[Any]]:
         raise NotImplementedError

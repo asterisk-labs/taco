@@ -49,7 +49,7 @@ def test_optional_group_makes_all_fields_nullable() -> None:
         metadata=taco.MetadataSchema(taco.Level("children", values=Values | None)),
     )
     assert all(field.nullable for field in contract.metadata["children"].values())
-    contract.validate_sample(taco.Sample(assets=[taco.Asset(b"x", path="a.bin")]))
+    contract.validate_sample(taco.Sample(id="u0", assets=[taco.Asset(b"x", path="a.bin")]))
 
 
 def test_required_group_is_checked() -> None:
@@ -58,14 +58,14 @@ def test_required_group_is_checked() -> None:
         metadata=taco.MetadataSchema(taco.Level("sample", values=Values)),
     )
     with pytest.raises(SampleError, match="required"):
-        contract.validate_sample(taco.Sample(assets=[taco.Asset(b"x", path="a.bin")]))
+        contract.validate_sample(taco.Sample(id="u1", assets=[taco.Asset(b"x", path="a.bin")]))
 
 
 def test_assets_infer_flat_paths(tmp_path: Path) -> None:
     source = tmp_path / "a.bin"
     source.write_bytes(b"x")
     contract = taco.Contract(structure=["a.bin"])
-    sample = contract.validate_sample(taco.Sample(assets=[taco.Asset(source)]))
+    sample = contract.validate_sample(taco.Sample(id="u2", assets=[taco.Asset(source)]))
     assert sample.assets[0].path == "a.bin"
 
 
@@ -73,16 +73,17 @@ def test_nested_and_renamed_assets_need_path(tmp_path: Path) -> None:
     source = tmp_path / "a.bin"
     source.write_bytes(b"x")
     with pytest.raises(SampleError, match="pass path"):
-        taco.Contract(structure=["folder/a.bin"]).validate_sample(taco.Sample(assets=[taco.Asset(source)]))
+        taco.Contract(structure=["folder/a.bin"]).validate_sample(taco.Sample(id="u3", assets=[taco.Asset(source)]))
     with pytest.raises(SampleError, match="pass path"):
-        taco.Contract(structure=["b.bin"]).validate_sample(taco.Sample(assets=[taco.Asset(source)]))
+        taco.Contract(structure=["b.bin"]).validate_sample(taco.Sample(id="u4", assets=[taco.Asset(source)]))
 
 
-def test_variable_leaf_allows_empty_sample() -> None:
-    contract = taco.Contract(structure=["image*[0,3].tif"])
-    contract.validate_sample(taco.Sample())
+def test_variable_leaf_requires_at_least_one_file() -> None:
+    contract = taco.Contract(structure=["image*[1,3].tif"])
     with pytest.raises(SampleError, match="contiguous"):
-        contract.validate_sample(taco.Sample(assets=[taco.Asset(b"x", path="image1.tif")]))
+        contract.validate_sample(taco.Sample(id="u5"))
+    with pytest.raises(SampleError, match="contiguous"):
+        contract.validate_sample(taco.Sample(id="u6", assets=[taco.Asset(b"x", path="image1.tif")]))
 
 
 @pytest.mark.parametrize(
@@ -94,10 +95,11 @@ def test_variable_leaf_allows_empty_sample() -> None:
         ["bad[folder]/a.bin"],
         ["a.bin", "a.bin"],
         ["x*[2,1].bin"],
+        ["x*[0,2].bin"],
         ["x*[0,0].bin"],
-        ["x*[0,2].bin", "x0.bin"],
-        ["x*[0,2]1", "x1*[0,2]"],
-        ["x*[0,2]", "x0/a.bin"],
+        ["x*[1,2].bin", "x0.bin"],
+        ["x*[1,2]1", "x1*[1,2]"],
+        ["x*[1,2]", "x0/a.bin"],
     ],
 )
 def test_invalid_structures(structure: list[str]) -> None:
@@ -106,9 +108,9 @@ def test_invalid_structures(structure: list[str]) -> None:
 
 
 def test_disjoint_variable_leaves_with_similar_names() -> None:
-    taco.Contract(structure=["x*[0,2]1", "x1*[0,1]"])
-    taco.Contract(structure=["x*[0,2]", "x9"])
-    taco.Contract(structure=["x*[0,2]", "x9/a.bin"])
+    taco.Contract(structure=["x*[1,2]1", "x1*[1,1]"])
+    taco.Contract(structure=["x*[1,2]", "x9"])
+    taco.Contract(structure=["x*[1,2]", "x9/a.bin"])
 
 
 def test_scope_is_enforced() -> None:
@@ -126,7 +128,9 @@ def test_scope_is_enforced() -> None:
         )
     taco.Contract(
         structure=["folder/a.tif"],
-        metadata=taco.MetadataSchema(taco.Level("children", stac=taco.metadata.folder.STAC)),
+        metadata=taco.MetadataSchema(
+            taco.Level("children", stac=taco.extensions.STAC(model=taco.metadata.folder.STAC))
+        ),
     )
 
 
@@ -158,7 +162,7 @@ def test_serialized_derived_declaration_is_validated() -> None:
     }
     with pytest.raises(ContractError, match="missing"):
         taco.Contract(
-            structure=None,
+            structure=["data.bin"],
             metadata=metadata,
             derived={
                 "sample": {
@@ -168,7 +172,7 @@ def test_serialized_derived_declaration_is_validated() -> None:
         )
     with pytest.raises(ContractError, match="cycle"):
         taco.Contract(
-            structure=None,
+            structure=["data.bin"],
             metadata=metadata,
             derived={
                 "sample": {
@@ -179,7 +183,7 @@ def test_serialized_derived_declaration_is_validated() -> None:
         )
     with pytest.raises(ContractError, match="more than once"):
         taco.Contract(
-            structure=None,
+            structure=["data.bin"],
             metadata=metadata,
             derived={
                 "sample": {
@@ -191,7 +195,7 @@ def test_serialized_derived_declaration_is_validated() -> None:
 
 def test_execution_graph_is_not_serialized() -> None:
     contract = taco.Contract(
-        structure=None,
+        structure=["data.bin"],
         metadata=taco.MetadataSchema(
             taco.Level("sample", stac=taco.extensions.STAC(), grid=taco.extensions.MajorTOM())
         ),
@@ -208,7 +212,7 @@ def test_execution_graph_is_not_serialized() -> None:
 def test_derived_configuration_must_be_json() -> None:
     with pytest.raises(ContractError, match="JSON serializable"):
         taco.Contract(
-            structure=None,
+            structure=["data.bin"],
             metadata={"sample": {"a:value": "int64"}},
             derived={
                 "sample": {
@@ -228,7 +232,7 @@ def test_custom_types() -> None:
         values: list[int]
 
     contract = taco.Contract(
-        structure=None,
+        structure=["data.bin"],
         metadata=taco.MetadataSchema(taco.Level("sample", custom=Types)),
     )
     fields = contract.metadata["sample"]

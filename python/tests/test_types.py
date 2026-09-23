@@ -29,14 +29,41 @@ from taco.errors import TypeSpecError
         ("timestamp[us, tz=UTC]", pa.timestamp("us", tz="UTC")),
         ("date32", pa.date32()),
         ("date32[day]", pa.date32()),
-        ("list<double>", pa.list_(pa.float64())),
-        ("list[double]", pa.list_(pa.float64())),
-        ("list<item: double>", pa.list_(pa.float64())),
-        ("large_list<string>", pa.large_list(pa.string())),
-        ("fixed_size_list<int8, 3>", pa.list_(pa.int8(), 3)),
-        ("fixed_size_list<item: int8>[3]", pa.list_(pa.int8(), 3)),
-        ("struct<a: int32, b: list<string>>", pa.struct([("a", pa.int32()), ("b", pa.list_(pa.string()))])),
-        ("map<string, int32>", pa.map_(pa.string(), pa.int32())),
+        ("list<double>", pa.list_(pa.field("item", pa.float64(), nullable=False))),
+        ("list[double]", pa.list_(pa.field("item", pa.float64(), nullable=False))),
+        ("list<item: double>", pa.list_(pa.field("item", pa.float64(), nullable=False))),
+        ("large_list<string>", pa.large_list(pa.field("item", pa.string(), nullable=False))),
+        ("fixed_size_list<int8, 3>", pa.list_(pa.field("item", pa.int8(), nullable=False), 3)),
+        ("fixed_size_list<item: int8>[3]", pa.list_(pa.field("item", pa.int8(), nullable=False), 3)),
+        (
+            "struct<a: int32, b: list<string>>",
+            pa.struct(
+                [
+                    pa.field("a", pa.int32(), nullable=False),
+                    pa.field("b", pa.list_(pa.field("item", pa.string(), nullable=False)), nullable=False),
+                ]
+            ),
+        ),
+        (
+            "map<string, int32>",
+            pa.map_(pa.string(), pa.field("value", pa.int32(), nullable=False)),
+        ),
+        ("list<int64?>", pa.list_(pa.field("item", pa.int64(), nullable=True))),
+        (
+            "list<struct<minimum: double?, valid_count: uint64>>",
+            pa.list_(
+                pa.field(
+                    "item",
+                    pa.struct(
+                        [
+                            pa.field("minimum", pa.float64(), nullable=True),
+                            pa.field("valid_count", pa.uint64(), nullable=False),
+                        ]
+                    ),
+                    nullable=False,
+                )
+            ),
+        ),
         ("decimal128(10, 2)", pa.decimal128(10, 2)),
         ("duration[ms]", pa.duration("ms")),
         ("  Double  ", pa.float64()),
@@ -50,7 +77,10 @@ def test_parse_type_accepts_datatype_instances() -> None:
     assert parse_type(pa.int16()) == pa.int16()
 
 
-@pytest.mark.parametrize("spec", ["", "list<>", "struct<a int>", "timestamp[us, UTC, extra]", "nope", 5])
+@pytest.mark.parametrize(
+    "spec",
+    ["", "list<>", "struct<a int>", "timestamp[us, UTC, extra]", "map<string?, int64>", "int64?", "nope", 5],
+)
 def test_parse_type_rejects_garbage(spec) -> None:
     with pytest.raises(TypeSpecError):
         parse_type(spec)

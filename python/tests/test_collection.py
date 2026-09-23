@@ -14,6 +14,8 @@ def test_collection_round_trip(collection: taco.Collection) -> None:
     data = collection.to_dict()
     assert data["taco:version"] == "3.0.0"
     assert data["labels:num_classes"] == 2
+    assert data["majortom:dist_km"] == 100
+    assert data["majortom:centroid"] == "stac:centroid"
     assert "metadata" not in data
     assert "taco:derived" not in data
     loaded = taco.Collection.from_json(collection.to_json())
@@ -55,12 +57,6 @@ def test_extent() -> None:
     merged = Extent.union([extent, Extent((-75, -30, -60, 5))])
     assert merged is not None
     assert merged.spatial == (-80.0, -30.0, -60.0, 5.0)
-
-
-@pytest.mark.parametrize("version", ["1", "v1.0.0", "1.0", "01.0.0"])
-def test_dataset_version_must_be_semver(collection: taco.Collection, version: str) -> None:
-    with pytest.raises(CollectionError):
-        collection.replace(dataset_version=version)
 
 
 def test_tasks_are_optional(collection: taco.Collection) -> None:

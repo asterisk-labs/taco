@@ -25,6 +25,12 @@ JavaScript reader are documented here. The format follows
   `.zip` selects a ZIP container and every other path selects a folder.
 - Nested list, struct, and map values preserve their nullability in contract
   type names.
+- TACOCAT assigns global row identifiers and exposes the sample row position
+  as `sample_index` in every public reader view.
+- R and Julia expose SQL over the same `data`, `files`, and metadata-level
+  relations as Python.
+- Python, R, and Julia share the same high-level `read(source, files)` and
+  `inspect(source, query)` operations.
 
 ### Fixed
 
@@ -32,6 +38,13 @@ JavaScript reader are documented here. The format follows
 - Writers and validators now reject missing, blank, or duplicate sample ids.
 - `MajorTOM` preserves fractional distances and records the parameters that
   determine its grid in `COLLECTION.json`.
+- Remote FOLDER and TACOCAT cache entries revalidate every metadata object
+  before reuse, so appends invalidate the cached Parquet tables.
+- Source-list index selection is applied after assigning global
+  `sample_index` values.
+- Passive profile values are checked against canonical field nullability when
+  samples are added instead of failing during Parquet serialization.
+- The `files` relation orders effective metadata by qualified field name.
 
 ## 0.8.2 - 2026-09-18
 

@@ -553,7 +553,7 @@ function pointsFromMetadata(rows, centroidField, rowIndexes = null) {
     const row = sampleRowFromMetadata(metadata);
     const centroid = decodeWkbPoint(row[centroidField]);
     if (!centroid) return [];
-    const identity = { sample_index: row.sample_index };
+    const identity = { "taco:sample_index": row["taco:sample_index"] };
     if (row.source_file !== undefined) identity.source_file = row.source_file;
     return [{
       row: identity,
@@ -566,7 +566,7 @@ function pointsFromMetadata(rows, centroidField, rowIndexes = null) {
 }
 
 function sampleRowFromMetadata(row) {
-  const sample = { sample_index: Number(row["internal:current_id"]) };
+  const sample = { "taco:sample_index": Number(row["internal:current_id"]) };
   if (row["internal:source_file"] !== undefined) sample.source_file = row["internal:source_file"];
   for (const [name, value] of Object.entries(row)) {
     if (CENTROID_FIELDS.includes(name)) sample[name] = value;
@@ -626,7 +626,7 @@ function pointFeatureCollection() {
     features: state.points.map((point, index) => ({
       type: "Feature",
       id: index,
-      properties: { sample_index: index, color_index: state.colorIndexes[index] },
+      properties: { point_index: index, color_index: state.colorIndexes[index] },
       geometry: { type: "Point", coordinates: [point.longitude, point.latitude] },
     })),
   };
@@ -1027,7 +1027,7 @@ function samplePageFromMemory(point) {
 async function metadataPagesForPoint(point) {
   await state.parquetCachePromise;
   const sourceFile = point.row.source_file;
-  const sampleId = Number(point.row.sample_index);
+  const sampleId = Number(point.row["taco:sample_index"]);
   const locations = new Map();
   const pages = [];
 
@@ -1760,7 +1760,7 @@ function compactObject(values) {
 
 function orderedMetadataEntries(values) {
   const entries = Object.entries(values);
-  const priority = ["id", "title", "description", "path", "sample_index", "current_id", "parent_id", "source_file", "offset", "size"];
+  const priority = ["id", "title", "description", "path", "taco:sample_index", "current_id", "parent_id", "source_file", "offset", "size"];
   const first = priority.flatMap((key) => entries.filter(([name]) => name === key));
   const middle = entries.filter(([name]) => !priority.includes(name) && name !== "taco:location");
   const location = entries.filter(([name]) => name === "taco:location");
@@ -1775,7 +1775,7 @@ function metadataMessage(text) {
 }
 
 function pointName(point) {
-  return String(point.row["fixture:sample_key"] || `sample ${point.row.sample_index ?? "—"}`);
+  return String(point.row["fixture:sample_key"] || `sample ${point.row["taco:sample_index"] ?? "—"}`);
 }
 
 function fixtureUrl(fixture) {

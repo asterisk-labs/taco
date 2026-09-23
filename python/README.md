@@ -32,7 +32,7 @@ downloaded. Pass `overwrite=True` to replace an existing TACO output.
 ```python
 source = "https://data.source.coop/major-tom/core-dem/"
 dataset = taco.open_dataset(source)
-rows = dataset.sql("SELECT * FROM data ORDER BY sample_index LIMIT 10")
+rows = dataset.sql('SELECT * FROM data ORDER BY "taco:sample_index" LIMIT 10')
 taco.export(
     source,
     "core-dem-sample.zip",

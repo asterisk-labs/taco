@@ -20,20 +20,20 @@
 
 dataset = taco.open_dataset(<span class="str">"https://data.source.coop/major-tom/core-dem/"</span>)
 samples = dataset.read(files=<span class="str">"dem.rumi"</span>)
-first_100 = dataset.sql(<span class="str">"SELECT * FROM data WHERE sample_index &lt; 100"</span>)</code></pre>
+first_100 = dataset.sql(<span class="str">'SELECT * FROM data WHERE "taco:sample_index" &lt; 100'</span>)</code></pre>
           <pre data-code="r" hidden><code>library(taco)
 
 dataset &lt;- open_dataset(<span class="str">"https://data.source.coop/major-tom/core-dem/"</span>)
 samples &lt;- read(dataset, files = <span class="str">"dem.rumi"</span>)
-first_100 &lt;- sql(dataset, <span class="str">"SELECT * FROM data WHERE sample_index &lt; 100"</span>)</code></pre>
+first_100 &lt;- sql(dataset, <span class="str">'SELECT * FROM data WHERE "taco:sample_index" &lt; 100'</span>)</code></pre>
           <pre data-code="julia" hidden><code><span class="kw">using</span> Taco
 
 dataset = Taco.open_dataset(<span class="str">"https://data.source.coop/major-tom/core-dem/"</span>)
 samples = Taco.read(dataset; files=[<span class="str">"dem.rumi"</span>])
-first_100 = Taco.sql(dataset, <span class="str">"SELECT * FROM data WHERE sample_index &lt; 100"</span>)</code></pre>
+first_100 = Taco.sql(dataset, <span class="str">'SELECT * FROM data WHERE "taco:sample_index" &lt; 100'</span>)</code></pre>
         </div>
       </section>
-      <section class="manual-section" id="arguments"><div class="section-label"><span>02</span><small>Reader API</small></div><h2>Read all samples or query a subset</h2><table><thead><tr><th>Operation</th><th>Meaning</th></tr></thead><tbody><tr><td><code>dataset.read()</code></td><td>Every sample, ordered by <code>sample_index</code>.</td></tr><tr><td><code>dataset.read(files=...)</code></td><td>The complete sample table with only the selected structural file columns.</td></tr><tr><td><code>dataset.sql(query)</code></td><td>A partial query over <code>data</code>, <code>files</code>, or a named metadata level.</td></tr><tr><td><code>inspect(source, query)</code></td><td>The contract, structure, levels, collection, profile, or core-generated SQL without reading samples.</td></tr></tbody></table></section>
+      <section class="manual-section" id="arguments"><div class="section-label"><span>02</span><small>Reader API</small></div><h2>Read all samples or query a subset</h2><table><thead><tr><th>Operation</th><th>Meaning</th></tr></thead><tbody><tr><td><code>dataset.read()</code></td><td>Every sample, ordered by <code>taco:sample_index</code>.</td></tr><tr><td><code>dataset.read(files=...)</code></td><td>The complete sample table with only the selected structural file columns.</td></tr><tr><td><code>dataset.sql(query)</code></td><td>A partial query over <code>data</code>, <code>files</code>, or a named metadata level.</td></tr><tr><td><code>inspect(source, query)</code></td><td>The contract, structure, levels, collection, profile, or core-generated SQL without reading samples.</td></tr></tbody></table></section>
       <section class="manual-section" id="native-bindings"><div class="section-label"><span>03</span><small>Bindings</small></div><h2>The same reader model in every language</h2><p class="section-intro">Python, R, and Julia open the same containers, expose the collection and contract, read complete samples, and run SQL over the <code>data</code>, <code>files</code>, and metadata-level relations.</p></section>
     </main>
     <aside class="page-toc"><b>On this page</b><a href="#open">Open and read</a><a href="#arguments">Reader API</a><a href="#native-bindings">Bindings</a></aside>

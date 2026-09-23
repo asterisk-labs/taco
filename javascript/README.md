@@ -68,7 +68,7 @@ console.log(files[0]["taco:location"]);
 ```
 
 `idx` is either one non-negative sample index or a half-open `[start, end]`
-range. `sample_index` is global within a TACOCAT. `source_file` identifies the
+range. `taco:sample_index` is global within a TACOCAT. `source_file` identifies the
 ZIP that stores the sample payload.
 
 Variable declarations such as `frame*[1,5].rumi` become ordered array columns

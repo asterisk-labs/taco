@@ -19,7 +19,7 @@ read(dataset::Dataset; files=nothing) =
     _read_table(dataset.sources; files=files isa AbstractString ? [String(files)] : files)
 
 
-"""Run a SQL query over the `data`, `files`, and raw metadata relations."""
+"""Run a SQL query over `dataset` or a raw metadata level."""
 sql(dataset::Dataset, query::AbstractString) = _dataset_sql(dataset, query)
 
 

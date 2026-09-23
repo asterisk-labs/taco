@@ -4,21 +4,6 @@ using DataFrames: DataFrame
 _sql_identifier(value) = "\"" * replace(value, "\"" => "\"\"") * "\""
 
 
-function _generated_columns(contract)
-    result = String[]
-    for declaration in contract.structure
-        variable = occursin('*', declaration)
-        path = variable ? first(split(declaration, '*'; limit=2)) : declaration
-        name = replace(path, "/" => "__")
-        push!(result, "$name::location")
-        parts = split(path, '/')
-        level = length(parts) == 1 ? "children" : join(["children"; parts[1:end-1]], "/")
-        haskey(contract.metadata[level], "rumi:header") && push!(result, "$name::header")
-    end
-    return result
-end
-
-
 function _dataset_sql(dataset::Dataset, query::AbstractString)::DataFrame
     statement = strip(query)
     endswith(statement, ';') && (statement = rstrip(chop(statement)))
@@ -35,16 +20,7 @@ function _dataset_sql(dataset::Dataset, query::AbstractString)::DataFrame
         location=location,
     )
 
-    data = native_sql()
-    generated = _generated_columns(dataset.contract)
-    if !isempty(generated)
-        excluded = join(_sql_identifier.(generated), ", ")
-        data = "SELECT * EXCLUDE ($excluded) FROM ($data) AS taco_data"
-    end
-    relations = Pair{String,String}[
-        "data" => data,
-        "files" => native_sql(; pivoted=false, location=true),
-    ]
+    relations = Pair{String,String}["dataset" => native_sql(; location=true)]
     for level in dataset.contract.levels
         push!(relations, replace(level, "/" => "__") => native_sql(; level=level))
     end

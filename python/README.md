@@ -19,11 +19,11 @@ parts = taco.read(["part-0.zip", "part-1.zip"])
 
 dataset = taco.open_dataset("dataset.zip")
 targets = dataset.read(files="target.tif")
-train = dataset.sql("SELECT * FROM data WHERE \"ml:split\" = 'train'")
+train = dataset.sql("SELECT * FROM dataset WHERE \"ml:split\" = 'train'")
 ```
 
 `export()` writes a smaller dataset with the same contract. `samples` is a
-PyArrow-compatible table, normally selected from the `data` SQL relation.
+PyArrow-compatible table, normally selected from the `dataset` SQL relation.
 Keyword arguments replace fields of the collection, such
 as `id` or `description`; the rest is inherited. For a remote source, metadata
 is cached and only the payload files belonging to the selected samples are
@@ -32,7 +32,7 @@ downloaded. Pass `overwrite=True` to replace an existing TACO output.
 ```python
 source = "https://data.source.coop/major-tom/core-dem/"
 dataset = taco.open_dataset(source)
-rows = dataset.sql('SELECT * FROM data ORDER BY "taco:sample_index" LIMIT 10')
+rows = dataset.sql('SELECT * FROM dataset ORDER BY "taco:sample_index" LIMIT 10')
 taco.export(
     source,
     "core-dem-sample.zip",

@@ -39,7 +39,7 @@ contract = taco.Contract(
 
 assert taco.validate(<span class="str">"land-cover.zip"</span>).ok</code></pre></div></section>
       <section class="manual-section" id="export"><div class="section-label"><span>05</span><small>Export</small></div><h2>Write a subset</h2><p class="section-intro">Pass sample rows returned by <code>Dataset.sql()</code>; the subset keeps the contract and inherits collection fields unless you replace them.</p><div class="code-block"><div class="code-bar"><span>Python</span><button>Copy</button></div><pre><code>dataset = taco.open_dataset(<span class="str">"land-cover.zip"</span>)
-rows = dataset.sql(<span class="str">'SELECT * FROM data WHERE "taco:sample_index" &lt; 100'</span>)
+rows = dataset.sql(<span class="str">'SELECT * FROM dataset WHERE "taco:sample_index" &lt; 100'</span>)
 taco.export(
     <span class="str">"land-cover.zip"</span>,
     <span class="str">"land-cover-sample.zip"</span>,

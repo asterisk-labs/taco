@@ -72,5 +72,5 @@ lengths = dict(
     )
 )
 assert lengths == {0: 3, 1: 5}
-assert dataset.sql("SELECT * FROM files").num_rows == 8
+assert dataset.sql('SELECT * FROM dataset ORDER BY "taco:sample_index"').equals(table)
 assert taco.validate("time-series.zip").ok

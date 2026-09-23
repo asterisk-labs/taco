@@ -185,21 +185,6 @@ def by_sample(table: pa.Table) -> list[dict]:
     )
 
 
-def test_long_rows_carry_their_own_and_ancestor_metadata(data: Path) -> None:
-    table = taco.open_dataset(data / "nested.zip").sql("SELECT * FROM files")
-    assert table.num_rows == 12
-    assert table.column_names[:4] == ["taco:sample_index", "id", "path", "taco:location"]
-    assert table.column_names[4:] == sorted(table.column_names[4:])
-    first = [row for row in by_sample(table) if row["taco:sample_index"] == 0]
-    assert [(row["path"], row["node:kind"], row["raster:resolution"]) for row in first] == [
-        ("after/B02.bin", "imagery", 20),
-        ("before/B02.bin", "imagery", 10),
-        ("before/B03.bin", "imagery", 10),
-        ("change.bin", "label", None),
-    ]
-    assert all(row["ml:split"] == "train" for row in first)
-
-
 def test_wide_rows_have_a_location_per_leaf(data: Path) -> None:
     table = taco.read(data / "nested.zip")
     assert table.num_rows == 3
@@ -207,7 +192,7 @@ def test_wide_rows_have_a_location_per_leaf(data: Path) -> None:
     row = by_sample(table)[0]
     assert row["before__B02.bin::location"].startswith("/vsisubfile/")
     assert row["before__B02.bin::location"].endswith(str((data / "nested.zip").resolve()))
-    assert "change.bin::location" not in taco.open_dataset(data / "nested.zip").sql("SELECT * FROM data").column_names
+    assert "change.bin::location" in taco.open_dataset(data / "nested.zip").sql("SELECT * FROM dataset").column_names
 
 
 def test_generated_columns_do_not_collide_with_metadata(tmp_path: Path) -> None:
@@ -259,19 +244,19 @@ def test_reader_ignores_a_stored_public_sample_index(tmp_path: Path) -> None:
     assert not taco.validate(output).ok
 
 
-def test_files_and_sql_relations(data: Path) -> None:
+def test_dataset_and_raw_sql_relations(data: Path) -> None:
     path = data / "nested.zip"
     dataset = taco.open_dataset(path)
     assert taco.read(path, files=["change.bin"]).column_names[-1] == "change.bin::location"
     assert "before__B02.bin::location" not in taco.read(path, files=["change.bin"]).column_names
-    assert set(dataset.sql("SELECT path FROM files WHERE path = 'change.bin'").column("path").to_pylist()) == {
-        "change.bin"
-    }
-    assert dataset.sql('SELECT "taco:sample_index" FROM data WHERE "taco:sample_index" = 1').column(
+    assert "change.bin::location" in dataset.sql("SELECT * FROM dataset").column_names
+    assert dataset.sql('SELECT "taco:sample_index" FROM dataset WHERE "taco:sample_index" = 1').column(
         "taco:sample_index"
     ).to_pylist() == [1]
     assert sorted(
-        dataset.sql('SELECT "taco:sample_index" FROM data WHERE "taco:sample_index" >= 1 AND "taco:sample_index" < 3')
+        dataset.sql(
+            'SELECT "taco:sample_index" FROM dataset WHERE "taco:sample_index" >= 1 AND "taco:sample_index" < 3'
+        )
         .column("taco:sample_index")
         .to_pylist()
     ) == [1, 2]
@@ -285,27 +270,15 @@ def test_variable_leaves_are_ordered_lists(data: Path) -> None:
     path = data / "variable.zip"
     rows = by_sample(taco.read(path))
     assert [(row["ml:n_images"], len(row["img::location"])) for row in rows] == [(1, 1), (2, 2), (3, 3)]
-    long = taco.open_dataset(path).sql("SELECT * FROM files")
-    first_image = next(
-        row["taco:location"] for row in long.to_pylist() if row["taco:sample_index"] == 2 and row["path"] == "img0.bin"
-    )
-    assert rows[2]["img::location"][0] == first_image
-    assert "img::location" not in taco.open_dataset(path).sql("SELECT * FROM data").column_names
+    assert "img::location" in taco.open_dataset(path).sql("SELECT * FROM dataset").column_names
 
     nested = taco.read(data / "nested-variable.zip")
     assert nested.column_names == ["taco:sample_index", "id", "before__img::location"]
     assert len(nested.column("before__img::location")[0].as_py()) == 2
 
 
-def test_a_redeclared_field_takes_the_deepest_value(data: Path) -> None:
+def test_raw_relations_keep_redeclared_fields_separate(data: Path) -> None:
     dataset = taco.open_dataset(data / "shadow.zip")
-    rows = by_sample(dataset.sql("SELECT * FROM files"))
-    assert [(row["taco:sample_index"], row["path"], row["raster:resolution"]) for row in rows] == [
-        (0, "before/B02.bin", 3),
-        (0, "change.bin", 2),
-        (1, "before/B02.bin", 3),
-        (1, "change.bin", 2),
-    ]
     raw = dataset.sql(
         'SELECT folder."raster:resolution" AS folder_resolution, '
         'asset."raster:resolution" AS asset_resolution '
@@ -320,8 +293,7 @@ def test_single_file_samples(data: Path) -> None:
     table = dataset.read()
     assert table.num_rows == 6
     assert all(value.startswith("/vsisubfile/") for value in table.column("data.bin::location").to_pylist())
-    files = dataset.sql('SELECT * FROM files ORDER BY "taco:sample_index"')
-    assert files.column("path").to_pylist() == ["data.bin"] * 6
+    assert dataset.sql('SELECT * FROM dataset ORDER BY "taco:sample_index"').equals(table)
     with pytest.raises(ContainerError, match="unknown structure leaf"):
         dataset.read(files=["change.bin"])
 
@@ -329,7 +301,7 @@ def test_single_file_samples(data: Path) -> None:
 def test_folder_and_catalog_locations(data: Path) -> None:
     folder = by_sample(taco.read(data / "nested"))
     assert folder[0]["change.bin::location"] == f"{(data / 'nested').resolve()}/DATA/0/change.bin"
-    assert taco.open_dataset(data / "nested").sql("SELECT * FROM files").num_rows == 12
+    assert taco.open_dataset(data / "nested").sql("SELECT * FROM dataset").num_rows == 3
 
     catalog = taco.read(data / "catalog" / ".tacocat")
     assert catalog.num_rows == 3
@@ -378,10 +350,10 @@ def test_remote_folder_cache_recovers_when_a_metadata_level_disappears(data: Pat
 )
 def test_remote_datasets() -> None:
     base = "hf://datasets/asterisk-labs/taco-api-fixtures/data/04-change-detection"
-    archive = taco.open_dataset(f"{base}/single-zip/dataset.zip").sql("SELECT * FROM files")
-    assert archive.num_rows == 18
+    archive = taco.open_dataset(f"{base}/single-zip/dataset.zip").sql("SELECT * FROM dataset")
+    assert archive.num_rows == 6
     assert (
-        archive.column("taco:location")[0]
+        archive.column("change.rumi::location")[0]
         .as_py()
         .endswith(",/vsihf/datasets/asterisk-labs/taco-api-fixtures/data/04-change-detection/single-zip/dataset.zip")
     )
@@ -395,8 +367,8 @@ def test_remote_datasets() -> None:
     )
 
     mirror = "source://asterisk-labs/taco-api-fixtures/data/04-change-detection"
-    catalog = taco.open_dataset(f"{mirror}/by-split/.tacocat").sql("SELECT * FROM files")
-    assert catalog.num_rows == 18
-    location = catalog.column("taco:location")[0].as_py()
+    catalog = taco.open_dataset(f"{mirror}/by-split/.tacocat").sql("SELECT * FROM dataset")
+    assert catalog.num_rows == 6
+    location = catalog.column("change.rumi::location")[0].as_py()
     assert ",/vsisource/asterisk-labs/taco-api-fixtures/data/04-change-detection/by-split/" in location
     assert taco.read(f"{mirror}/folder").num_rows == 6

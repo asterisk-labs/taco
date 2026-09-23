@@ -9,7 +9,7 @@ sql(dataset, query)
 \arguments{
 \item{dataset}{An object returned by \code{\link[=open_dataset]{open_dataset()}}.}
 
-\item{query}{A SQL query over \code{data}, \code{files}, or a metadata level.}
+\item{query}{A SQL query over \code{dataset} or a raw metadata level.}
 }
 \value{
 A tibble.

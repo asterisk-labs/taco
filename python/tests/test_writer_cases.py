@@ -102,8 +102,8 @@ def test_writer_cases_match_across_containers(case: DatasetCase, tmp_path: Path)
 
     assert taco.read(folder_path).num_rows == len(case.samples)
     assert taco.read(zip_path).num_rows == len(case.samples)
-    assert taco.open_dataset(folder_path).sql("SELECT * FROM files").num_rows == len(case.data_paths)
-    assert taco.open_dataset(zip_path).sql("SELECT * FROM files").num_rows == len(case.data_paths)
+    assert taco.open_dataset(folder_path).sql("SELECT * FROM dataset").num_rows == len(case.samples)
+    assert taco.open_dataset(zip_path).sql("SELECT * FROM dataset").num_rows == len(case.samples)
 
 
 @pytest.mark.parametrize("case", CASES, ids=case_id)
@@ -146,7 +146,7 @@ def test_partitioned_writer_cases(case: DatasetCase, tmp_path: Path) -> None:
     for level, row_count in zip(case.levels, case.row_counts, strict=True):
         assert dataset.level(level).num_rows == row_count
     assert taco.read(result.path).num_rows == len(case.samples)
-    assert taco.open_dataset(result.path).sql("SELECT * FROM files").num_rows == len(case.data_paths)
+    assert taco.open_dataset(result.path).sql("SELECT * FROM dataset").num_rows == len(case.samples)
 
 
 def test_derived_metadata_is_batch_invariant(tmp_path: Path) -> None:

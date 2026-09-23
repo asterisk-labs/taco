@@ -5,6 +5,7 @@ import shutil
 import threading
 from pathlib import Path
 
+import duckdb
 import pytest
 
 import taco
@@ -51,20 +52,18 @@ def test_dataset_api(archive: Path) -> None:
     assert taco.read(archive).num_rows == 4
     assert repr(dataset).startswith("Dataset(")
 
-    long = dataset.sql(
-        'SELECT "taco:sample_index", path, "taco:location" FROM files '
-        "WHERE \"taco:sample_index\" = 3 AND path = 'mask.tif'"
+    selected = dataset.sql(
+        'SELECT "taco:sample_index", "mask.tif::location" FROM dataset WHERE "taco:sample_index" = 3'
     )
-    assert long.column("path").to_pylist() == ["mask.tif"]
-    assert long.column("taco:sample_index").to_pylist() == [3]
-    assert long.column("taco:location")[0].as_py().startswith("/vsisubfile/")
-    assert "taco:location" not in dataset.sql("SELECT * FROM data").column_names
+    assert selected.column("taco:sample_index").to_pylist() == [3]
+    assert selected.column("mask.tif::location")[0].as_py().startswith("/vsisubfile/")
+    assert "mask.tif::location" in dataset.sql("SELECT * FROM dataset").column_names
 
     level = dataset.sql("SELECT * FROM children__before")
     assert level.num_rows == 8
     assert "internal:current_id" in level.column_names
     assert "taco:location" not in level.column_names
-    assert dataset.sql('SELECT * FROM data WHERE "taco:sample_index" = 1 -- trailing comment').num_rows == 1
+    assert dataset.sql('SELECT * FROM dataset WHERE "taco:sample_index" = 1 -- trailing comment').num_rows == 1
 
 
 def test_high_level_read_signatures() -> None:
@@ -97,7 +96,7 @@ def test_reader_combines_partitions(archive: Path, tmp_path: Path) -> None:
         ("part.zip", 7),
     ]
     assert set(wide.column("source_file").to_pylist()) == {"dataset.zip", "part.zip"}
-    assert dataset.sql('SELECT * FROM data WHERE "taco:sample_index" >= 2 AND "taco:sample_index" < 4').num_rows == 2
+    assert dataset.sql('SELECT * FROM dataset WHERE "taco:sample_index" >= 2 AND "taco:sample_index" < 4').num_rows == 2
     assert set(dataset.sql("SELECT * FROM sample").column("source_file").to_pylist()) == {
         "dataset.zip",
         "part.zip",
@@ -120,7 +119,7 @@ def test_reader_keeps_the_location_of_single_file_samples(tmp_path: Path) -> Non
 
     dataset = taco.open_dataset(path)
     assert all(value.startswith("/vsisubfile/") for value in dataset.read().column("data.bin::location").to_pylist())
-    assert "taco:location" not in dataset.sql("SELECT * FROM data").column_names
+    assert "data.bin::location" in dataset.sql("SELECT * FROM dataset").column_names
 
 
 def test_reader_reports_core_errors(archive: Path, tmp_path: Path) -> None:
@@ -181,7 +180,7 @@ def test_dataset_reads_folder(folder_dataset: Path) -> None:
     assert ">FOLDER<" in html
     assert 'aria-label="TACO folder storage"' in html
     assert dataset.read().num_rows == 4
-    assert dataset.sql("SELECT * FROM files").num_rows == 21
+    assert dataset.sql("SELECT * FROM dataset").num_rows == 4
 
 
 def test_file_selection_accepts_one_name(archive: Path) -> None:
@@ -196,14 +195,17 @@ def test_sql_relations_and_nested_wide_names(archive: Path) -> None:
 
     assert "before__B02.tif::location" in dataset.read().column_names
     assert not any(name.startswith("before/") for name in dataset.read().column_names)
-    assert dataset.sql("SELECT count(*) AS n FROM data").column("n").to_pylist() == [4]
+    assert dataset.sql("SELECT count(*) AS n FROM dataset").column("n").to_pylist() == [4]
     files = dataset.sql(
-        'SELECT "taco:sample_index", path, "taco:location" FROM files '
-        "WHERE path = 'before/B02.tif' ORDER BY \"taco:sample_index\""
+        'SELECT "taco:sample_index", "before__B02.tif::location" FROM dataset ORDER BY "taco:sample_index"'
     )
     assert files.num_rows == 4
-    assert all(value.startswith("/vsisubfile/") for value in files.column("taco:location").to_pylist())
+    assert all(value.startswith("/vsisubfile/") for value in files.column("before__B02.tif::location").to_pylist())
     assert dataset.sql("SELECT count(*) AS n FROM children__before").column("n").to_pylist() == [8]
+
+    for removed in ("data", "files"):
+        with pytest.raises(duckdb.CatalogException, match=f"{removed}.*does not exist"):
+            dataset.sql(f"SELECT * FROM {removed}")
 
 
 @pytest.mark.parametrize("value", [1, b"mask.tif", ["mask.tif", 1]])

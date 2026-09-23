@@ -869,7 +869,7 @@ FOLDER containers may use `append=True`. ZIP containers may be partitioned. The 
 
 #### Export
 
-`taco.export()` writes selected samples of an existing dataset through the same writer. `samples` is a PyArrow-compatible table, normally selected from the `data` SQL relation. It MUST retain `taco:sample_index`. Every named sample MUST exist in the source or the export fails.
+`taco.export()` writes selected samples of an existing dataset through the same writer. `samples` is a PyArrow-compatible table, normally selected from the `dataset` SQL relation. It MUST retain `taco:sample_index`. Every named sample MUST exist in the source or the export fails.
 
 The output keeps the source contract, identity, licenses, providers, tasks, and collection metadata unless the caller replaces collection fields. Selected samples keep their `id` and receive new indices from zero in source order. The writer recalculates `extent` and removes `taco:sources`.
 
@@ -878,7 +878,7 @@ Without `samples`, the export copies every sample. This can convert a FOLDER to 
 ```
 source = "https://data.source.coop/major-tom/core-dem/"
 dataset = taco.open_dataset(source)
-samples = dataset.sql('SELECT * FROM data ORDER BY "taco:sample_index" LIMIT 10')
+samples = dataset.sql('SELECT * FROM dataset ORDER BY "taco:sample_index" LIMIT 10')
 taco.export(
     source,
     "core-dem-sample.zip",
@@ -988,13 +988,12 @@ Every selected file has a `{file}::location` column calculated by the reader. Lo
 
 Collection metadata is not repeated in every result row. It is available through `Dataset.collection`.
 
-Public reader views use the following column order. `source_file` is present only for TACOCAT or a source list.
+The `dataset` relation and `read()` use the following column order. `source_file` is present only for TACOCAT or a source list.
 
-| View | Column order |
+| Result | Column order |
 | --- | --- |
-| `data` | `source_file` when present, `taco:sample_index`, `id`, then sample metadata in `sample.parquet` schema order |
-| `files` | `source_file` when present, `taco:sample_index`, `id`, `path`, `taco:location`, then effective metadata ordered by qualified name |
-| `read()` | `source_file` when present, `taco:sample_index`, `id`, sample metadata in `sample.parquet` schema order, then generated file columns |
+| `dataset` | `source_file` when present, `taco:sample_index`, `id`, sample metadata in `sample.parquet` schema order, then generated file columns |
+| `read()` | The same columns as `dataset`, limited to the requested structure declarations when `files` is provided |
 
 Generated file columns follow the selected declarations in structure order. Each `{file}::location` column is immediately followed by `{file}::header` when the file declares `rumi:header`. A variable sequence occupies one list column in the position of its declaration.
 
@@ -1032,9 +1031,8 @@ The list is ordered by the numeric sequence index and contains between the decla
 
 Every reader MUST expose `Dataset.sql(query)`. It accepts one SQL query and exposes the following relations.
 
-- `data`: one row per sample with `taco:sample_index`, `id`, and sample metadata, but no structural file columns. TACOCAT also includes `source_file`.
-- `files`: one row per file with `taco:sample_index`, `id`, `path`, reader-calculated `taco:location`, and effective metadata. TACOCAT also includes `source_file`. When a field is declared at more than one level, the nearest declaration wins.
-- one raw relation per metadata level. `/` becomes `__`, so the levels `sample`, `children`, and `children/before` are named `sample`, `children`, and `children__before`.
+- `dataset` has one row per sample. It contains the sample metadata and all generated file columns returned by `read()`.
+- Each metadata level has one raw relation. `/` becomes `__`, so the levels `sample`, `children`, and `children/before` are named `sample`, `children`, and `children__before`.
 
 Raw level relations keep their internal identity columns. Repeated field names remain unambiguous because SQL aliases identify the relation:
 
@@ -1049,11 +1047,12 @@ Partial reads use SQL.
 
 ```
 dataset = open_dataset("cloudsen12.zip")
-rows = dataset.sql('SELECT * FROM data WHERE "taco:sample_index" < 100')
-assets = dataset.sql("SELECT * FROM files WHERE path = 'target.tif'")
+rows = dataset.sql('SELECT * FROM dataset WHERE "taco:sample_index" < 100')
+targets = dataset.sql('SELECT id, "target.tif::location" FROM dataset')
+before = dataset.sql("SELECT * FROM children__before")
 ```
 
-`read()` and `sql()` MUST execute through the same DuckDB context. `read()` is the convenience operation that returns the complete sample table.
+`read()` and `sql()` MUST execute through the same DuckDB context. `read()` returns `dataset` ordered by `taco:sample_index`. When `files` is provided, it returns an ordered projection containing only the selected generated file columns.
 
 #### Inspection
 
@@ -1072,7 +1071,7 @@ dataset.collection
 dataset.contract
 dataset.read()
 dataset.read(files=["s2_l1c.tif", "target.tif"])
-dataset.sql('SELECT * FROM data WHERE "taco:sample_index" = 10')
+dataset.sql('SELECT * FROM dataset WHERE "taco:sample_index" = 10')
 ```
 
 The same API accepts every TACO container and a list of compatible partitions.

@@ -30,25 +30,25 @@ describe("read a TACO dataset", {
     expect_identical(dataset$contract$derived, list())
     expect_identical(nrow(taco::read(dataset)), 3L)
     expect_match(capture.output(print(dataset)), "taco.Dataset")
-    selected <- taco::sql(dataset, 'SELECT id FROM data WHERE "taco:sample_index" = 1')
+    selected <- taco::sql(dataset, 'SELECT id FROM dataset WHERE "taco:sample_index" = 1')
     expect_identical(selected$id, "sample-1")
-    expect_identical(nrow(taco::sql(dataset, "SELECT * FROM files WHERE path = 'mask.bin'")), 3L)
+    expect_identical(nrow(taco::sql(dataset, "SELECT * FROM dataset")), 3L)
   })
 
-  it("queries one row per file", {
+  it("queries the complete sample table", {
     dataset <- taco::open_dataset(taco_fixture())
-    result <- taco::sql(dataset, "SELECT * FROM files")
-    expect_identical(nrow(result), 6L)
-    expect_identical(sort(unique(result[["path"]])), c("image.bin", "mask.bin"))
-    expect_identical(sort(unique(result[["file:role"]])), c("image", "mask"))
-    expect_true("taco:location" %in% names(result))
+    result <- taco::sql(dataset, "SELECT * FROM dataset")
+    expect_identical(nrow(result), 3L)
+    expect_true(all(c("image.bin::location", "mask.bin::location") %in% names(result)))
     expect_false(any(c("cozip:location", "cozip:gdal_vsi") %in% names(result)))
+    expect_error(taco::sql(dataset, "SELECT * FROM data"), "data.*does not exist")
+    expect_error(taco::sql(dataset, "SELECT * FROM files"), "files.*does not exist")
   })
 
   it("selects samples with SQL", {
     dataset <- taco::open_dataset(taco_fixture())
-    expect_identical(nrow(taco::sql(dataset, 'SELECT * FROM data WHERE "taco:sample_index" = 1')), 1L)
-    expect_identical(nrow(taco::sql(dataset, 'SELECT * FROM data WHERE "taco:sample_index" < 2')), 2L)
+    expect_identical(nrow(taco::sql(dataset, 'SELECT * FROM dataset WHERE "taco:sample_index" = 1')), 1L)
+    expect_identical(nrow(taco::sql(dataset, 'SELECT * FROM dataset WHERE "taco:sample_index" < 2')), 2L)
   })
 
   it("selects files", {
@@ -56,10 +56,6 @@ describe("read a TACO dataset", {
     expect_true("mask.bin::location" %in% names(wide))
     expect_false("image.bin::location" %in% names(wide))
 
-    dataset <- taco::open_dataset(taco_fixture())
-    long <- taco::sql(dataset, "SELECT * FROM files WHERE path = 'mask.bin'")
-    expect_identical(nrow(long), 3L)
-    expect_identical(unique(long[["path"]]), "mask.bin")
     expect_error(
       taco::read(taco_fixture(), files = c("mask.bin", "nope.bin")),
       "structure leaf"

@@ -57,7 +57,7 @@ def test_consolidate(tmp_path: Path, collection: taco.Collection, make_sample) -
     assert ">TACOCAT<" in opened._repr_html_()
     assert opened.read().num_rows == 3
     assert set(opened.read().column("source_file").to_pylist()) == {"a.zip", "b.zip"}
-    assert opened.sql("SELECT * FROM files").num_rows == 15
+    assert opened.sql('SELECT * FROM dataset ORDER BY "taco:sample_index"').equals(opened.read())
     with pytest.raises(ContainerError, match="TACOCAT"):
         taco.open_dataset([output, parts[0]])
 
@@ -85,8 +85,8 @@ def test_open_partitions(tmp_path: Path, collection: taco.Collection, make_sampl
         ("a.zip", 1),
         ("b.zip", 2),
     }
-    assert dataset.sql('SELECT * FROM data WHERE "taco:sample_index" = 0').num_rows == 1
-    assert dataset.sql("SELECT * FROM files").num_rows == 15
+    assert dataset.sql('SELECT * FROM dataset WHERE "taco:sample_index" = 0').num_rows == 1
+    assert dataset.sql('SELECT * FROM dataset ORDER BY "taco:sample_index"').equals(wide)
     raw = dataset.sql("SELECT * FROM sample")
     assert raw.num_rows == 3
     assert set(raw.column("source_file").to_pylist()) == {"a.zip", "b.zip"}

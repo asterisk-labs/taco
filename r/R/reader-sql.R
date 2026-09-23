@@ -3,25 +3,6 @@
 }
 
 
-.generated_columns <- function(contract) {
-  result <- character()
-  for (declaration in contract$structure) {
-    variable <- grepl("*", declaration, fixed = TRUE)
-    name <- if (variable) strsplit(declaration, "*", fixed = TRUE)[[1L]][1L] else declaration
-    name <- gsub("/", "__", name, fixed = TRUE)
-    result <- c(result, paste0(name, "::location"))
-
-    path <- if (variable) strsplit(declaration, "*", fixed = TRUE)[[1L]][1L] else declaration
-    parts <- strsplit(path, "/", fixed = TRUE)[[1L]]
-    folder <- if (length(parts) == 1L) "children" else paste(c("children", parts[-length(parts)]), collapse = "/")
-    if ("rumi:header" %in% names(contract$metadata[[folder]])) {
-      result <- c(result, paste0(name, "::header"))
-    }
-  }
-  result
-}
-
-
 .dataset_sql <- function(dataset, query) {
   if (!inherits(dataset, "taco_dataset")) {
     .taco_stop("`dataset` must be a taco_dataset")
@@ -39,13 +20,7 @@
     .Call(taco_r_sql, datasets, NULL, level, pivoted, NULL, location)
   }
 
-  data <- native_sql()
-  generated <- .generated_columns(dataset$contract)
-  if (length(generated)) {
-    excluded <- paste(vapply(generated, .sql_identifier, character(1)), collapse = ", ")
-    data <- sprintf("SELECT * EXCLUDE (%s) FROM (%s) AS taco_data", excluded, data)
-  }
-  relations <- list(data = data, files = native_sql(pivoted = FALSE, location = TRUE))
+  relations <- list(dataset = native_sql(location = TRUE))
   for (level in dataset$contract$levels) {
     relations[[gsub("/", "__", level, fixed = TRUE)]] <- native_sql(level = level)
   }
@@ -61,7 +36,7 @@
 #' Query a TACO dataset
 #'
 #' @param dataset An object returned by [open_dataset()].
-#' @param query A SQL query over `data`, `files`, or a metadata level.
+#' @param query A SQL query over `dataset` or a raw metadata level.
 #' @return A tibble.
 #' @export
 sql <- function(dataset, query) {

@@ -1,5 +1,6 @@
 using Test
 using DataFrames
+import DuckDB
 import JSON3
 using Taco
 
@@ -29,33 +30,30 @@ const FIXTURE = joinpath(@__DIR__, "data", "taco.zip")
         @test isempty(dataset.contract.derived)
         @test size(Taco.read(dataset), 1) == 3
         @test occursin("Taco.Dataset", sprint(show, dataset))
-        @test Taco.sql(dataset, "SELECT id FROM data WHERE \"taco:sample_index\" = 1").id == ["sample-1"]
-        @test size(Taco.sql(dataset, "SELECT * FROM files WHERE path = 'mask.bin'"), 1) == 3
+        @test Taco.sql(dataset, "SELECT id FROM dataset WHERE \"taco:sample_index\" = 1").id == ["sample-1"]
+        @test size(Taco.sql(dataset, "SELECT * FROM dataset"), 1) == 3
 
         wide = Taco.read(FIXTURE)
         @test size(wide, 1) == 3
         @test issubset(["taco:sample_index", "ml:split", "image.bin::location", "mask.bin::location"], names(wide))
         @test wide[!, "ml:split"] == ["train", "train", "test"]
 
-        long = Taco.sql(dataset, "SELECT * FROM files")
-        @test size(long, 1) == 6
-        @test sort(unique(long.path)) == ["image.bin", "mask.bin"]
-        @test sort(unique(long[!, "file:role"])) == ["image", "mask"]
-        @test "taco:location" in names(long)
-        @test !("cozip:location" in names(long))
-        @test !("cozip:gdal_vsi" in names(long))
+        queried = Taco.sql(dataset, "SELECT * FROM dataset")
+        @test size(queried, 1) == 3
+        @test issubset(["image.bin::location", "mask.bin::location"], names(queried))
+        @test !("cozip:location" in names(queried))
+        @test !("cozip:gdal_vsi" in names(queried))
+        @test_throws DuckDB.QueryException Taco.sql(dataset, "SELECT * FROM data")
+        @test_throws DuckDB.QueryException Taco.sql(dataset, "SELECT * FROM files")
 
-        @test size(Taco.sql(dataset, "SELECT * FROM data WHERE \"taco:sample_index\" = 1"), 1) == 1
-        @test size(Taco.sql(dataset, "SELECT * FROM data WHERE \"taco:sample_index\" < 2"), 1) == 2
+        @test size(Taco.sql(dataset, "SELECT * FROM dataset WHERE \"taco:sample_index\" = 1"), 1) == 1
+        @test size(Taco.sql(dataset, "SELECT * FROM dataset WHERE \"taco:sample_index\" < 2"), 1) == 2
 
         narrowed = Taco.read(FIXTURE; files=["mask.bin"])
         @test "mask.bin::location" in names(narrowed)
         @test !("image.bin::location" in names(narrowed))
         @test Taco.read(FIXTURE; files="mask.bin") == narrowed
 
-        long_narrowed = Taco.sql(dataset, "SELECT * FROM files WHERE path = 'mask.bin'")
-        @test size(long_narrowed, 1) == 3
-        @test unique(long_narrowed.path) == ["mask.bin"]
         @test_throws "structure leaf" Taco.read(
             FIXTURE;
             files=["mask.bin", "nope.bin"],

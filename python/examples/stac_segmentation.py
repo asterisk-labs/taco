@@ -186,9 +186,8 @@ with taco.open_writer(collection, "stac-segmentation.zip", overwrite=True) as wr
 
 dataset = taco.open_dataset("stac-segmentation.zip")
 samples = taco.read(dataset)
-assets = dataset.sql("SELECT * FROM files")
 assert samples.num_rows == 3
-assert assets.num_rows == 6
+assert dataset.sql('SELECT * FROM dataset ORDER BY "taco:sample_index"').equals(samples)
 assert "majortom:code" in samples.column_names
 assert samples.column("stac:time_middle").null_count == 0
 assert dataset.collection.to_dict()["labels:num_classes"] == 3

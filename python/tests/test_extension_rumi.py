@@ -246,4 +246,4 @@ def test_wide_reads_carry_rumi_headers_next_to_locations(tmp_path: Path, monkeyp
 
     quiet = engine.open_reader().execute(native_sql(output, location=False)).to_arrow_table().to_pylist()[0]
     assert quiet["scene__optical.rumi::header"] is None
-    assert "scene__optical.rumi::header" not in taco.open_dataset(output).sql("SELECT * FROM data").column_names
+    assert "scene__optical.rumi::header" in taco.open_dataset(output).sql("SELECT * FROM dataset").column_names

@@ -32,7 +32,7 @@ def test_minimal_example(tmp_path: Path, monkeypatch) -> None:
     assert dataset.contract.structure == ("data.bin",)
     assert "data.bin" in dataset._repr_html_()
     assert dataset.read().num_rows == 1
-    assert dataset.sql("SELECT * FROM files").num_rows == 1
+    assert dataset.sql('SELECT * FROM dataset ORDER BY "taco:sample_index"').equals(dataset.read())
 
 
 @pytest.mark.parametrize("name", EXAMPLES)

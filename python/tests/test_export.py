@@ -132,7 +132,7 @@ def test_export_subset_to_zip(archive: Path, tmp_path: Path) -> None:
         taco.open_dataset(archive),
         output,
         samples=taco.open_dataset(archive)
-        .sql('SELECT * FROM data WHERE "taco:sample_index" >= 1 AND "taco:sample_index" < 3')
+        .sql('SELECT * FROM dataset WHERE "taco:sample_index" >= 1 AND "taco:sample_index" < 3')
         .to_pandas(),
         id="tiny-change-middle",
         description="Second and third samples",
@@ -173,7 +173,7 @@ def test_collection_fields_are_inherited_unless_given(archive: Path, tmp_path: P
     taco.export(
         archive,
         output,
-        samples=taco.open_dataset(archive).sql('SELECT * FROM data WHERE "taco:sample_index" = 0'),
+        samples=taco.open_dataset(archive).sql('SELECT * FROM dataset WHERE "taco:sample_index" = 0'),
         id="tiny-change-0",
     )
     exported = open_view(output).collection
@@ -278,7 +278,7 @@ def test_export_from_remote_archive_and_folder(archive: Path, folder_dataset: Pa
             f"{base}/dataset.zip",
             output / "middle.zip",
             samples=taco.open_dataset(f"{base}/dataset.zip").sql(
-                'SELECT * FROM data WHERE "taco:sample_index" >= 1 AND "taco:sample_index" < 3'
+                'SELECT * FROM dataset WHERE "taco:sample_index" >= 1 AND "taco:sample_index" < 3'
             ),
             id="tiny-change-middle",
             description="Second and third samples",
@@ -310,7 +310,7 @@ def test_export_remote_subsets(tmp_path: Path) -> None:
     first = taco.export(
         archive,
         tmp_path / "hf.zip",
-        samples=taco.open_dataset(archive).sql('SELECT * FROM data WHERE "taco:sample_index" < 2'),
+        samples=taco.open_dataset(archive).sql('SELECT * FROM dataset WHERE "taco:sample_index" < 2'),
         id="change-detection-mini",
         description="Two samples",
     )

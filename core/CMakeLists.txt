@@ -8,7 +8,7 @@ if(NOT TACO_API_VERSION_LINE)
 endif()
 
 project(taco
-    VERSION     0.8.2
+    VERSION     0.9.0
     DESCRIPTION "libtaco, the reference library for the TACO format."
     LANGUAGES   CXX C
 )

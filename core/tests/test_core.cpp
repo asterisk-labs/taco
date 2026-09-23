@@ -406,7 +406,7 @@ void test_cache() {
     const auto refreshed_folder = taco::open_dataset(folder, cache);
     CHECK(fs::file_size(refreshed_folder.level_paths[0]) == cached_sample_size + 1);
     {
-        std::ofstream stream(copies / "folder" / "COLLECTION.json", std::ios::app);
+        std::ofstream stream(copies / "folder" / "COLLECTION.json", std::ios::app | std::ios::binary);
         stream << '\n';
     }
     CHECK(taco::open_dataset(folder, cache).collection == cached_folder.collection + "\n");

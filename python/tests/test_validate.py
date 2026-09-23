@@ -50,6 +50,14 @@ def test_missing_folder_file_is_skipped_when_requested(folder_dataset: Path) -> 
     assert taco.validate(folder_dataset, check_data=False).ok
 
 
+def test_undeclared_folder_file_is_an_error(folder_dataset: Path) -> None:
+    extra = folder_dataset / "DATA/0/extra.txt"
+    extra.write_text("not declared")
+    report = taco.validate(folder_dataset)
+    assert not report.ok
+    assert any(issue.code == "data" and "not described" in issue.message for issue in report.errors)
+
+
 def test_bad_current_ids_are_reported(folder_dataset: Path) -> None:
     path = folder_dataset / "METADATA/sample.parquet"
     table = pq.read_table(path)
@@ -58,6 +66,20 @@ def test_bad_current_ids_are_reported(folder_dataset: Path) -> None:
     report = taco.validate(folder_dataset)
     assert not report.ok
     assert any(issue.code == "current_id" for issue in report.errors)
+
+
+def test_invalid_sample_ids_are_reported(folder_dataset: Path) -> None:
+    path = folder_dataset / "METADATA/sample.parquet"
+    table = pq.read_table(path)
+    index = table.schema.get_field_index("id")
+    field = table.schema.field(index).with_nullable(True)
+    table = table.set_column(index, field, pa.array(["same", " ", None, "same"], type=pa.string()))
+    pq.write_table(table, path)
+
+    messages = [issue.message for issue in taco.validate(folder_dataset).errors if issue.code == "id"]
+    assert any("null on 1 rows" in message for message in messages)
+    assert any("empty on 1 rows" in message for message in messages)
+    assert any("1 duplicates" in message for message in messages)
 
 
 def test_bad_parent_is_reported(folder_dataset: Path) -> None:

@@ -10,11 +10,12 @@ from pathlib import Path
 from typing import Any, BinaryIO, Literal, cast
 
 import pyarrow as pa
+import pyarrow.compute as pc
 
 from .container.cozip import INDEX_NAME
 from .container.view import DatasetView, open_view
 from .contract.collection import KNOWN_TASKS
-from .contract.contract import CHILDREN_LEVEL, SAMPLE_LEVEL, Contract
+from .contract.contract import CHILDREN_LEVEL, SAMPLE_ID, SAMPLE_LEVEL, Contract
 from .contract.naming import (
     COLLECTION_FILENAME,
     CURRENT_ID,
@@ -27,6 +28,7 @@ from .contract.naming import (
     SOURCE_FILE,
     level_folder,
     level_to_filename,
+    normalize_relative_path,
 )
 from .contract.types import type_name
 from .errors import TacoError, ValidationFailed
@@ -105,6 +107,7 @@ def validate(path: str | PathLike[str], *, check_data: bool = True) -> Validatio
 
     _check_collection(dataset, collector)
     _check_metadata_files(dataset, collector)
+    _check_sample_ids(dataset, collector)
     if dataset.container == "tacocat":
         for source, tables in _split_by_source(dataset).items():
             _check_levels(dataset, tables, collector, label=f"{source}: ")
@@ -117,6 +120,32 @@ def validate(path: str | PathLike[str], *, check_data: bool = True) -> Validatio
     else:
         _check_tacocat(dataset, collector)
     return collector.report
+
+
+def _check_sample_ids(dataset: DatasetView, collector: _Collector) -> None:
+    """Check the whole dataset at once.
+
+    In a TACOCAT the per-source tables are validated separately, but `id` is
+    unique across partitions, so this reads the merged sample table.
+    """
+    table = dataset.tables.get(SAMPLE_LEVEL)
+    if table is None:
+        return
+    if SAMPLE_ID not in table.column_names:
+        collector.error("id", "sample: the id column is missing")
+        return
+    column = table.column(SAMPLE_ID)
+    values = column.to_pylist()
+    nulls = sum(value is None for value in values)
+    if nulls:
+        collector.error("id", f"sample: id is null on {nulls} rows")
+    empty = sum(isinstance(value, str) and not value.strip() for value in values)
+    if empty:
+        collector.error("id", f"sample: id is empty on {empty} rows")
+    counts = Counter(value for value in values if isinstance(value, str) and value.strip())
+    duplicates = sum(count - 1 for count in counts.values() if count > 1)
+    if duplicates:
+        collector.error("id", f"sample: id must be unique ({duplicates} duplicates)")
 
 
 def _check_collection(dataset: DatasetView, collector: _Collector) -> None:
@@ -158,8 +187,6 @@ def _check_metadata_files(dataset: DatasetView, collector: _Collector) -> None:
 
 def _split_by_source(dataset: DatasetView) -> dict[str, dict[str, pa.Table]]:
     """Split TACOCAT tables because row ids restart in each partition."""
-    import pyarrow.compute as pc
-
     sources: set[str] = set()
     for table in dataset.tables.values():
         if SOURCE_FILE in table.column_names:
@@ -471,9 +498,7 @@ def _check_folder(dataset: DatasetView, collector: _Collector, *, check_data: bo
         present = {file.relative_to(data_root).as_posix() for file in data_root.rglob("*") if file.is_file()}
         extra = sorted(present - expected)
         if extra:
-            collector.warning(
-                "data", f"{len(extra)} files under DATA/ are not described by metadata (first: {extra[0]})"
-            )
+            collector.error("data", f"{len(extra)} files under DATA/ are not described by metadata (first: {extra[0]})")
 
 
 def _check_tacocat(dataset: DatasetView, collector: _Collector) -> None:
@@ -504,9 +529,15 @@ def _check_tacocat(dataset: DatasetView, collector: _Collector) -> None:
                 if actual != expected:
                     collector.error("sources", "partition sample counts do not match sample.parquet")
         for name in listed:
-            if Path(name).is_absolute():
-                collector.error("sources", f"partition path must be relative: {name!r}")
-            elif not (dataset.path.parent / name).is_file():
+            try:
+                normalized = normalize_relative_path(name, context="partition path")
+            except ValueError as exc:
+                collector.error("sources", str(exc))
+                continue
+            if not normalized.endswith(".zip"):
+                collector.error("sources", f"partition path must end in .zip: {name!r}")
+                continue
+            if not (dataset.path.parent / normalized).is_file():
                 collector.warning("sources", f"partition {name!r} cannot be found")
     for level, table in dataset.tables.items():
         if SOURCE_FILE not in table.column_names:

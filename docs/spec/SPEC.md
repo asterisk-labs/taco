@@ -874,7 +874,7 @@ The output keeps the source contract, identity, licenses, providers, tasks, and 
 Without `samples`, the export copies every sample. This can convert a FOLDER to ZIP or merge a TACOCAT into one dataset. `overwrite=True` replaces an existing TACO output.
 
 ```
-source = "https://data.source.coop/major-tom/core-dem/"
+source = "https://data.source.coop/major-tom/core-dem/.tacocat/"
 dataset = taco.open_dataset(source)
 samples = dataset.sql('SELECT * FROM data ORDER BY "taco:sample_index" LIMIT 10')
 taco.export(

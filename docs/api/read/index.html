@@ -18,17 +18,17 @@
           <div class="code-bar"><div class="language-tabs" role="tablist" aria-label="Code language"><button type="button" role="tab" aria-selected="true" data-language="python">Python</button><button type="button" role="tab" aria-selected="false" data-language="r">R</button><button type="button" role="tab" aria-selected="false" data-language="julia">Julia</button></div><button type="button">Copy</button></div>
           <pre data-code="python"><code><span class="kw">import</span> taco
 
-dataset = taco.open_dataset(<span class="str">"https://data.source.coop/major-tom/core-dem/"</span>)
+dataset = taco.open_dataset(<span class="str">"https://data.source.coop/major-tom/core-dem/.tacocat/"</span>)
 samples = dataset.read(files=<span class="str">"dem.rumi"</span>)
 first_100 = dataset.sql(<span class="str">'SELECT * FROM data WHERE "taco:sample_index" &lt; 100'</span>)</code></pre>
           <pre data-code="r" hidden><code>library(taco)
 
-dataset &lt;- open_dataset(<span class="str">"https://data.source.coop/major-tom/core-dem/"</span>)
+dataset &lt;- open_dataset(<span class="str">"https://data.source.coop/major-tom/core-dem/.tacocat/"</span>)
 samples &lt;- read(dataset, files = <span class="str">"dem.rumi"</span>)
 first_100 &lt;- sql(dataset, <span class="str">'SELECT * FROM data WHERE "taco:sample_index" &lt; 100'</span>)</code></pre>
           <pre data-code="julia" hidden><code><span class="kw">using</span> Taco
 
-dataset = Taco.open_dataset(<span class="str">"https://data.source.coop/major-tom/core-dem/"</span>)
+dataset = Taco.open_dataset(<span class="str">"https://data.source.coop/major-tom/core-dem/.tacocat/"</span>)
 samples = Taco.read(dataset; files=[<span class="str">"dem.rumi"</span>])
 first_100 = Taco.sql(dataset, <span class="str">'SELECT * FROM data WHERE "taco:sample_index" &lt; 100'</span>)</code></pre>
         </div>

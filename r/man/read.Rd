@@ -6,50 +6,16 @@
 \alias{read.taco_dataset}
 \title{Read a TACO dataset}
 \usage{
-read(
-  source,
-  layout = c("wide", "long"),
-  idx = NULL,
-  level = NULL,
-  files = NULL,
-  location = TRUE
-)
+read(source, files = NULL)
 
-\method{read}{character}(
-  source,
-  layout = c("wide", "long"),
-  idx = NULL,
-  level = NULL,
-  files = NULL,
-  location = TRUE
-)
+\method{read}{character}(source, files = NULL)
 
-\method{read}{taco_dataset}(
-  source,
-  layout = c("wide", "long"),
-  idx = NULL,
-  level = NULL,
-  files = NULL,
-  location = TRUE
-)
+\method{read}{taco_dataset}(source, files = NULL)
 }
 \arguments{
 \item{source}{A dataset, or local paths or http(s)/s3/gcs/azure/hf URLs.}
 
-\item{layout}{\code{"wide"} gives one row per sample with a column per
-structure leaf; \code{"long"} gives one row per file.}
-
-\item{idx}{One sample number, or a two-element half-open range.
-\code{NULL} reads every sample.}
-
-\item{level}{Return one contract level raw, with its internal columns,
-instead of the joined view.}
-
 \item{files}{Restrict which structure leaves are read. \code{NULL} reads all.}
-
-\item{location}{Fill structure columns in a wide read, or include the
-calculated \code{taco:location} column in a long read. Raw level reads never
-synthesize a location column.}
 }
 \value{
 A tibble.

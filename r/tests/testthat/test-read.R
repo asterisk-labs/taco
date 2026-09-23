@@ -5,20 +5,8 @@ describe("read input validation", {
     expect_error(taco::read(c("a.zip", "a.zip")), "unique")
   })
 
-  it("checks layout and selections", {
-    expect_error(taco::read("a.zip", layout = "tall"), "should be one of")
-    expect_error(taco::read("a.zip", level = c("sample", "children")), "single level")
+  it("checks file selections", {
     expect_error(taco::read("a.zip", files = ""), "non-empty")
-    expect_error(taco::read("a.zip", location = "yes"), "TRUE or FALSE")
-  })
-
-  it("checks sample indices", {
-    expect_error(taco::read("a.zip", idx = 1.5), "whole, non-negative")
-    expect_error(taco::read("a.zip", idx = -1), "whole, non-negative")
-    expect_error(taco::read("a.zip", idx = Inf), "whole, non-negative")
-    expect_error(taco::read("a.zip", idx = 2^53), "too large")
-    expect_error(taco::read("a.zip", idx = c(1, 2, 3)), "one sample number")
-    expect_error(taco::read("a.zip", idx = c(5, 2)), "must not exceed")
   })
 })
 
@@ -28,7 +16,7 @@ describe("read a TACO dataset", {
     result <- taco::read(taco_fixture())
     expect_s3_class(result, "tbl_df")
     expect_identical(nrow(result), 3L)
-    expect_true(all(c("sample_id", "ml:split", "image.bin::location", "mask.bin::location") %in% names(result)))
+    expect_true(all(c("sample_index", "ml:split", "image.bin::location", "mask.bin::location") %in% names(result)))
     expect_identical(result[["ml:split"]], c("train", "train", "test"))
   })
 
@@ -40,15 +28,16 @@ describe("read a TACO dataset", {
     expect_identical(dataset$contract$structure, c("image.bin", "mask.bin"))
     expect_identical(dataset$contract$levels, c("sample", "children"))
     expect_identical(dataset$contract$derived, list())
-    expect_identical(dataset$version, "1.0.0")
-    expect_identical(dataset$versions, character())
-    expect_null(dataset$manifest)
     expect_identical(nrow(taco::read(dataset)), 3L)
     expect_match(capture.output(print(dataset)), "taco.Dataset")
+    selected <- taco::sql(dataset, "SELECT id FROM data WHERE sample_index = 1")
+    expect_identical(selected$id, "sample-1")
+    expect_identical(nrow(taco::sql(dataset, "SELECT * FROM files WHERE path = 'mask.bin'")), 3L)
   })
 
-  it("returns one row per file", {
-    result <- taco::read(taco_fixture(), layout = "long")
+  it("queries one row per file", {
+    dataset <- taco::open_dataset(taco_fixture())
+    result <- taco::sql(dataset, "SELECT * FROM files")
     expect_identical(nrow(result), 6L)
     expect_identical(sort(unique(result[["path"]])), c("image.bin", "mask.bin"))
     expect_identical(sort(unique(result[["file:role"]])), c("image", "mask"))
@@ -56,9 +45,10 @@ describe("read a TACO dataset", {
     expect_false(any(c("cozip:location", "cozip:gdal_vsi") %in% names(result)))
   })
 
-  it("selects samples", {
-    expect_identical(nrow(taco::read(taco_fixture(), idx = 1)), 1L)
-    expect_identical(nrow(taco::read(taco_fixture(), idx = c(0, 2))), 2L)
+  it("selects samples with SQL", {
+    dataset <- taco::open_dataset(taco_fixture())
+    expect_identical(nrow(taco::sql(dataset, "SELECT * FROM data WHERE sample_index = 1")), 1L)
+    expect_identical(nrow(taco::sql(dataset, "SELECT * FROM data WHERE sample_index < 2")), 2L)
   })
 
   it("selects files", {
@@ -66,7 +56,8 @@ describe("read a TACO dataset", {
     expect_true("mask.bin::location" %in% names(wide))
     expect_false("image.bin::location" %in% names(wide))
 
-    long <- taco::read(taco_fixture(), layout = "long", files = "mask.bin")
+    dataset <- taco::open_dataset(taco_fixture())
+    long <- taco::sql(dataset, "SELECT * FROM files WHERE path = 'mask.bin'")
     expect_identical(nrow(long), 3L)
     expect_identical(unique(long[["path"]]), "mask.bin")
     expect_error(
@@ -75,16 +66,22 @@ describe("read a TACO dataset", {
     )
   })
 
-  it("reads one metadata level", {
-    result <- taco::read(taco_fixture(), level = "children")
+  it("queries one metadata level", {
+    dataset <- taco::open_dataset(taco_fixture())
+    result <- taco::sql(dataset, "SELECT * FROM children")
     expect_identical(nrow(result), 6L)
     expect_true("internal:current_id" %in% names(result))
     expect_false(any(c("cozip:location", "taco:location", "cozip:gdal_vsi") %in% names(result)))
   })
 
-  it("can omit locations", {
-    result <- taco::read(taco_fixture(), layout = "long", location = FALSE)
-    expect_false(any(c("cozip:location", "taco:location", "cozip:gdal_vsi") %in% names(result)))
+  it("inspects a dataset", {
+    expect_identical(taco::inspect(taco_fixture(), "structure"), c("image.bin", "mask.bin"))
+    expect_identical(taco::inspect(taco_fixture(), "levels"), c("sample", "children"))
+    expect_identical(taco::inspect(taco_fixture(), "collection")$id, "taco-fixture")
+    expect_identical(taco::inspect(taco_fixture(), "profile"), "taco")
+    expect_s3_class(taco::inspect(taco_fixture(), "contract"), "tbl_df")
+    expect_match(taco::inspect(taco_fixture(), "native_sql"), "read_parquet")
+    expect_error(taco::inspect(taco_fixture(), "unknown"), "must be one of")
   })
 
   it("reads Unicode paths", {
@@ -102,6 +99,7 @@ describe("read a TACO dataset", {
     result <- taco::read(c(taco_fixture(), copy))
     expect_identical(nrow(result), 6L)
     expect_identical(sort(unique(result[["source_file"]])), c("part-1.zip", "taco.zip"))
+    expect_equal(as.numeric(result[["sample_index"]]), 0:5)
   })
 
   it("rejects sources with different contracts", {

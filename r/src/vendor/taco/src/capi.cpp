@@ -3,7 +3,6 @@
 #include "cozip_index.hpp"
 #include "dataset.hpp"
 #include "error.hpp"
-#include "manifest.hpp"
 #include "progress.hpp"
 #include "sql.hpp"
 #include "transport.hpp"
@@ -167,35 +166,6 @@ taco_status taco_profile(const char* source, char** out_name) {
     return guard([&] {
         require(source && out_name, "taco_profile: source and out_name must not be NULL");
         *out_name = copy_string(taco::profile_name(taco::read_cozip_profile(source)));
-    });
-}
-
-taco_status taco_manifest_candidate(const char* source, char** out_candidate) {
-    if (out_candidate)
-        *out_candidate = nullptr;
-    return guard([&] {
-        require(source && out_candidate, "taco_manifest_candidate: source and out_candidate must not be NULL");
-        if (const auto candidate = taco::manifest_candidate(source))
-            *out_candidate = copy_string(*candidate);
-    });
-}
-
-taco_status taco_join_manifest_href(const char* candidate, const char* href, char** out_source) {
-    if (out_source)
-        *out_source = nullptr;
-    return guard([&] {
-        require(candidate && href && out_source,
-                "taco_join_manifest_href: candidate, href and out_source must not be NULL");
-        *out_source = copy_string(taco::join_manifest_href(candidate, href));
-    });
-}
-
-taco_status taco_resolve(const char* source, char** out_json) {
-    if (out_json)
-        *out_json = nullptr;
-    return guard([&] {
-        require(source && out_json, "taco_resolve: source and out_json must not be NULL");
-        *out_json = copy_string(taco::resolve_dataset(source));
     });
 }
 

@@ -18,6 +18,8 @@ constexpr const char* id_path = "internal:relative_path";
 constexpr const char* id_offset = "internal:offset";
 constexpr const char* id_size = "internal:size";
 constexpr const char* id_source = "internal:source_file";
+constexpr const char* logical_id = "id";
+constexpr const char* sample_index = "sample_index";
 constexpr const char* location_column = "taco:location";
 constexpr const char* flat_location_column = "cozip:location";
 // Rumi assets are read statelessly with their header, so a wide read carries
@@ -79,6 +81,58 @@ std::string output_name(const Leaf& leaf) {
     return out;
 }
 
+std::string index_filter(const std::string& selection, const std::string& column) {
+    if (selection.empty())
+        return "";
+    const auto invalid = [&](const char* reason) {
+        fail(std::string("taco: idx must ") + reason + ", got " + selection);
+    };
+    const auto trim = [](std::string value) {
+        const auto first = value.find_first_not_of(" \t");
+        const auto last = value.find_last_not_of(" \t");
+        return first == std::string::npos ? std::string() : value.substr(first, last - first + 1);
+    };
+    std::string text = trim(selection);
+    const bool range = !text.empty() && text.front() == '[';
+    if (range) {
+        if (text.back() != ']')
+            invalid("be an integer or a two-element list");
+        text = text.substr(1, text.size() - 2);
+    } else if (text.find_first_of("[],") != std::string::npos) {
+        invalid("be an integer or a two-element list");
+    }
+
+    std::vector<std::string> parts;
+    for (std::size_t start = 0;;) {
+        const auto comma = text.find(',', start);
+        parts.push_back(trim(text.substr(start, comma == std::string::npos ? comma : comma - start)));
+        if (comma == std::string::npos)
+            break;
+        start = comma + 1;
+    }
+    if ((!range && parts.size() != 1) || (range && parts.size() != 2))
+        invalid("be an integer or a two-element list");
+
+    std::vector<std::uint64_t> bounds;
+    for (const auto& part : parts) {
+        if (part.empty())
+            invalid("be an integer or a two-element list");
+        if (part.find_first_not_of("0123456789") != std::string::npos)
+            invalid("contain non-negative integers");
+        try {
+            bounds.push_back(std::stoull(part));
+        } catch (const std::exception&) {
+            invalid("be an integer or a two-element list");
+        }
+    }
+    if (bounds.size() == 1)
+        return column + " = " + std::to_string(bounds[0]);
+    if (bounds[0] > bounds[1])
+        fail("taco: idx range start must not exceed its end, got " + selection);
+    return column + " >= " + std::to_string(bounds[0]) + " AND " + column + " < " +
+           std::to_string(bounds[1]);
+}
+
 class QueryBuilder {
   public:
     QueryBuilder(const Dataset& dataset, const ReadOptions& options)
@@ -91,29 +145,31 @@ class QueryBuilder {
                sql_literal(dataset_.level_paths[level]) + ")";
     }
 
-    // A dataset whose taco:structure is null: the sample is the file.
-    [[nodiscard]] std::string null_structure_query() const {
-        std::string out = "SELECT " + sql_identifier(id_current) + " AS sample_id";
-        if (tacocat_)
-            out += ", " + sql_identifier(id_source) + " AS source_file";
-        if (!options_.pivot)
-            out += ", NULL::VARCHAR AS path";
-        if (options_.location)
-            out += ", " + location_expression(0) + " AS " + sql_identifier(location_column);
-        out += ", *" + exclude_list(0);
-        out += " FROM (SELECT " + metadata_projection() + " FROM read_parquet(" +
-               sql_literal(dataset_.level_paths[0]) + ")) AS " + alias(0);
-        const auto idx = idx_filter(alias(0));
-        if (!idx.empty())
-            out += " WHERE " + idx;
-        return out;
-    }
-
     [[nodiscard]] std::string flat_query() const {
-        if (!options_.has_files)
-            return common_table_expressions() + "\n" + flat_branches(false);
-        const auto leaves = selected_leaves();
-        return common_table_expressions() + "\n" + flat_branches(false, &leaves);
+        std::string branches;
+        if (options_.has_files) {
+            const auto leaves = selected_leaves();
+            branches = flat_branches(false, &leaves);
+        } else {
+            branches = flat_branches(false);
+        }
+        std::string out = "SELECT ";
+        if (tacocat_)
+            out += "source_file, ";
+        out += std::string(sample_index) + ", id, path";
+        if (options_.location)
+            out += ", " + sql_identifier(location_column);
+        std::vector<std::string> fields;
+        for (const auto& [level, names] : dataset_.contract.fields) {
+            for (const auto& name : names) {
+                if (std::find(fields.begin(), fields.end(), name) == fields.end())
+                    fields.push_back(name);
+            }
+        }
+        std::sort(fields.begin(), fields.end());
+        for (const auto& name : fields)
+            out += ", " + sql_identifier(name);
+        return common_table_expressions() + "\n" + out + " FROM (" + branches + ") AS taco_files";
     }
 
     [[nodiscard]] std::string pivot_query() const {
@@ -121,10 +177,11 @@ class QueryBuilder {
         // Metadata-only reads stop at sample.parquet. Placeholder columns keep
         // the wide schema stable without touching any child level.
         if (!options_.location) {
-            std::string out = "SELECT " + alias(0) + "." + sql_identifier(id_current) + " AS sample_id";
+            std::string out = "SELECT ";
             if (tacocat_)
-                out += ", " + alias(0) + "." + sql_identifier(id_source) + " AS source_file";
-            out += ", " + alias(0) + ".*" + exclude_list(0);
+                out += alias(0) + "." + sql_identifier(id_source) + " AS source_file, ";
+            out += alias(0) + "." + sql_identifier(id_current) + " AS " + sample_index + ", " + alias(0) + "." +
+                   sql_identifier(logical_id) + " AS id, " + alias(0) + ".*" + exclude_list(0);
             for (const auto& leaf : leaves) {
                 out += leaf.variable ? ", NULL::VARCHAR[] AS " : ", NULL::VARCHAR AS ";
                 out += sql_identifier(location_name(leaf));
@@ -146,7 +203,7 @@ class QueryBuilder {
         // samples whose optional files are absent.
         std::string out = common_table_expressions();
         out += ", flat AS (\n" + flat_branches(true, options_.has_files ? &leaves : nullptr) + "\n)";
-        out += ", pivoted AS (SELECT sample_id";
+        out += ", pivoted AS (SELECT " + std::string(sample_index);
         if (tacocat_)
             out += ", source_file";
         for (const auto& leaf : leaves) {
@@ -156,10 +213,11 @@ class QueryBuilder {
         }
         out += " FROM flat GROUP BY ALL)";
 
-        out += "\nSELECT " + alias(0) + "." + sql_identifier(id_current) + " AS sample_id";
+        out += "\nSELECT ";
         if (tacocat_)
-            out += ", " + alias(0) + "." + sql_identifier(id_source) + " AS source_file";
-        out += ", " + alias(0) + ".*" + exclude_list(0);
+            out += alias(0) + "." + sql_identifier(id_source) + " AS source_file, ";
+        out += alias(0) + "." + sql_identifier(id_current) + " AS " + sample_index + ", " + alias(0) + "." +
+               sql_identifier(logical_id) + " AS id, " + alias(0) + ".*" + exclude_list(0);
         for (const auto& leaf : leaves) {
             const auto location = location_name(leaf);
             if (leaf.variable)
@@ -174,10 +232,8 @@ class QueryBuilder {
             else
                 out += ", p." + sql_identifier(header);
         }
-        out += " FROM " + alias(0) + " LEFT JOIN pivoted p ON p.sample_id = " + alias(0) + "." +
+        out += " FROM " + alias(0) + " LEFT JOIN pivoted p ON p." + sample_index + " = " + alias(0) + "." +
                sql_identifier(id_current);
-        if (tacocat_)
-            out += " AND p.source_file = " + alias(0) + "." + sql_identifier(id_source);
         const auto idx = idx_filter(alias(0));
         if (!idx.empty())
             out += " WHERE " + idx;
@@ -217,21 +273,19 @@ class QueryBuilder {
                sql_literal(location_column) + ")";
     }
 
-    // Columns the reader owns and therefore hides from the projected metadata.
-    // shadowed additionally hides fields a deeper level of the same branch
-    // redeclares, so the most specific value wins instead of colliding.
-    [[nodiscard]] std::string exclude_list(std::size_t level,
-                                           const std::vector<std::string>& shadowed = {}) const {
+    // Columns the reader owns and therefore hides from projected metadata.
+    [[nodiscard]] std::string exclude_list(std::size_t level) const {
         std::vector<std::string> columns = {id_current, id_path};
+        if (level == 0)
+            columns.push_back(logical_id);
         if (level > 0)
             columns.push_back(id_parent);
-        if (has_offsets_ && (level > 0 || dataset_.contract.null_structure)) {
+        if (has_offsets_ && level > 0) {
             columns.push_back(id_offset);
             columns.push_back(id_size);
         }
         if (tacocat_)
             columns.push_back(id_source);
-        columns.insert(columns.end(), shadowed.begin(), shadowed.end());
         std::string out = " EXCLUDE (";
         for (std::size_t i = 0; i < columns.size(); ++i)
             out += (i ? ", " : "") + sql_identifier(columns[i]);
@@ -298,20 +352,24 @@ class QueryBuilder {
             chain.push_back(node);
         chain.push_back(0);
 
-        std::string out;
         std::vector<std::string> seen;
+        std::vector<std::pair<std::string, std::size_t>> selected;
         for (const auto index : chain) {
-            std::vector<std::string> shadowed;
             if (const auto* declared = dataset_.contract.fields_of(dataset_.level_names[index])) {
                 for (const auto& name : *declared) {
-                    if (std::find(seen.begin(), seen.end(), name) != seen.end())
-                        shadowed.push_back(name);
-                    else
+                    if (std::find(seen.begin(), seen.end(), name) == seen.end()) {
                         seen.push_back(name);
+                        selected.emplace_back(name, index);
+                    }
                 }
             }
-            out += ", " + alias(index) + ".*" + exclude_list(index, shadowed);
         }
+        std::sort(selected.begin(), selected.end(), [](const auto& left, const auto& right) {
+            return left.first < right.first;
+        });
+        std::string out;
+        for (const auto& [name, index] : selected)
+            out += ", " + alias(index) + "." + sql_identifier(name);
         return out;
     }
 
@@ -322,68 +380,13 @@ class QueryBuilder {
             const auto parent = dataset_.level_index(parent_level(dataset_.level_names[child]));
             out += " JOIN " + alias(parent) + " ON " + alias(child) + "." + sql_identifier(id_parent) + " = " +
                    alias(parent) + "." + sql_identifier(id_current);
-            if (tacocat_) {
-                // Row ids restart in every partition, so identity is (source, id).
-                out += " AND " + alias(child) + "." + sql_identifier(id_source) + " = " + alias(parent) + "." +
-                       sql_identifier(id_source);
-            }
             child = parent;
         }
         return out;
     }
 
     [[nodiscard]] std::string idx_filter(const std::string& row) const {
-        if (options_.idx.empty())
-            return "";
-        const auto invalid = [&](const char* reason) {
-            fail(std::string("taco: idx must ") + reason + ", got " + options_.idx);
-        };
-        std::string text = options_.idx;
-        const auto trim = [](std::string value) {
-            const auto first = value.find_first_not_of(" \t");
-            const auto last = value.find_last_not_of(" \t");
-            return first == std::string::npos ? std::string() : value.substr(first, last - first + 1);
-        };
-        text = trim(text);
-        const bool range = !text.empty() && text.front() == '[';
-        if (range) {
-            if (text.back() != ']')
-                invalid("be an integer or a two-element list");
-            text = text.substr(1, text.size() - 2);
-        } else if (text.find_first_of("[],") != std::string::npos) {
-            invalid("be an integer or a two-element list");
-        }
-
-        std::vector<std::string> parts;
-        for (std::size_t start = 0;;) {
-            const auto comma = text.find(',', start);
-            parts.push_back(trim(text.substr(start, comma == std::string::npos ? comma : comma - start)));
-            if (comma == std::string::npos)
-                break;
-            start = comma + 1;
-        }
-        if ((!range && parts.size() != 1) || (range && parts.size() != 2))
-            invalid("be an integer or a two-element list");
-
-        std::vector<std::uint64_t> bounds;
-        for (const auto& part : parts) {
-            if (part.empty())
-                invalid("be an integer or a two-element list");
-            if (part.find_first_not_of("0123456789") != std::string::npos)
-                invalid("contain non-negative integers");
-            try {
-                bounds.push_back(std::stoull(part));
-            } catch (const std::exception&) {
-                invalid("be an integer or a two-element list");
-            }
-        }
-        const auto column = row + "." + sql_identifier(id_current);
-        if (bounds.size() == 1)
-            return column + " = " + std::to_string(bounds[0]);
-        if (bounds[0] > bounds[1])
-            fail("taco: idx range start must not exceed its end, got " + options_.idx);
-        // Half-open, so [0, 100] is the first hundred samples.
-        return column + " >= " + std::to_string(bounds[0]) + " AND " + column + " < " + std::to_string(bounds[1]);
+        return index_filter(options_.idx, row + "." + sql_identifier(id_current));
     }
 
     [[nodiscard]] std::string common_table_expressions() const {
@@ -400,15 +403,15 @@ class QueryBuilder {
     // One row per data file, columns aligned across levels by name.
     [[nodiscard]] std::string flat_branches(bool identity_only, const std::vector<Leaf>* selected = nullptr) const {
         std::string out;
-        // Level zero is sample metadata. Payload files begin at child levels;
-        // a null structure takes the separate null_structure_query path.
+        // Level zero is sample metadata. Payload files begin at child levels.
         for (std::size_t level = 1; level < dataset_.level_names.size(); ++level) {
             if (!out.empty())
                 out += "\nUNION ALL BY NAME\n";
-            out += "SELECT " + alias(0) + "." + sql_identifier(id_current) + " AS sample_id";
+            out += "SELECT ";
             if (tacocat_)
-                out += ", " + alias(0) + "." + sql_identifier(id_source) + " AS source_file";
-            out += ", " + path_expression(level) + " AS path";
+                out += alias(0) + "." + sql_identifier(id_source) + " AS source_file, ";
+            out += alias(0) + "." + sql_identifier(id_current) + " AS " + sample_index + ", " + alias(0) + "." +
+                   sql_identifier(logical_id) + " AS id, " + path_expression(level) + " AS path";
             if (identity_only || options_.location)
                 out += ", " + location_expression(level) + " AS " + sql_identifier(location_column);
             if (identity_only) {
@@ -470,16 +473,8 @@ std::string build_sql(const Dataset& dataset, const ReadOptions& options) {
             fail("taco: files does not apply when level is set");
         return builder.level_query();
     }
-    if (dataset.contract.null_structure) {
-        if (options.has_files)
-            fail("taco: files requires taco:structure");
-        return builder.null_structure_query();
-    }
     if (!options.pivot)
         return builder.flat_query();
-    if (dataset.contract.structure.empty())
-        fail("taco:structure is null but the dataset has " + std::to_string(dataset.level_names.size()) +
-             " metadata levels: " + dataset.source);
     return builder.pivot_query();
 }
 
@@ -493,17 +488,32 @@ std::string build_union_sql(const std::vector<const Dataset*>& datasets, const R
     for (const auto* dataset : datasets)
         sources.push_back(dataset->source);
     const auto labels = source_labels(sources);
+    ReadOptions partition_options = options;
+    if (options.level.empty())
+        partition_options.idx.clear();
 
     std::string out;
     for (std::size_t i = 0; i < datasets.size(); ++i) {
         if (i)
             out += "\nUNION ALL BY NAME\n";
         const auto label = sql_literal(labels[i]);
-        out += options.level.empty() ? "SELECT taco.sample_id, " + label + " AS source_file, taco.* EXCLUDE (sample_id)"
-                                     : "SELECT " + label + " AS source_file, taco.*";
-        out += " FROM (" + build_sql(*datasets[i], options) + ") AS taco";
+        if (options.level.empty())
+            out += "SELECT " + std::to_string(i) + " AS internal_source_order, " + label +
+                   " AS source_file, taco.*";
+        else
+            out += "SELECT " + label + " AS source_file, taco.*";
+        out += " FROM (" + build_sql(*datasets[i], partition_options) + ") AS taco";
     }
-    return out;
+    if (!options.level.empty())
+        return out;
+    const std::string indexed =
+        "SELECT source_file, CAST(dense_rank() OVER (ORDER BY internal_source_order, sample_index) - 1 AS "
+        "UBIGINT) AS sample_index, * EXCLUDE (internal_source_order, source_file, sample_index) FROM (" +
+        out + ") AS taco_union";
+    std::string result = "SELECT * FROM (" + indexed + ") AS taco_global";
+    if (const auto filter = index_filter(options.idx, "taco_global." + sql_identifier(sample_index)); !filter.empty())
+        result += " WHERE " + filter;
+    return result + " ORDER BY sample_index";
 }
 
 } // namespace taco

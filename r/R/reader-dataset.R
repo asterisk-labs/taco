@@ -2,9 +2,7 @@
   metadata <- collection[["taco:metadata"]]
   structure <- collection[["taco:structure"]]
   derived <- collection[["taco:derived"]]
-  if (!is.null(structure)) {
-    structure <- unlist(structure, use.names = FALSE)
-  }
+  structure <- unlist(structure, use.names = FALSE)
   if (is.null(derived)) {
     derived <- list()
   }
@@ -26,23 +24,14 @@
 #' @return A `taco_dataset` with its resolved sources, collection and contract.
 #' @export
 open_dataset <- function(source) {
-  resolution <- .resolve_dataset(source)
-  sources <- resolution$sources
-  collection <- resolution$collection
-  if (is.null(collection)) {
-    collections <- lapply(.collection_documents(sources), .parse_collection)
-    collection <- .merge_collections(collections, sources)
-  }
-  version <- resolution$version
-  if (is.null(version)) version <- collection[["dataset_version"]]
+  sources <- .normalize_sources(source)
+  collections <- lapply(.collection_documents(sources), .parse_collection)
+  collection <- .merge_collections(collections, sources)
   base::structure(
     list(
       sources = sources,
       collection = collection,
-      contract = .build_contract(collection),
-      version = version,
-      versions = resolution$versions,
-      manifest = resolution$manifest
+      contract = .build_contract(collection)
     ),
     class = c("taco_dataset", "list")
   )

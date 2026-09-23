@@ -148,27 +148,6 @@ SEXP taco_r_profile(SEXP source) {
     return take_string(name);
 }
 
-SEXP taco_r_manifest_candidate(SEXP source) {
-    char* candidate = NULL;
-    if (taco_manifest_candidate(scalar_string(source, "source"), &candidate) != TACO_OK)
-        core_error();
-    return take_string(candidate);
-}
-
-SEXP taco_r_join_manifest_href(SEXP candidate, SEXP href) {
-    char* joined = NULL;
-    if (taco_join_manifest_href(scalar_string(candidate, "candidate"), scalar_string(href, "href"), &joined) !=
-        TACO_OK)
-        core_error();
-    return take_string(joined);
-}
-
-SEXP taco_r_resolve(SEXP source) {
-    char* resolution = NULL;
-    if (taco_resolve(scalar_string(source, "source"), &resolution) != TACO_OK)
-        core_error();
-    return take_string(resolution);
-}
 #else
 static SEXP wasm_unavailable(void) {
     Rf_error("the native TACO core is not available on WebAssembly");
@@ -209,21 +188,6 @@ SEXP taco_r_profile(SEXP source) {
     return wasm_unavailable();
 }
 
-SEXP taco_r_manifest_candidate(SEXP source) {
-    (void)source;
-    return wasm_unavailable();
-}
-
-SEXP taco_r_join_manifest_href(SEXP candidate, SEXP href) {
-    (void)candidate;
-    (void)href;
-    return wasm_unavailable();
-}
-
-SEXP taco_r_resolve(SEXP source) {
-    (void)source;
-    return wasm_unavailable();
-}
 #endif
 
 static const R_CallMethodDef methods[] = {
@@ -233,9 +197,6 @@ static const R_CallMethodDef methods[] = {
     {"taco_r_dataset", (DL_FUNC)&taco_r_dataset, 1},
     {"taco_r_sql", (DL_FUNC)&taco_r_sql, 6},
     {"taco_r_profile", (DL_FUNC)&taco_r_profile, 1},
-    {"taco_r_manifest_candidate", (DL_FUNC)&taco_r_manifest_candidate, 1},
-    {"taco_r_join_manifest_href", (DL_FUNC)&taco_r_join_manifest_href, 2},
-    {"taco_r_resolve", (DL_FUNC)&taco_r_resolve, 1},
     {NULL, NULL, 0}};
 
 void R_init_taco(DllInfo* dll) {

@@ -11,6 +11,7 @@
 #include <karu/karu.h>
 
 #include <algorithm>
+#include <charconv>
 #include <exception>
 #include <filesystem>
 #include <fstream>
@@ -40,6 +41,45 @@ std::string utf8(const fs::path& path) {
 
 std::size_t level_depth(std::string_view level) {
     return level == "sample" ? 0 : 1 + static_cast<std::size_t>(std::count(level.begin(), level.end(), '/'));
+}
+
+void validate_structure_leaf(const std::string& declaration, const std::string& source) {
+    const auto star = declaration.find('*');
+    if (star == std::string::npos) {
+        if (declaration.find_first_of("[]") != std::string::npos)
+            fail("COLLECTION.json: malformed variable leaf '" + declaration + "': " + source);
+        return;
+    }
+
+    const auto open = declaration.find('[', star);
+    const auto comma = declaration.find(',', open == std::string::npos ? star : open);
+    const auto close = declaration.find(']', comma == std::string::npos ? star : comma);
+    const auto slash = declaration.rfind('/', star);
+    const auto basename = slash == std::string::npos ? 0 : slash + 1;
+    if (star == basename || declaration.find_first_of("*[]", basename) != star || open != star + 1 ||
+        comma == std::string::npos || close == std::string::npos ||
+        declaration.find_first_of("*[]", close + 1) != std::string::npos) {
+        fail("COLLECTION.json: malformed variable leaf '" + declaration + "': " + source);
+    }
+
+    const auto parse_bound = [&](std::string_view text) {
+        while (!text.empty() && text.front() == ' ')
+            text.remove_prefix(1);
+        while (!text.empty() && text.back() == ' ')
+            text.remove_suffix(1);
+        std::uint64_t value = 0;
+        const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), value);
+        if (text.empty() || error != std::errc() || end != text.data() + text.size())
+            fail("COLLECTION.json: malformed variable leaf '" + declaration + "': " + source);
+        return value;
+    };
+
+    const auto minimum = parse_bound(std::string_view(declaration).substr(open + 1, comma - open - 1));
+    const auto maximum = parse_bound(std::string_view(declaration).substr(comma + 1, close - comma - 1));
+    if (minimum < 1)
+        fail("COLLECTION.json: variable leaf '" + declaration + "' must require at least one file: " + source);
+    if (minimum > maximum)
+        fail("COLLECTION.json: variable leaf '" + declaration + "' has min > max: " + source);
 }
 
 void sort_and_validate(std::vector<Level>& levels, const std::string& source) {
@@ -78,12 +118,12 @@ std::string location_base(const std::string& path) {
     return canonical;
 }
 
-// A local archive is checked against its size and modification time, which
-// costs a stat. A remote one is trusted until TACO_CACHE_REFRESH rebuilds it,
-// because TACO versions are immutable.
+// Local archives use size and modification time. Remote objects use the
+// origin-reported content length. If the probe fails, opening fails instead
+// of silently serving metadata that can no longer be validated.
 std::string cache_key(const std::string& source) {
     if (has_uri_scheme(source))
-        return "trusted";
+        return "remote size " + std::to_string(object_size(source));
     std::error_code error;
     const auto path = local_path(source);
     const auto size = fs::file_size(path, error);
@@ -95,7 +135,22 @@ std::string cache_key(const std::string& source) {
 }
 
 std::string expected_key(const std::string& source) {
-    return has_uri_scheme(source) ? "" : cache_key(source);
+    return cache_key(source);
+}
+
+std::string remote_sizes_key(const std::vector<std::uint64_t>& sizes) {
+    std::string key = "remote sizes";
+    for (const auto size : sizes)
+        key += " " + std::to_string(size);
+    return key;
+}
+
+std::string remote_sizes_key(const std::vector<std::string>& sources) {
+    std::vector<std::uint64_t> sizes;
+    sizes.reserve(sources.size());
+    for (const auto& source : sources)
+        sizes.push_back(object_size(source));
+    return remote_sizes_key(sizes);
 }
 
 std::optional<Container> parse_container(const std::string& name) {
@@ -106,11 +161,11 @@ std::optional<Container> parse_container(const std::string& name) {
     return std::nullopt;
 }
 
-CacheStamp make_stamp(const std::string& source, Container container) {
+CacheStamp make_stamp(const std::string& source, Container container, const std::string& validation_source = {}) {
     CacheStamp stamp;
     stamp.source = source;
     stamp.container = container_name(container);
-    stamp.key = cache_key(source);
+    stamp.key = cache_key(validation_source.empty() ? source : validation_source);
     return stamp;
 }
 
@@ -233,14 +288,12 @@ json::Value parse_collection(const std::string& text, const std::string& source)
     }
 }
 
-// <id>-<version>-<container>-<origin>: what people see in the cache.
+// <id>-<container>-<origin>: what people see in the cache.
 std::string entry_label(const std::string& collection, Container container, const std::string& source) {
     const json::Value root = parse_collection(collection, source);
     const json::Value* id = root.find("id");
-    const json::Value* version = root.find("dataset_version");
-    return cache_label(id && id->is_string() ? id->string : "dataset") + "-" +
-           cache_label(version && version->is_string() ? version->string : "0") + "-" + container_name(container) +
-           "-" + cache_origin(source);
+    return cache_label(id && id->is_string() ? id->string : "dataset") + "-" + container_name(container) + "-" +
+           cache_origin(source);
 }
 
 // Object stores cannot list directories reliably. The Parquet files come from
@@ -248,17 +301,12 @@ std::string entry_label(const std::string& collection, Container container, cons
 Dataset open_uri_directory(const std::string& source, const std::string& cache_root) {
     const std::string directory = trim_trailing_slashes(without_query(source));
     const std::string location = remote_directory(directory);
+    const std::string collection_source = child_path(directory, collection_name);
     CacheEntry cache(cache_root, location);
-    if (const auto stamp = cache.find({std::string(collection_name)}, "")) {
-        const auto container = parse_container(stamp->container);
-        if (container && *container != Container::zip)
-            return cached_dataset(directory, *container,
-                                  *container == Container::tacocat ? parent_path(location) : location, cache);
-    }
 
     // COLLECTION.json is the directory index: it declares every metadata
     // level, so opening an object-store dataset never requires listing it.
-    const std::string collection = read_object(child_path(directory, collection_name), collection_limit, "COLLECTION.json");
+    const std::string collection = read_object(collection_source, collection_limit, "COLLECTION.json");
     const json::Value root = parse_collection(collection, directory);
     const json::Value* metadata = root.find("taco:metadata");
     if (!metadata || !metadata->is_object())
@@ -276,19 +324,24 @@ Dataset open_uri_directory(const std::string& source, const std::string& cache_r
         levels.push_back(Level{name, child_path(parquet_directory, level_to_file(name))});
     sort_and_validate(levels, directory);
 
+    std::vector<std::uint64_t> validation_sizes = {object_size(collection_source)};
     std::vector<Range> ranges;
-    for (const auto& level : levels)
-        ranges.push_back(Range{level.origin, 0, object_size(level.origin)});
+    for (const auto& level : levels) {
+        const auto size = object_size(level.origin);
+        validation_sizes.push_back(size);
+        ranges.push_back(Range{level.origin, 0, size});
+    }
     const auto contents = download(ranges, metadata_phase(directory));
     std::vector<std::pair<std::string, std::string>> files = {{std::string(collection_name), collection}};
     for (std::size_t i = 0; i < levels.size(); ++i)
         files.emplace_back(std::string(metadata_prefix) + level_to_file(levels[i].name), contents[i]);
-    cache.store(entry_label(collection, container, directory), files, make_stamp(directory, container));
+    auto stamp = make_stamp(directory, container, collection_source);
+    stamp.key = remote_sizes_key(validation_sizes);
+    cache.store(entry_label(collection, container, directory), files, std::move(stamp));
     return cached_dataset(directory, container, tacocat ? parent_path(location) : location, cache);
 }
 
-// A URI whose entry is already stored opens without a request, whatever
-// container it turned out to be.
+// A cached URI is reused only after its origin object has been revalidated.
 std::optional<Dataset> cached_uri_dataset(const std::string& source, const std::string& cache_root) {
     const std::string directory = trim_trailing_slashes(without_query(source));
     const std::string location = remote_directory(directory);
@@ -300,6 +353,37 @@ std::optional<Dataset> cached_uri_dataset(const std::string& source, const std::
             continue;
         const auto container = parse_container(stamp->container);
         if (!container)
+            continue;
+        const std::string collection = read_local(local_path(entry.path(collection_name)));
+        const json::Value root = parse_collection(collection, directory);
+        const json::Value* metadata = root.find("taco:metadata");
+        if (!metadata || !metadata->is_object())
+            continue;
+        std::vector<std::string> files = {std::string(collection_name)};
+        std::vector<std::string> validation_sources;
+        if (*container == Container::zip) {
+            validation_sources.push_back(source);
+        } else {
+            validation_sources.push_back(child_path(directory, collection_name));
+        }
+        const std::string parquet_directory =
+            *container == Container::tacocat ? directory : child_path(directory, "METADATA");
+        std::vector<std::string> levels;
+        for (const auto& [name, value] : metadata->members)
+            levels.push_back(name);
+        std::sort(levels.begin(), levels.end(), [](const auto& left, const auto& right) {
+            const auto left_depth = level_depth(left);
+            const auto right_depth = level_depth(right);
+            return left_depth != right_depth ? left_depth < right_depth : left < right;
+        });
+        for (const auto& level : levels) {
+            files.push_back(std::string(metadata_prefix) + level_to_file(level));
+            if (*container != Container::zip)
+                validation_sources.push_back(child_path(parquet_directory, level_to_file(level)));
+        }
+        const std::string key = *container == Container::zip ? expected_key(source)
+                                                              : remote_sizes_key(validation_sources);
+        if (!entry.find(files, key))
             continue;
         if (*container == Container::zip)
             return cached_dataset(source, Container::zip, location_base(source), entry);
@@ -338,16 +422,13 @@ Contract read_contract(const Dataset& dataset) {
     const json::Value* structure = root.find("taco:structure");
     if (!structure)
         fail("COLLECTION.json has no taco:structure key: " + source);
-    // TACO spec 5.2: null means every sample is a single file.
-    contract.null_structure = structure->is_null();
-    if (!contract.null_structure) {
-        if (!structure->is_array())
-            fail("COLLECTION.json: taco:structure must be an array or null: " + source);
-        for (const auto& item : structure->items) {
-            if (!item.is_string())
-                fail("COLLECTION.json: taco:structure must contain strings: " + source);
-            contract.structure.push_back(item.string);
-        }
+    if (!structure->is_array() || structure->items.empty())
+        fail("COLLECTION.json: taco:structure must be a non-empty array: " + source);
+    for (const auto& item : structure->items) {
+        if (!item.is_string())
+            fail("COLLECTION.json: taco:structure must contain strings: " + source);
+        validate_structure_leaf(item.string, source);
+        contract.structure.push_back(item.string);
     }
 
     // taco:metadata names the user columns of every level. The reader needs
@@ -369,8 +450,8 @@ Contract read_contract(const Dataset& dataset) {
     }
     if (contract.fields.size() != dataset.level_names.size())
         fail("COLLECTION.json metadata levels do not match its Parquet files: " + source);
-    if (contract.null_structure != (dataset.level_names.size() == 1))
-        fail("COLLECTION.json structure does not match its metadata levels: " + source);
+    if (dataset.level_names.size() < 2)
+        fail("COLLECTION.json structure requires sample and children metadata levels: " + source);
 
     if (const json::Value* derived = root.find("taco:derived")) {
         if (!derived->is_object())
@@ -460,8 +541,8 @@ Dataset open_dataset(const std::string& source, const std::string& cache_dir) {
     Dataset dataset;
     std::error_code error;
     if (has_uri_scheme(source)) {
-        // A complete cache entry settles the container type without network
-        // access. Otherwise use URI shape first and probe only ambiguous URLs.
+        // A complete cache entry settles the container type after revalidation.
+        // Otherwise use URI shape first and probe only ambiguous URLs.
         if (auto cached = cached_uri_dataset(source, cache_root)) {
             cached->contract = read_contract(*cached);
             return *cached;

@@ -22,7 +22,7 @@
 extern "C" {
 #endif
 
-#define TACO_API_VERSION 1
+#define TACO_API_VERSION 2
 
 typedef enum {
     TACO_OK = 0,
@@ -90,18 +90,6 @@ TACO_API taco_status taco_sql(const taco_dataset* const* datasets, size_t count,
 
 // Profile of a CoZIP archive: "none", "flat", "taco" or "unknown:<n>".
 TACO_API taco_status taco_profile(const char* source, char** out_name);
-
-// Where a versioned manifest would be, or NULL when the source is a dataset.
-TACO_API taco_status taco_manifest_candidate(const char* source, char** out_candidate);
-
-// A version href resolved against the manifest that lists it.
-TACO_API taco_status taco_join_manifest_href(const char* candidate, const char* href,
-                                             char** out_source);
-
-// Resolves a versioned root to its default version. The JSON object has
-// "source", "collection", "version", "versions" and "manifest"; the last
-// four are null or empty when the source is not versioned.
-TACO_API taco_status taco_resolve(const char* source, char** out_json);
 
 // A byte range of a local or remote object and the file it is copied to. A
 // zero length copies from offset to the end of the object.

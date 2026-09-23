@@ -12,29 +12,31 @@
   <div class="api-layout">
     <aside class="api-nav"><p>API Cookbook</p><section><b>Write</b><a href="../write/">Overview</a></section><section><b>Read</b><a href="../read/" aria-current="page">Overview</a></section></aside>
     <main class="manual">
-      <p class="kicker">Read</p><h1>Reading a TACO dataset</h1><p class="lede">The same logical reader opens TACO folders, ZIPs, partition lists, TACOCATs, and versioned roots from Python, R, or Julia.</p>
-      <section class="manual-section first" id="open"><div class="section-label"><span>01</span><small>Open and read</small></div><h2>One logical reader, three languages</h2><p class="section-intro">Every binding resolves the same dataset. Python keeps the high-level read small and uses SQL for partial access.</p>
+      <p class="kicker">Read</p><h1>Reading a TACO dataset</h1><p class="lede">The same logical reader opens TACO folders, ZIPs, partition lists, and TACOCATs from Python, R, or Julia.</p>
+      <section class="manual-section first" id="open"><div class="section-label"><span>01</span><small>Open and read</small></div><h2>One reader in three languages</h2><p class="section-intro">Every binding exposes the same dataset model. Use <code>read</code> for complete samples and SQL for filters or raw metadata.</p>
         <div class="code-block language-code">
           <div class="code-bar"><div class="language-tabs" role="tablist" aria-label="Code language"><button type="button" role="tab" aria-selected="true" data-language="python">Python</button><button type="button" role="tab" aria-selected="false" data-language="r">R</button><button type="button" role="tab" aria-selected="false" data-language="julia">Julia</button></div><button type="button">Copy</button></div>
           <pre data-code="python"><code><span class="kw">import</span> taco
 
 dataset = taco.open_dataset(<span class="str">"https://data.source.coop/major-tom/core-dem/"</span>)
 samples = dataset.read(files=<span class="str">"dem.rumi"</span>)
-first_100 = dataset.sql(<span class="str">"SELECT * FROM data WHERE sample_id &lt; 100"</span>)</code></pre>
+first_100 = dataset.sql(<span class="str">"SELECT * FROM data WHERE sample_index &lt; 100"</span>)</code></pre>
           <pre data-code="r" hidden><code>library(taco)
 
 dataset &lt;- open_dataset(<span class="str">"https://data.source.coop/major-tom/core-dem/"</span>)
-samples &lt;- read(dataset, idx = c(<span class="num">0</span>, <span class="num">100</span>), files = <span class="str">"dem.rumi"</span>)</code></pre>
+samples &lt;- read(dataset, files = <span class="str">"dem.rumi"</span>)
+first_100 &lt;- sql(dataset, <span class="str">"SELECT * FROM data WHERE sample_index &lt; 100"</span>)</code></pre>
           <pre data-code="julia" hidden><code><span class="kw">using</span> Taco
 
 dataset = Taco.open_dataset(<span class="str">"https://data.source.coop/major-tom/core-dem/"</span>)
-samples = Taco.read(dataset; idx=(<span class="num">0</span>, <span class="num">100</span>), files=[<span class="str">"dem.rumi"</span>])</code></pre>
+samples = Taco.read(dataset; files=[<span class="str">"dem.rumi"</span>])
+first_100 = Taco.sql(dataset, <span class="str">"SELECT * FROM data WHERE sample_index &lt; 100"</span>)</code></pre>
         </div>
       </section>
-      <section class="manual-section" id="arguments"><div class="section-label"><span>02</span><small>Python API</small></div><h2>Read all samples or query a subset</h2><table><thead><tr><th>Operation</th><th>Meaning</th></tr></thead><tbody><tr><td><code>dataset.read()</code></td><td>Every sample, ordered by its sample key.</td></tr><tr><td><code>dataset.read(files=...)</code></td><td>The complete sample table with only the selected structural file columns.</td></tr><tr><td><code>dataset.sql(query)</code></td><td>A partial query over <code>data</code>, <code>files</code>, or a named metadata level.</td></tr></tbody></table></section>
-      <section class="manual-section" id="native-bindings"><div class="section-label"><span>03</span><small>R and Julia</small></div><h2>Native reader controls remain available</h2><p class="section-intro">R and Julia currently expose <code>layout</code>, <code>idx</code>, <code>level</code>, <code>files</code>, and <code>location</code> directly. Their examples above use the same core-generated views while Python uses SQL for partial access.</p></section>
+      <section class="manual-section" id="arguments"><div class="section-label"><span>02</span><small>Reader API</small></div><h2>Read all samples or query a subset</h2><table><thead><tr><th>Operation</th><th>Meaning</th></tr></thead><tbody><tr><td><code>dataset.read()</code></td><td>Every sample, ordered by <code>sample_index</code>.</td></tr><tr><td><code>dataset.read(files=...)</code></td><td>The complete sample table with only the selected structural file columns.</td></tr><tr><td><code>dataset.sql(query)</code></td><td>A partial query over <code>data</code>, <code>files</code>, or a named metadata level.</td></tr><tr><td><code>inspect(source, query)</code></td><td>The contract, structure, levels, collection, profile, or core-generated SQL without reading samples.</td></tr></tbody></table></section>
+      <section class="manual-section" id="native-bindings"><div class="section-label"><span>03</span><small>Bindings</small></div><h2>The same reader model in every language</h2><p class="section-intro">Python, R, and Julia open the same containers, expose the collection and contract, read complete samples, and run SQL over the <code>data</code>, <code>files</code>, and metadata-level relations.</p></section>
     </main>
-    <aside class="page-toc"><b>On this page</b><a href="#open">Open and read</a><a href="#arguments">Python API</a><a href="#native-bindings">R and Julia</a></aside>
+    <aside class="page-toc"><b>On this page</b><a href="#open">Open and read</a><a href="#arguments">Reader API</a><a href="#native-bindings">Bindings</a></aside>
   </div>
   <script src="../app.js"></script>
 </body></html>

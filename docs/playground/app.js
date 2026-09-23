@@ -553,7 +553,7 @@ function pointsFromMetadata(rows, centroidField, rowIndexes = null) {
     const row = sampleRowFromMetadata(metadata);
     const centroid = decodeWkbPoint(row[centroidField]);
     if (!centroid) return [];
-    const identity = { sample_id: row.sample_id };
+    const identity = { sample_index: row.sample_index };
     if (row.source_file !== undefined) identity.source_file = row.source_file;
     return [{
       row: identity,
@@ -566,7 +566,7 @@ function pointsFromMetadata(rows, centroidField, rowIndexes = null) {
 }
 
 function sampleRowFromMetadata(row) {
-  const sample = { sample_id: Number(row["internal:current_id"]) };
+  const sample = { sample_index: Number(row["internal:current_id"]) };
   if (row["internal:source_file"] !== undefined) sample.source_file = row["internal:source_file"];
   for (const [name, value] of Object.entries(row)) {
     if (CENTROID_FIELDS.includes(name)) sample[name] = value;
@@ -1027,7 +1027,7 @@ function samplePageFromMemory(point) {
 async function metadataPagesForPoint(point) {
   await state.parquetCachePromise;
   const sourceFile = point.row.source_file;
-  const sampleId = Number(point.row.sample_id);
+  const sampleId = Number(point.row.sample_index);
   const locations = new Map();
   const pages = [];
 
@@ -1555,7 +1555,6 @@ function appendDatasetOverview(fixture, collection) {
     values: compactObject({
       id: collection.id,
       format_version: collection["taco:version"],
-      dataset_version: collection.dataset_version,
       title: collection.title,
       description: collection.description,
       licenses: collection.licenses,
@@ -1595,14 +1594,10 @@ function appendContractGraph() {
     graph.append(contractNode("▦", levelFilename(level), `${fields} ${fields === 1 ? "field" : "fields"}`, metadataLevelDepth(level)));
   });
 
-  if (state.dataset.structure === null) {
-    graph.append(contractNode("○", "No payload structure", "metadata only", 1, true));
-  } else {
-    state.dataset.structure.forEach((declaration) => {
-      const depth = 2 + (declaration.match(/\//g)?.length ?? 0);
-      graph.append(contractNode("◆", declaration, "payload", depth, true));
-    });
-  }
+  state.dataset.structure.forEach((declaration) => {
+    const depth = 2 + (declaration.match(/\//g)?.length ?? 0);
+    graph.append(contractNode("◆", declaration, "payload", depth, true));
+  });
   section.append(heading, graph);
   element.metadataBody.append(section);
 }
@@ -1765,7 +1760,7 @@ function compactObject(values) {
 
 function orderedMetadataEntries(values) {
   const entries = Object.entries(values);
-  const priority = ["id", "dataset_version", "title", "description", "path", "sample_id", "current_id", "parent_id", "source_file", "offset", "size"];
+  const priority = ["id", "title", "description", "path", "sample_index", "current_id", "parent_id", "source_file", "offset", "size"];
   const first = priority.flatMap((key) => entries.filter(([name]) => name === key));
   const middle = entries.filter(([name]) => !priority.includes(name) && name !== "taco:location");
   const location = entries.filter(([name]) => name === "taco:location");
@@ -1780,7 +1775,7 @@ function metadataMessage(text) {
 }
 
 function pointName(point) {
-  return String(point.row["fixture:sample_key"] || `sample ${point.row.sample_id ?? "—"}`);
+  return String(point.row["fixture:sample_key"] || `sample ${point.row.sample_index ?? "—"}`);
 }
 
 function fixtureUrl(fixture) {

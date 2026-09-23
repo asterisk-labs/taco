@@ -82,10 +82,13 @@ class FolderWriter(Writer):
             sample_table = existing.level(SAMPLE_LEVEL)
             if SAMPLE_ID not in sample_table.column_names:
                 raise WriterError("the existing dataset has no sample id column and cannot be appended")
-            existing_ids = set(sample_table.column(SAMPLE_ID).to_pylist())
-            repeated = sorted(existing_ids.intersection(self._sample_ids))
+            repeated: list[str] = []
+            for batch in sample_table.select([SAMPLE_ID]).to_batches():
+                repeated.extend(self._sample_ids.duplicates(batch.column(0).to_pylist(), limit=3 - len(repeated)))
+                if len(repeated) == 3:
+                    break
             if repeated:
-                raise WriterError(f"append would duplicate sample ids: {repeated}")
+                raise WriterError(f"append would duplicate sample ids: {sorted(repeated)}")
             return existing
         if directory.exists():
             if not directory.is_dir():

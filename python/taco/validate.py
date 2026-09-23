@@ -7,10 +7,9 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field
 from os import PathLike
 from pathlib import Path
-from typing import Any, BinaryIO, Literal, cast
+from typing import BinaryIO, Literal
 
 import pyarrow as pa
-import pyarrow.compute as pc
 
 from .container.cozip import INDEX_NAME
 from .container.view import DatasetView, open_view
@@ -108,11 +107,7 @@ def validate(path: str | PathLike[str], *, check_data: bool = True) -> Validatio
     _check_collection(dataset, collector)
     _check_metadata_files(dataset, collector)
     _check_sample_ids(dataset, collector)
-    if dataset.container == "tacocat":
-        for source, tables in _split_by_source(dataset).items():
-            _check_levels(dataset, tables, collector, label=f"{source}: ")
-    else:
-        _check_levels(dataset, dataset.tables, collector)
+    _check_levels(dataset, dataset.tables, collector)
     if dataset.container == "zip":
         _check_zip(dataset, collector, check_data=check_data)
     elif dataset.container == "folder":
@@ -185,26 +180,6 @@ def _check_metadata_files(dataset: DatasetView, collector: _Collector) -> None:
         collector.error("metadata", f"unexpected Parquet files {extra}")
 
 
-def _split_by_source(dataset: DatasetView) -> dict[str, dict[str, pa.Table]]:
-    """Split TACOCAT tables because row ids restart in each partition."""
-    sources: set[str] = set()
-    for table in dataset.tables.values():
-        if SOURCE_FILE in table.column_names:
-            sources.update(value for value in table.column(SOURCE_FILE).to_pylist() if value is not None)
-    result: dict[str, dict[str, pa.Table]] = {}
-    for source in sorted(sources):
-        subset: dict[str, pa.Table] = {}
-        for level, table in dataset.tables.items():
-            if SOURCE_FILE in table.column_names:
-                # Arrow compute kernels are registered dynamically. Casting
-                # the module keeps this compatible with both old and new
-                # pyarrow stub layouts without changing runtime behavior.
-                mask = cast(Any, pc).equal(table.column(SOURCE_FILE), source)
-                subset[level] = table.filter(mask)
-        result[source] = subset
-    return result
-
-
 def _check_levels(
     dataset: DatasetView,
     tables: dict[str, pa.Table],
@@ -228,7 +203,16 @@ def _check_levels(
         if level == SAMPLE_LEVEL:
             if RELATIVE_PATH in table.column_names:
                 paths = table.column(RELATIVE_PATH).to_pylist()
-                if paths != [str(index) for index in range(rows)]:
+                if dataset.container == "tacocat" and SOURCE_FILE in table.column_names:
+                    next_path: dict[str, int] = defaultdict(int)
+                    valid = True
+                    for source, path in zip(table.column(SOURCE_FILE).to_pylist(), paths, strict=True):
+                        if path != str(next_path[source]):
+                            valid = False
+                        next_path[source] += 1
+                else:
+                    valid = paths == [str(index) for index in range(rows)]
+                if not valid:
                     collector.error("relative_path", f"{label}sample: internal:relative_path must be the sample index")
             continue
 
@@ -254,6 +238,24 @@ def _check_levels(
             valid_parents = set(range(parent_count))
         parent_ids = table.column(PARENT_ID).to_pylist()
         paths = table.column(RELATIVE_PATH).to_pylist()
+        parent_sources = (
+            parent_table.column(SOURCE_FILE).to_pylist()
+            if SOURCE_FILE in parent_table.column_names
+            else [None] * parent_table.num_rows
+        )
+        child_sources = (
+            table.column(SOURCE_FILE).to_pylist() if SOURCE_FILE in table.column_names else [None] * table.num_rows
+        )
+        parent_paths_by_id = {
+            current_id: (source, relative_path.split("/", 1)[0])
+            for current_id, source, relative_path in zip(
+                parent_table.column(CURRENT_ID).to_pylist(),
+                parent_sources,
+                parent_table.column(RELATIVE_PATH).to_pylist(),
+                strict=True,
+            )
+            if isinstance(current_id, int) and isinstance(relative_path, str)
+        }
         bad_parent = [
             index
             for index, value in enumerate(parent_ids)
@@ -266,18 +268,21 @@ def _check_levels(
             )
         prefix_ok = True
         children: dict[int, list[str]] = defaultdict(list)
-        for parent_id, relative_path in zip(parent_ids, paths, strict=True):
+        for parent_id, relative_path, source in zip(parent_ids, paths, child_sources, strict=True):
             if not isinstance(relative_path, str):
                 prefix_ok = False
                 continue
             parts = relative_path.split("/")
+            parent_origin = parent_paths_by_id.get(parent_id)
             expected_depth = 2 + len(folder)
             if (
                 len(parts) != expected_depth
                 or not parts[0].isascii()
                 or not parts[0].isdigit()
                 or (len(parts[0]) > 1 and parts[0].startswith("0"))
-                or int(parts[0]) >= sample_count
+                or (dataset.container != "tacocat" and int(parts[0]) >= sample_count)
+                or parent_origin is None
+                or parent_origin != (source, parts[0])
             ):
                 prefix_ok = False
                 continue
@@ -362,10 +367,13 @@ def _check_schema(dataset: DatasetView, level: str, table: pa.Table, collector: 
                 )
             if actual_field.nullable != field_.nullable:
                 collector.error("schema", f"{level}: column {field_.name!r} nullability does not match the contract")
-            expected_description = (field_.metadata or {}).get(b"description")
-            actual_description = (actual_field.metadata or {}).get(b"description")
-            if actual_description != expected_description:
-                collector.error("schema", f"{level}: column {field_.name!r} description does not match the contract")
+            if field_.name != SAMPLE_ID and not field_.name.startswith("internal:"):
+                expected_description = (field_.metadata or {}).get(b"description")
+                actual_description = (actual_field.metadata or {}).get(b"description")
+                if actual_description != expected_description:
+                    collector.error(
+                        "schema", f"{level}: column {field_.name!r} description does not match the contract"
+                    )
             if not field_.nullable and column.null_count:
                 collector.error("schema", f"{level}: column {field_.name!r} contains null values")
     if dataset.container == "tacocat" and SOURCE_FILE in actual:

@@ -48,7 +48,7 @@ def test_consolidate(tmp_path: Path, collection: taco.Collection, make_sample) -
         ("2024-01-01T00:00:00Z", "2024-01-03T00:00:00Z"),
     )
     table = dataset.level("sample")
-    assert table.column("internal:current_id").to_pylist() == [0, 1, 0]
+    assert table.column("internal:current_id").to_pylist() == [0, 1, 2]
     assert table.column("internal:source_file").to_pylist() == ["a.zip", "a.zip", "b.zip"]
     assert taco.validate(output).ok
 
@@ -78,12 +78,12 @@ def test_open_partitions(tmp_path: Path, collection: taco.Collection, make_sampl
     )
     assert ">PARTITIONS<" in dataset._repr_html_()
     assert wide.num_rows == 3
-    assert set(zip(wide.column("source_file").to_pylist(), wide.column("sample_id").to_pylist(), strict=True)) == {
+    assert set(zip(wide.column("source_file").to_pylist(), wide.column("sample_index").to_pylist(), strict=True)) == {
         ("a.zip", 0),
         ("a.zip", 1),
-        ("b.zip", 0),
+        ("b.zip", 2),
     }
-    assert dataset.sql("SELECT * FROM data WHERE sample_id = 0").num_rows == 2
+    assert dataset.sql("SELECT * FROM data WHERE sample_index = 0").num_rows == 1
     assert dataset.sql("SELECT * FROM files").num_rows == 15
     raw = dataset.sql("SELECT * FROM sample")
     assert raw.num_rows == 3
@@ -123,6 +123,14 @@ def test_consolidate_rejects_collection_metadata_mismatch(
     with pytest.raises(ContainerError, match="same collection"):
         taco.open_dataset([first, second])
     with pytest.raises(ConsolidationError, match="collection metadata"):
+        taco.consolidate([first, second])
+
+
+def test_consolidate_rejects_duplicate_sample_ids(tmp_path: Path, collection: taco.Collection, make_sample) -> None:
+    first = build(tmp_path / "a.zip", collection, [make_sample(0)])
+    second = build(tmp_path / "b.zip", collection, [make_sample(0)])
+
+    with pytest.raises(ConsolidationError, match="duplicate sample id"):
         taco.consolidate([first, second])
 
 

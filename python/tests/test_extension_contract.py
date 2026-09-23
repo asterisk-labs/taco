@@ -11,7 +11,7 @@ from pydantic import BaseModel
 
 import taco
 from taco.container.view import open_view
-from taco.errors import ContractError, SampleError
+from taco.errors import CollectionError, ContractError, SampleError, WriterError
 
 
 class Value(BaseModel):
@@ -100,6 +100,25 @@ class Broken(taco.Extension):
         if self.behavior == "length":
             return {"value": []}
         return {"value": ["not-an-integer"] * len(context)}
+
+
+@dataclass(frozen=True)
+class CollectionTagged(taco.Extension):
+    value: str
+
+    @property
+    def requires(self) -> tuple[str, ...]:
+        return ()
+
+    @property
+    def fields(self) -> pa.Schema:
+        return pa.schema([pa.field("value", pa.string(), nullable=False)])
+
+    def collection_metadata(self) -> Mapping[str, Any]:
+        return {"setting": self.value}
+
+    def run(self, context: taco.ExtensionContext) -> Mapping[str, Sequence[Any]]:
+        return {"value": [self.value] * len(context)}
 
 
 def collection(contract: taco.Contract) -> taco.Collection:
@@ -210,3 +229,43 @@ def test_writer_rejects_invalid_extension_outputs(behavior: str, message: str, t
         with pytest.raises(SampleError, match=message):
             writer.run()
     assert not (tmp_path / behavior).exists()
+
+
+def test_extensions_reject_conflicting_collection_metadata() -> None:
+    contract = taco.Contract(
+        structure=["folder/data.bin"],
+        metadata=taco.MetadataSchema(
+            taco.Level("sample", tag=CollectionTagged("first")),
+            taco.Level("children", tag=CollectionTagged("second")),
+        ),
+    )
+    with pytest.raises(ContractError, match="conflicting collection metadata"):
+        contract.extension_metadata()
+
+
+def test_collection_rejects_metadata_that_conflicts_with_an_extension() -> None:
+    contract = taco.Contract(
+        structure=["data.bin"],
+        metadata=taco.MetadataSchema(taco.Level("sample", tag=CollectionTagged("active"))),
+    )
+    with pytest.raises(CollectionError, match="conflicts with the active extension"):
+        collection(contract).replace(metadata=taco.CollectionMetadata.from_flat({"tag:setting": "different"}))
+
+
+def test_append_rejects_changed_extension_metadata(tmp_path: Path) -> None:
+    def tagged(value: str) -> taco.Collection:
+        contract = taco.Contract(
+            structure=["data.bin"],
+            metadata=taco.MetadataSchema(taco.Level("sample", tag=CollectionTagged(value))),
+        )
+        return collection(contract)
+
+    output = tmp_path / "dataset"
+    with taco.open_writer(tagged("first"), output) as writer:
+        writer.add(taco.Sample(id="first", assets=b"x"))
+        writer.run()
+
+    with taco.open_writer(tagged("second"), output, append=True) as writer:
+        writer.add(taco.Sample(id="second", assets=b"y"))
+        with pytest.raises(WriterError, match="different extension metadata"):
+            writer.run()

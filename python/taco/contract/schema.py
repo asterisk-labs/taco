@@ -17,6 +17,28 @@ from .naming import validate_field_name
 
 _NAMESPACE = re.compile(r"^[a-z][a-z0-9_]*$")
 _RESERVED_NAMESPACES = frozenset({"cozip", "internal", "taco"})
+_PROFILE_NULLABILITY = {
+    "spatial": {"crs": False, "tensor_shape": False, "geotransform": False, "centroid": False},
+    "ispatial": {"crs": False, "geometry": False, "centroid": False},
+    "temporal": {"time_start": False, "time_end": True, "time_middle": True},
+    "stac": {
+        "crs": False,
+        "tensor_shape": False,
+        "geotransform": False,
+        "time_start": False,
+        "centroid": False,
+        "time_end": True,
+        "time_middle": True,
+    },
+    "istac": {
+        "crs": False,
+        "geometry": False,
+        "time_start": False,
+        "time_end": True,
+        "time_middle": True,
+        "centroid": False,
+    },
+}
 
 
 @dataclass(frozen=True)
@@ -170,8 +192,19 @@ def _model_binding(namespace: str, value: Any) -> Group:
         raise ContractError(
             f"{annotation.__name__} must use metadata namespace {expected_namespace!r}, got {namespace!r}"
         )
-    fields = _model_fields(namespace, annotation, optional)
-    return Group(namespace, annotation, optional, fields, fields, summaries=_summary_types(annotation, fields))
+    input_fields = _model_fields(namespace, annotation, optional)
+    fields = input_fields
+    canonical = _PROFILE_NULLABILITY.get(namespace)
+    if canonical is not None and not optional:
+        fields = tuple((name, field.with_nullable(canonical[name])) for name, field in input_fields)
+    return Group(
+        namespace,
+        annotation,
+        optional,
+        fields,
+        input_fields,
+        summaries=_summary_types(annotation, fields),
+    )
 
 
 def _extension_binding(namespace: str, value: Extension) -> Group:

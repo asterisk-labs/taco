@@ -22,37 +22,37 @@ SAMPLE_ID = "id"
 
 _PROFILE_TYPES = {
     "spatial": {
-        "crs": "string",
-        "tensor_shape": "list<int64>",
-        "geotransform": "list<double>",
-        "centroid": "binary",
+        "crs": ("string", False),
+        "tensor_shape": ("list<int64>", False),
+        "geotransform": ("list<double>", False),
+        "centroid": ("binary", False),
     },
     "ispatial": {
-        "crs": "string",
-        "geometry": "binary",
-        "centroid": "binary",
+        "crs": ("string", False),
+        "geometry": ("binary", False),
+        "centroid": ("binary", False),
     },
     "temporal": {
-        "time_start": "timestamp[us, UTC]",
-        "time_end": "timestamp[us, UTC]",
-        "time_middle": "timestamp[us, UTC]",
+        "time_start": ("timestamp[us, UTC]", False),
+        "time_end": ("timestamp[us, UTC]", True),
+        "time_middle": ("timestamp[us, UTC]", True),
     },
     "stac": {
-        "crs": "string",
-        "tensor_shape": "list<int64>",
-        "geotransform": "list<double>",
-        "time_start": "timestamp[us, UTC]",
-        "time_end": "timestamp[us, UTC]",
-        "centroid": "binary",
-        "time_middle": "timestamp[us, UTC]",
+        "crs": ("string", False),
+        "tensor_shape": ("list<int64>", False),
+        "geotransform": ("list<double>", False),
+        "time_start": ("timestamp[us, UTC]", False),
+        "time_end": ("timestamp[us, UTC]", True),
+        "centroid": ("binary", False),
+        "time_middle": ("timestamp[us, UTC]", True),
     },
     "istac": {
-        "crs": "string",
-        "geometry": "binary",
-        "time_start": "timestamp[us, UTC]",
-        "time_end": "timestamp[us, UTC]",
-        "centroid": "binary",
-        "time_middle": "timestamp[us, UTC]",
+        "crs": ("string", False),
+        "geometry": ("binary", False),
+        "time_start": ("timestamp[us, UTC]", False),
+        "time_end": ("timestamp[us, UTC]", True),
+        "centroid": ("binary", False),
+        "time_middle": ("timestamp[us, UTC]", True),
     },
 }
 
@@ -236,12 +236,19 @@ class Contract:
                 missing = sorted(set(expected) - present)
                 if missing:
                     raise ContractError(f"{namespace.upper()} metadata at level {level!r} is missing fields {missing}")
-                for name, expected_type in expected.items():
+                for name, (expected_type, _) in expected.items():
                     qualified = f"{namespace}:{name}"
                     field = fields[qualified]
                     if field.type != expected_type:
                         actual = field.type
                         raise ContractError(f"field {level}.{qualified} must have type {expected_type}, got {actual}")
+                nullability = {name: fields[f"{namespace}:{name}"].nullable for name in expected}
+                canonical = {name: nullable for name, (_, nullable) in expected.items()}
+                if nullability != canonical and not all(nullability.values()):
+                    raise ContractError(
+                        f"{namespace.upper()} metadata at level {level!r} must use canonical nullability "
+                        "or make the complete optional group nullable"
+                    )
 
     @staticmethod
     def _derive_levels(children: Mapping[tuple[str, ...], Any]) -> tuple[str, ...]:
@@ -611,7 +618,9 @@ class Contract:
                 values = {name: dumped[name] for name, _ in group.input_fields}
             except KeyError as exc:
                 raise SampleError(f"{type(model).__name__} no longer matches the contract") from exc
-            for name, arrow_field in group.input_fields:
+            stored_fields = dict(group.fields) if group.extension is None else dict(group.input_fields)
+            for name, input_field in group.input_fields:
+                arrow_field = stored_fields.get(name, input_field)
                 try:
                     result[arrow_field.name] = coerce_value(
                         values[name], arrow_field.type, nullable=arrow_field.nullable

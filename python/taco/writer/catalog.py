@@ -7,17 +7,29 @@ from collections.abc import Mapping, Sequence
 from contextlib import ExitStack
 from os import PathLike
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pyarrow as pa
+import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
 from ..container.parquet import parquet_writer_options
 from ..container.publish import publish_many
 from ..container.view import DatasetView, open_view
 from ..contract.collection import Extent
-from ..contract.naming import COLLECTION_FILENAME, SOURCE_FILE, TACOCAT_DIR, level_to_filename, validate_component
+from ..contract.contract import CHILDREN_LEVEL, SAMPLE_ID, SAMPLE_LEVEL
+from ..contract.naming import (
+    COLLECTION_FILENAME,
+    CURRENT_ID,
+    PARENT_ID,
+    SOURCE_FILE,
+    TACOCAT_DIR,
+    level_folder,
+    level_to_filename,
+    validate_component,
+)
 from ..errors import ConsolidationError, ContractError
+from .identity import IdentifierIndex
 from .metadata import table_schema
 
 __all__ = ["consolidate"]
@@ -114,6 +126,7 @@ def consolidate(
     collection = dict(reference.collection_json)
     extents: list[Extent] = []
     sources: list[dict[str, Any]] = []
+    level_offsets = dict.fromkeys(reference.levels, 0)
 
     directory.mkdir(parents=True, exist_ok=True)
     prefix = f".{name.lstrip('.') or 'tacocat'}-build-"
@@ -121,6 +134,8 @@ def consolidate(
         build = Path(temporary) / name
         build.mkdir()
         with ExitStack() as stack:
+            sample_ids = IdentifierIndex(Path(temporary) / "sample-ids.sqlite")
+            stack.callback(sample_ids.close)
             writers = {
                 level: stack.enter_context(pq.ParquetWriter(build / level_to_filename(level), schema, **writer_options))
                 for level, schema in output_schemas.items()
@@ -132,8 +147,32 @@ def consolidate(
                     extents.append(dataset.collection.extent)
                 source_entry = _source_entry(dataset, directory)
                 sources.append(source_entry)
+                ids = dataset.level(SAMPLE_LEVEL).column(SAMPLE_ID).to_pylist()
+                invalid = [value for value in ids if not isinstance(value, str) or not value.strip()]
+                if invalid:
+                    raise ConsolidationError(f"partition {path.name} contains an invalid sample id")
+                repeated = sample_ids.duplicates(ids)
+                if repeated:
+                    raise ConsolidationError(f"partitions contain duplicate sample ids: {sorted(repeated)}")
+                for logical_id in ids:
+                    if not sample_ids.add(logical_id):
+                        raise ConsolidationError(f"partition contains duplicate sample id: {logical_id!r}")
+                partition_offsets = dict(level_offsets)
                 for level in reference.levels:
                     table = _ordered_table(dataset, reference, level)
+                    current = cast(Any, pc).add(
+                        table.column(CURRENT_ID), pa.scalar(partition_offsets[level], pa.uint64())
+                    )
+                    table = table.set_column(table.schema.get_field_index(CURRENT_ID), CURRENT_ID, current)
+                    if level != SAMPLE_LEVEL:
+                        folder = level_folder(level)
+                        parent = (
+                            SAMPLE_LEVEL if level == CHILDREN_LEVEL else reference.contract.level_of_folder(folder[:-1])
+                        )
+                        parent_ids = cast(Any, pc).add(
+                            table.column(PARENT_ID), pa.scalar(partition_offsets[parent], pa.uint64())
+                        )
+                        table = table.set_column(table.schema.get_field_index(PARENT_ID), PARENT_ID, parent_ids)
                     source = pa.array([source_entry["file"]] * table.num_rows, type=pa.string())
                     table = table.append_column(output_schemas[level].field(SOURCE_FILE), source)
                     table = pa.Table.from_arrays(table.columns, schema=output_schemas[level])
@@ -141,6 +180,7 @@ def consolidate(
                         writers[level].write_table(table, row_group_size=row_group_size)
                     else:
                         writers[level].write_table(table)
+                    level_offsets[level] += table.num_rows
 
         merged_extent = Extent.union(extents)
         if merged_extent is not None:

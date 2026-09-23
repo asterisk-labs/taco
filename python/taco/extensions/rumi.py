@@ -108,7 +108,7 @@ class Rumi(Extension):
             fields.append(
                 pa.field(
                     "stats",
-                    pa.list_(_BAND_STATS),
+                    pa.list_(pa.field("item", _BAND_STATS, nullable=False)),
                     nullable=False,
                     metadata={b"description": b"Per-band statistics over decoded valid samples"},
                 )

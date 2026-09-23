@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated
 
@@ -111,6 +111,33 @@ def test_disjoint_variable_leaves_with_similar_names() -> None:
     taco.Contract(structure=["x*[1,2]1", "x1*[1,1]"])
     taco.Contract(structure=["x*[1,2]", "x9"])
     taco.Contract(structure=["x*[1,2]", "x9/a.bin"])
+
+
+def test_profiles_require_canonical_nullability() -> None:
+    fields = {
+        "temporal:time_start": {"type": "timestamp[us, UTC]", "nullable": True},
+        "temporal:time_end": {"type": "timestamp[us, UTC]", "nullable": False},
+        "temporal:time_middle": {"type": "timestamp[us, UTC]", "nullable": True},
+    }
+    with pytest.raises(ContractError, match="canonical nullability"):
+        taco.Contract(structure=["a.bin"], metadata={"sample": fields})
+
+
+def test_passive_profile_validates_canonical_required_fields() -> None:
+    contract = taco.Contract(
+        structure=["a.bin"],
+        metadata=taco.MetadataSchema(taco.Level("sample", stac=taco.metadata.sample.STAC)),
+    )
+    metadata = taco.Metadata(
+        stac=taco.metadata.sample.STAC(
+            crs="EPSG:4326",
+            tensor_shape=(1, 16, 16),
+            geotransform=(0, 1, 0, 0, 0, -1),
+            time_start=datetime(2025, 1, 1, tzinfo=timezone.utc),
+        )
+    )
+    with pytest.raises(SampleError, match="stac:centroid"):
+        contract.validate_sample(taco.Sample(id="missing-centroid", assets=b"x", metadata=metadata))
 
 
 def test_scope_is_enforced() -> None:

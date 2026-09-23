@@ -100,8 +100,12 @@ class MajorTOM(DerivedMetadata):
 
     def _normalized_extra(self) -> tuple[tuple[str, float], ...]:
         """Validate the extra grids and freeze them so the class stays hashable."""
+        try:
+            items = dict(self.extra).items()
+        except (TypeError, ValueError) as exc:
+            raise TypeError("extra must be a mapping of grid names to distances") from exc
         normalized = []
-        for name, distance in dict(self.extra).items():
+        for name, distance in items:
             validate_field_name(name, context="MajorTOM extra")
             if ":" in name:
                 raise ValueError(f"extra grid {name!r} must not contain ':'")

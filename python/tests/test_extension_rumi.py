@@ -30,6 +30,17 @@ def fake_rumi(monkeypatch: pytest.MonkeyPatch, array: np.ndarray, *, header: byt
     monkeypatch.setitem(sys.modules, "rumi", fake)
 
 
+def test_rumi_stats_contract_matches_the_spec() -> None:
+    contract = taco.Contract(
+        structure=["data.rumi"],
+        metadata=taco.MetadataSchema(taco.Level("sample", rumi=taco.extensions.Rumi(stats=True))),
+    )
+    assert contract.metadata["sample"]["rumi:stats"].type == (
+        "list<struct<minimum: double?, maximum: double?, mean: double?, stddev: double?, "
+        "valid_count: int64, nodata_count: int64>>"
+    )
+
+
 def write_fake_rumi(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

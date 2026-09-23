@@ -46,7 +46,8 @@ def _data_entries(sample_index: int, sample: _PreparedSample) -> list[tuple[str,
     for asset in sample.assets:
         if not isinstance(asset.source, Path):
             raise TypeError("inline assets must be materialized before planning")
-        name = f"{DATA_DIR}/{sample_index}" if asset.path is None else f"{DATA_DIR}/{sample_index}/{asset.path}"
+        assert asset.path is not None
+        name = f"{DATA_DIR}/{sample_index}/{asset.path}"
         entries.append((name, asset.source))
     return entries
 

@@ -194,7 +194,6 @@ void test_open_archives() {
     CHECK(flat.location_base == data("taco_flat.zip"));
     CHECK((flat.level_names == Strings{"sample", "children"}));
     CHECK((flat.contract.structure == Strings{"image.bin", "label.bin"}));
-    CHECK(!flat.contract.null_structure);
     CHECK(!flat.contract.has_derived);
     CHECK(contains(flat.collection, "\"taco-flat\""));
     for (const auto& path : flat.level_paths)
@@ -210,13 +209,13 @@ void test_open_archives() {
     const fs::path moving = scratch("moving") / "dataset.zip";
     fs::copy_file(data("taco_flat.zip"), moving);
     const auto first = taco::open_dataset(moving.string(), cache);
-    fs::copy_file(data("taco_null.zip"), moving, fs::copy_options::overwrite_existing);
+    fs::copy_file(data("taco_nested.zip"), moving, fs::copy_options::overwrite_existing);
     fs::last_write_time(moving, fs::file_time_type::clock::now() + std::chrono::seconds(5));
     const auto second = taco::open_dataset(moving.string(), cache);
     CHECK(first.level_paths[0] != second.level_paths[0]);
-    CHECK(contains(second.level_paths[0], "taco-null-1.0.0-zip-local-"));
+    CHECK(contains(second.level_paths[0], "taco-nested-zip-local-"));
     CHECK(!fs::exists(fs::path(first.level_paths[0]).parent_path()));
-    CHECK((second.level_names == Strings{"sample"}));
+    CHECK((second.level_names == Strings{"sample", "children", "children/after", "children/before"}));
 
     const auto nested = taco::open_dataset(data("taco_nested.zip"), cache);
     CHECK((nested.level_names == Strings{"sample", "children", "children/after", "children/before"}));
@@ -224,12 +223,9 @@ void test_open_archives() {
     CHECK(nested.contract.fields_of("children/before") &&
           *nested.contract.fields_of("children/before") == Strings{"raster:resolution"});
 
-    const auto null = taco::open_dataset(data("taco_null.zip"), cache);
-    CHECK(null.contract.null_structure);
-    CHECK(null.contract.structure.empty());
+    CHECK_THROWS(taco::open_dataset(data("taco_null.zip"), cache), "taco:structure must be a non-empty array");
 
-    const auto variable = taco::open_dataset(data("taco_variable.zip"), cache);
-    CHECK((variable.contract.structure == Strings{"img*[0,3].bin", "mask.bin"}));
+    CHECK_THROWS(taco::open_dataset(data("taco_variable.zip"), cache), "must require at least one file");
 
     CHECK_THROWS(taco::open_dataset(data("flat_simple.zip"), cache), "Got profile=flat");
     CHECK_THROWS(taco::open_dataset(data("does_not_exist.zip"), cache), "could not open");
@@ -344,16 +340,6 @@ void test_sql() {
                      o.has_files = true;
                  }),
                  "files does not apply when level is set");
-
-    const auto null = taco::open_dataset(data("taco_null.zip"), cache);
-    taco::ReadOptions files;
-    files.files = {"change.bin"};
-    files.has_files = true;
-    CHECK_THROWS(taco::build_sql(null, files), "files requires taco:structure");
-    CHECK(contains(taco::build_sql(null, taco::ReadOptions{}), "\"taco:location\""));
-    taco::ReadOptions null_flat;
-    null_flat.pivot = false;
-    CHECK(contains(taco::build_sql(null, null_flat), "NULL::VARCHAR AS path"));
 
     const auto folder = taco::open_dataset(data("taco_folder"), cache);
     CHECK(contains(taco::build_sql(folder, taco::ReadOptions{}), taco::sql_literal(data("taco_folder") + "/DATA/")));
@@ -501,8 +487,8 @@ void test_cache() {
     std::sort(names.begin(), names.end());
     CHECK(names.size() == 3);
     CHECK(names[0] == "CACHEDIR.TAG");
-    CHECK(names[1].starts_with("taco-flat-1.0.0-folder-file-"));
-    CHECK(names[2].starts_with("taco-flat-1.0.0-zip-file-"));
+    CHECK(names[1].starts_with("taco-flat-folder-file-"));
+    CHECK(names[2].starts_with("taco-flat-zip-file-"));
     const auto stamp = taco::json::parse(read_file(fs::path(cache) / names[2] / "taco-cache.json"));
     CHECK(stamp.find("source")->string == uri);
     CHECK(stamp.find("key")->string == "trusted");
@@ -516,16 +502,17 @@ void test_cache() {
         names.push_back(entry.path().filename().string());
     std::sort(names.begin(), names.end());
     CHECK(names.size() == 2);
-    CHECK(names[1].starts_with("taco-nested-1.0.0-zip-file-"));
+    CHECK(names[1].starts_with("taco-nested-zip-file-"));
     set_environment("TACO_CACHE_SIZE", "");
 
     // A local archive is checked against its size and modification time.
     const fs::path local = copies / "local.zip";
     fs::copy_file(data("taco_flat.zip"), local);
     CHECK((taco::open_dataset(local.string(), cache).level_names == Strings{"sample", "children"}));
-    fs::copy_file(data("taco_null.zip"), local, overwrite);
+    fs::copy_file(data("taco_nested.zip"), local, overwrite);
     fs::last_write_time(local, fs::file_time_type::clock::now() + std::chrono::seconds(5));
-    CHECK((taco::open_dataset(local.string(), cache).level_names == Strings{"sample"}));
+    CHECK((taco::open_dataset(local.string(), cache).level_names ==
+           Strings{"sample", "children", "children/after", "children/before"}));
 }
 
 struct Event {

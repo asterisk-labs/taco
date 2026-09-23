@@ -91,24 +91,6 @@ class QueryBuilder {
                sql_literal(dataset_.level_paths[level]) + ")";
     }
 
-    // A dataset whose taco:structure is null: the sample is the file.
-    [[nodiscard]] std::string null_structure_query() const {
-        std::string out = "SELECT " + sql_identifier(id_current) + " AS sample_id";
-        if (tacocat_)
-            out += ", " + sql_identifier(id_source) + " AS source_file";
-        if (!options_.pivot)
-            out += ", NULL::VARCHAR AS path";
-        if (options_.location)
-            out += ", " + location_expression(0) + " AS " + sql_identifier(location_column);
-        out += ", *" + exclude_list(0);
-        out += " FROM (SELECT " + metadata_projection() + " FROM read_parquet(" +
-               sql_literal(dataset_.level_paths[0]) + ")) AS " + alias(0);
-        const auto idx = idx_filter(alias(0));
-        if (!idx.empty())
-            out += " WHERE " + idx;
-        return out;
-    }
-
     [[nodiscard]] std::string flat_query() const {
         if (!options_.has_files)
             return common_table_expressions() + "\n" + flat_branches(false);
@@ -225,7 +207,7 @@ class QueryBuilder {
         std::vector<std::string> columns = {id_current, id_path};
         if (level > 0)
             columns.push_back(id_parent);
-        if (has_offsets_ && (level > 0 || dataset_.contract.null_structure)) {
+        if (has_offsets_ && level > 0) {
             columns.push_back(id_offset);
             columns.push_back(id_size);
         }
@@ -400,8 +382,7 @@ class QueryBuilder {
     // One row per data file, columns aligned across levels by name.
     [[nodiscard]] std::string flat_branches(bool identity_only, const std::vector<Leaf>* selected = nullptr) const {
         std::string out;
-        // Level zero is sample metadata. Payload files begin at child levels;
-        // a null structure takes the separate null_structure_query path.
+        // Level zero is sample metadata. Payload files begin at child levels.
         for (std::size_t level = 1; level < dataset_.level_names.size(); ++level) {
             if (!out.empty())
                 out += "\nUNION ALL BY NAME\n";
@@ -470,16 +451,8 @@ std::string build_sql(const Dataset& dataset, const ReadOptions& options) {
             fail("taco: files does not apply when level is set");
         return builder.level_query();
     }
-    if (dataset.contract.null_structure) {
-        if (options.has_files)
-            fail("taco: files requires taco:structure");
-        return builder.null_structure_query();
-    }
     if (!options.pivot)
         return builder.flat_query();
-    if (dataset.contract.structure.empty())
-        fail("taco:structure is null but the dataset has " + std::to_string(dataset.level_names.size()) +
-             " metadata levels: " + dataset.source);
     return builder.pivot_query();
 }
 

@@ -11,6 +11,7 @@
 #include <karu/karu.h>
 
 #include <algorithm>
+#include <charconv>
 #include <exception>
 #include <filesystem>
 #include <fstream>
@@ -40,6 +41,42 @@ std::string utf8(const fs::path& path) {
 
 std::size_t level_depth(std::string_view level) {
     return level == "sample" ? 0 : 1 + static_cast<std::size_t>(std::count(level.begin(), level.end(), '/'));
+}
+
+void validate_structure_leaf(const std::string& declaration, const std::string& source) {
+    const auto star = declaration.find('*');
+    if (star == std::string::npos) {
+        if (declaration.find_first_of("[]") != std::string::npos)
+            fail("COLLECTION.json: malformed variable leaf '" + declaration + "': " + source);
+        return;
+    }
+
+    const auto open = declaration.find('[', star);
+    const auto comma = declaration.find(',', open == std::string::npos ? star : open);
+    const auto close = declaration.find(']', comma == std::string::npos ? star : comma);
+    if (open != star + 1 || comma == std::string::npos || close == std::string::npos ||
+        declaration.find_first_of("*[]", close + 1) != std::string::npos) {
+        fail("COLLECTION.json: malformed variable leaf '" + declaration + "': " + source);
+    }
+
+    const auto parse_bound = [&](std::string_view text) {
+        while (!text.empty() && text.front() == ' ')
+            text.remove_prefix(1);
+        while (!text.empty() && text.back() == ' ')
+            text.remove_suffix(1);
+        std::uint64_t value = 0;
+        const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), value);
+        if (text.empty() || error != std::errc() || end != text.data() + text.size())
+            fail("COLLECTION.json: malformed variable leaf '" + declaration + "': " + source);
+        return value;
+    };
+
+    const auto minimum = parse_bound(std::string_view(declaration).substr(open + 1, comma - open - 1));
+    const auto maximum = parse_bound(std::string_view(declaration).substr(comma + 1, close - comma - 1));
+    if (minimum < 1)
+        fail("COLLECTION.json: variable leaf '" + declaration + "' must require at least one file: " + source);
+    if (minimum > maximum)
+        fail("COLLECTION.json: variable leaf '" + declaration + "' has min > max: " + source);
 }
 
 void sort_and_validate(std::vector<Level>& levels, const std::string& source) {
@@ -233,14 +270,12 @@ json::Value parse_collection(const std::string& text, const std::string& source)
     }
 }
 
-// <id>-<version>-<container>-<origin>: what people see in the cache.
+// <id>-<container>-<origin>: what people see in the cache.
 std::string entry_label(const std::string& collection, Container container, const std::string& source) {
     const json::Value root = parse_collection(collection, source);
     const json::Value* id = root.find("id");
-    const json::Value* version = root.find("dataset_version");
-    return cache_label(id && id->is_string() ? id->string : "dataset") + "-" +
-           cache_label(version && version->is_string() ? version->string : "0") + "-" + container_name(container) +
-           "-" + cache_origin(source);
+    return cache_label(id && id->is_string() ? id->string : "dataset") + "-" + container_name(container) + "-" +
+           cache_origin(source);
 }
 
 // Object stores cannot list directories reliably. The Parquet files come from
@@ -338,16 +373,13 @@ Contract read_contract(const Dataset& dataset) {
     const json::Value* structure = root.find("taco:structure");
     if (!structure)
         fail("COLLECTION.json has no taco:structure key: " + source);
-    // TACO spec 5.2: null means every sample is a single file.
-    contract.null_structure = structure->is_null();
-    if (!contract.null_structure) {
-        if (!structure->is_array())
-            fail("COLLECTION.json: taco:structure must be an array or null: " + source);
-        for (const auto& item : structure->items) {
-            if (!item.is_string())
-                fail("COLLECTION.json: taco:structure must contain strings: " + source);
-            contract.structure.push_back(item.string);
-        }
+    if (!structure->is_array() || structure->items.empty())
+        fail("COLLECTION.json: taco:structure must be a non-empty array: " + source);
+    for (const auto& item : structure->items) {
+        if (!item.is_string())
+            fail("COLLECTION.json: taco:structure must contain strings: " + source);
+        validate_structure_leaf(item.string, source);
+        contract.structure.push_back(item.string);
     }
 
     // taco:metadata names the user columns of every level. The reader needs
@@ -369,8 +401,8 @@ Contract read_contract(const Dataset& dataset) {
     }
     if (contract.fields.size() != dataset.level_names.size())
         fail("COLLECTION.json metadata levels do not match its Parquet files: " + source);
-    if (contract.null_structure != (dataset.level_names.size() == 1))
-        fail("COLLECTION.json structure does not match its metadata levels: " + source);
+    if (dataset.level_names.size() < 2)
+        fail("COLLECTION.json structure requires sample and children metadata levels: " + source);
 
     if (const json::Value* derived = root.find("taco:derived")) {
         if (!derived->is_object())

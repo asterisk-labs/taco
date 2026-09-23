@@ -157,7 +157,7 @@ def write_nested(output: Path) -> None:
 
 def write_variable(output: Path) -> None:
     contract = taco.Contract(
-        structure=["img*[0,3].bin", "mask.bin"],
+        structure=["img*[1,3].bin", "mask.bin"],
         metadata=taco.MetadataSchema(
             taco.Level("sample", ml=VariableML),
             taco.Level("children", node=Kind),
@@ -171,7 +171,7 @@ def write_variable(output: Path) -> None:
                     path=f"img{number}.bin",
                     metadata=taco.Metadata(node=Kind(kind="image")),
                 )
-                for number in range(index)
+                for number in range(1, index + 2)
             ]
             assets.append(
                 taco.Asset(payload("mask", index), path="mask.bin", metadata=taco.Metadata(node=Kind(kind="label")))

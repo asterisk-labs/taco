@@ -14,7 +14,6 @@ namespace taco {
 enum class Container { zip, folder, tacocat };
 
 struct Contract {
-    bool null_structure = false;
     std::vector<std::string> structure;
     // Every level with the user fields it declares, in COLLECTION.json order.
     std::vector<std::pair<std::string, std::vector<std::string>>> fields;

@@ -287,7 +287,8 @@ void test_sql() {
     CHECK(contains(wide, "read_parquet(" + taco::sql_literal(nested.level_paths[0]) + ")"));
     CHECK(contains(wide, "'/vsisubfile/'"));
     CHECK(contains(wide, taco::sql_literal(data("taco_nested.zip"))));
-    CHECK(contains(wide, "AS sample_index"));
+    CHECK(contains(wide, "AS \"taco:sample_index\""));
+    CHECK(contains(wide, "c != 'taco:sample_index'"));
     CHECK(contains(wide, "\"id\" AS id"));
     CHECK(contains(wide, "\"before__B02.bin::location\""));
     CHECK(!contains(wide, "AS \"before/B02.bin"));
@@ -317,7 +318,8 @@ void test_sql() {
     taco::ReadOptions level;
     level.level = "children/before";
     CHECK(taco::build_sql(nested, level) ==
-          "SELECT COLUMNS(lambda c: c != 'cozip:location' AND c != 'taco:location') FROM read_parquet(" +
+          "SELECT COLUMNS(lambda c: c != 'cozip:location' AND c != 'taco:location' AND c != "
+          "'taco:sample_index') FROM read_parquet(" +
               taco::sql_literal(nested.level_paths[3]) + ")");
 
     const auto error = [&](std::function<void(taco::ReadOptions&)> change) {

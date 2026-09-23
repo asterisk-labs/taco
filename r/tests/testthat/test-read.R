@@ -16,7 +16,7 @@ describe("read a TACO dataset", {
     result <- taco::read(taco_fixture())
     expect_s3_class(result, "tbl_df")
     expect_identical(nrow(result), 3L)
-    expect_true(all(c("sample_index", "ml:split", "image.bin::location", "mask.bin::location") %in% names(result)))
+    expect_true(all(c("taco:sample_index", "ml:split", "image.bin::location", "mask.bin::location") %in% names(result)))
     expect_identical(result[["ml:split"]], c("train", "train", "test"))
   })
 
@@ -30,7 +30,7 @@ describe("read a TACO dataset", {
     expect_identical(dataset$contract$derived, list())
     expect_identical(nrow(taco::read(dataset)), 3L)
     expect_match(capture.output(print(dataset)), "taco.Dataset")
-    selected <- taco::sql(dataset, "SELECT id FROM data WHERE sample_index = 1")
+    selected <- taco::sql(dataset, 'SELECT id FROM data WHERE "taco:sample_index" = 1')
     expect_identical(selected$id, "sample-1")
     expect_identical(nrow(taco::sql(dataset, "SELECT * FROM files WHERE path = 'mask.bin'")), 3L)
   })
@@ -47,8 +47,8 @@ describe("read a TACO dataset", {
 
   it("selects samples with SQL", {
     dataset <- taco::open_dataset(taco_fixture())
-    expect_identical(nrow(taco::sql(dataset, "SELECT * FROM data WHERE sample_index = 1")), 1L)
-    expect_identical(nrow(taco::sql(dataset, "SELECT * FROM data WHERE sample_index < 2")), 2L)
+    expect_identical(nrow(taco::sql(dataset, 'SELECT * FROM data WHERE "taco:sample_index" = 1')), 1L)
+    expect_identical(nrow(taco::sql(dataset, 'SELECT * FROM data WHERE "taco:sample_index" < 2')), 2L)
   })
 
   it("selects files", {
@@ -99,7 +99,7 @@ describe("read a TACO dataset", {
     result <- taco::read(c(taco_fixture(), copy))
     expect_identical(nrow(result), 6L)
     expect_identical(sort(unique(result[["source_file"]])), c("part-1.zip", "taco.zip"))
-    expect_equal(as.numeric(result[["sample_index"]]), 0:5)
+    expect_equal(as.numeric(result[["taco:sample_index"]]), 0:5)
   })
 
   it("rejects sources with different contracts", {

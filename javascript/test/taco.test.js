@@ -126,7 +126,7 @@ test("reads wide and long views with calculated TACO locations", async () => {
   const wide = await dataset.read({ idx: 0 });
   assert.deepEqual(wide, [
     {
-      sample_index: 0,
+      "taco:sample_index": 0,
       id: "sample-0",
       "ml:split": "train",
       "image.bin::location": `/vsisubfile/225_64,/vsicurl/${fixture.baseUrl}/dataset.zip`,
@@ -136,13 +136,13 @@ test("reads wide and long views with calculated TACO locations", async () => {
 
   const long = await dataset.read({ idx: 0, layout: "long" });
   assert.deepEqual(
-    long.map((row) => [row.sample_index, row.path, row["file:role"], row["ml:split"]]),
+    long.map((row) => [row["taco:sample_index"], row.path, row["file:role"], row["ml:split"]]),
     [
       [0, "image.bin", "image", "train"],
       [0, "mask.bin", "mask", "train"],
     ],
   );
-  assert.deepEqual(Object.keys(long[0]).slice(0, 4), ["sample_index", "id", "path", "taco:location"]);
+  assert.deepEqual(Object.keys(long[0]).slice(0, 4), ["taco:sample_index", "id", "path", "taco:location"]);
   assert.match(long[0]["taco:location"], /^\/vsisubfile\/225_64,\/vsicurl\/http:/);
 });
 
@@ -177,7 +177,7 @@ test("supports idx, files, semantic filters, and location opt-out", async () => 
     filter: { "ml:split": { $eq: "test" } },
   });
   assert.deepEqual(rows, [
-    { sample_index: 2, id: "sample-2", "ml:split": "test", "mask.bin::location": null },
+    { "taco:sample_index": 2, id: "sample-2", "ml:split": "test", "mask.bin::location": null },
   ]);
 
   const long = await dataset.read({ idx: [0, 2], layout: "long", files: ["image.bin"] });
@@ -219,7 +219,7 @@ test("works when a server ignores byte ranges", async () => {
 test("top-level read() opens and materializes a source", async () => {
   const rows = await read(`${fixture.baseUrl}/dataset.zip`, { idx: 1, files: ["image.bin"] });
   assert.equal(rows.length, 1);
-  assert.equal(rows[0].sample_index, 1);
+  assert.equal(rows[0]["taco:sample_index"], 1);
   assert.equal(rows[0]["ml:split"], "train");
 });
 

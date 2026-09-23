@@ -19,7 +19,7 @@ constexpr const char* id_offset = "internal:offset";
 constexpr const char* id_size = "internal:size";
 constexpr const char* id_source = "internal:source_file";
 constexpr const char* logical_id = "id";
-constexpr const char* sample_index = "sample_index";
+constexpr const char* sample_index = "taco:sample_index";
 constexpr const char* location_column = "taco:location";
 constexpr const char* flat_location_column = "cozip:location";
 // Rumi assets are read statelessly with their header, so a wide read carries
@@ -156,7 +156,7 @@ class QueryBuilder {
         std::string out = "SELECT ";
         if (tacocat_)
             out += "source_file, ";
-        out += std::string(sample_index) + ", id, path";
+        out += sql_identifier(sample_index) + ", id, path";
         if (options_.location)
             out += ", " + sql_identifier(location_column);
         std::vector<std::string> fields;
@@ -180,8 +180,8 @@ class QueryBuilder {
             std::string out = "SELECT ";
             if (tacocat_)
                 out += alias(0) + "." + sql_identifier(id_source) + " AS source_file, ";
-            out += alias(0) + "." + sql_identifier(id_current) + " AS " + sample_index + ", " + alias(0) + "." +
-                   sql_identifier(logical_id) + " AS id, " + alias(0) + ".*" + exclude_list(0);
+            out += alias(0) + "." + sql_identifier(id_current) + " AS " + sql_identifier(sample_index) + ", " +
+                   alias(0) + "." + sql_identifier(logical_id) + " AS id, " + alias(0) + ".*" + exclude_list(0);
             for (const auto& leaf : leaves) {
                 out += leaf.variable ? ", NULL::VARCHAR[] AS " : ", NULL::VARCHAR AS ";
                 out += sql_identifier(location_name(leaf));
@@ -203,7 +203,7 @@ class QueryBuilder {
         // samples whose optional files are absent.
         std::string out = common_table_expressions();
         out += ", flat AS (\n" + flat_branches(true, options_.has_files ? &leaves : nullptr) + "\n)";
-        out += ", pivoted AS (SELECT " + std::string(sample_index);
+        out += ", pivoted AS (SELECT " + sql_identifier(sample_index);
         if (tacocat_)
             out += ", source_file";
         for (const auto& leaf : leaves) {
@@ -216,8 +216,8 @@ class QueryBuilder {
         out += "\nSELECT ";
         if (tacocat_)
             out += alias(0) + "." + sql_identifier(id_source) + " AS source_file, ";
-        out += alias(0) + "." + sql_identifier(id_current) + " AS " + sample_index + ", " + alias(0) + "." +
-               sql_identifier(logical_id) + " AS id, " + alias(0) + ".*" + exclude_list(0);
+        out += alias(0) + "." + sql_identifier(id_current) + " AS " + sql_identifier(sample_index) + ", " +
+               alias(0) + "." + sql_identifier(logical_id) + " AS id, " + alias(0) + ".*" + exclude_list(0);
         for (const auto& leaf : leaves) {
             const auto location = location_name(leaf);
             if (leaf.variable)
@@ -232,8 +232,8 @@ class QueryBuilder {
             else
                 out += ", p." + sql_identifier(header);
         }
-        out += " FROM " + alias(0) + " LEFT JOIN pivoted p ON p." + sample_index + " = " + alias(0) + "." +
-               sql_identifier(id_current);
+        out += " FROM " + alias(0) + " LEFT JOIN pivoted p ON p." + sql_identifier(sample_index) + " = " +
+               alias(0) + "." + sql_identifier(id_current);
         const auto idx = idx_filter(alias(0));
         if (!idx.empty())
             out += " WHERE " + idx;
@@ -270,7 +270,7 @@ class QueryBuilder {
 
     static std::string metadata_projection() {
         return "COLUMNS(lambda c: c != " + sql_literal(flat_location_column) + " AND c != " +
-               sql_literal(location_column) + ")";
+               sql_literal(location_column) + " AND c != " + sql_literal(sample_index) + ")";
     }
 
     // Columns the reader owns and therefore hides from projected metadata.
@@ -410,8 +410,8 @@ class QueryBuilder {
             out += "SELECT ";
             if (tacocat_)
                 out += alias(0) + "." + sql_identifier(id_source) + " AS source_file, ";
-            out += alias(0) + "." + sql_identifier(id_current) + " AS " + sample_index + ", " + alias(0) + "." +
-                   sql_identifier(logical_id) + " AS id, " + path_expression(level) + " AS path";
+            out += alias(0) + "." + sql_identifier(id_current) + " AS " + sql_identifier(sample_index) + ", " +
+                   alias(0) + "." + sql_identifier(logical_id) + " AS id, " + path_expression(level) + " AS path";
             if (identity_only || options_.location)
                 out += ", " + location_expression(level) + " AS " + sql_identifier(location_column);
             if (identity_only) {
@@ -506,14 +506,16 @@ std::string build_union_sql(const std::vector<const Dataset*>& datasets, const R
     }
     if (!options.level.empty())
         return out;
+    const auto public_index = sql_identifier(sample_index);
     const std::string indexed =
-        "SELECT source_file, CAST(dense_rank() OVER (ORDER BY internal_source_order, sample_index) - 1 AS "
-        "UBIGINT) AS sample_index, * EXCLUDE (internal_source_order, source_file, sample_index) FROM (" +
-        out + ") AS taco_union";
+        "SELECT source_file, CAST(dense_rank() OVER (ORDER BY internal_source_order, " + public_index +
+        ") - 1 AS UBIGINT) AS " + public_index +
+        ", * EXCLUDE (internal_source_order, source_file, " + public_index + ") FROM (" + out +
+        ") AS taco_union";
     std::string result = "SELECT * FROM (" + indexed + ") AS taco_global";
     if (const auto filter = index_filter(options.idx, "taco_global." + sql_identifier(sample_index)); !filter.empty())
         result += " WHERE " + filter;
-    return result + " ORDER BY sample_index";
+    return result + " ORDER BY " + public_index;
 }
 
 } // namespace taco

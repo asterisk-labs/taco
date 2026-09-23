@@ -74,7 +74,7 @@ This path reads 4096 bytes at offset 1024 from `archive.zip`. It does not extrac
 /vsisubfile/1024_4096,/vsicurl/https://hf.co/dataset.zip
 ```
 
-A reader MUST construct VSI paths when data is accessed. For ZIP containers, it reads the offset and size from Parquet metadata. For FOLDER containers, it builds the path directly from the contract and sample index, such as `DATA/42/before/B02.tif`.
+A reader MUST construct VSI paths when data is accessed. For ZIP containers, it reads the offset and size from Parquet metadata. For FOLDER containers, it builds the path directly from the contract and the stored sample directory, such as `DATA/42/before/B02.tif`.
 
 TACO defines the path convention, not the library that resolves it. GDAL supports VSI paths through tools and libraries such as rasterio, QGIS, gdalwarp, sf, terra, and ArchGDAL. Other implementations are valid if they interpret the same paths and perform the required reads.
 
@@ -207,7 +207,7 @@ TACO reserves three tokens so that paths, levels, and metadata fields can be map
 | --- | --- | --- |
 | `:` | Separates a namespace from a field name | Every user field MUST contain exactly one. It MUST NOT appear in folder names, file names, or level keys. |
 | `/` | Separates path and level segments | It MAY appear in complete structure paths and level keys. It MUST NOT appear inside a folder or file name. |
-| `__` | Replaces `/` in Parquet filenames and wide reader columns | It MUST NOT appear in folder names, file names, namespaces, or metadata field names. |
+| `__` | Replaces `/` in Parquet filenames and generated reader columns | It MUST NOT appear in folder names, file names, namespaces, or metadata field names. |
 
 For example, the level `children/before` is stored in `children__before.parquet`.
 
@@ -273,9 +273,9 @@ Every user field MUST use the form `namespace:field`. Namespaces MUST match `[a-
 
 The same namespace MAY appear at multiple levels and MAY use a different schema at each level. The `internal`, `taco`, and `cozip` namespaces are reserved. Producers MUST NOT create fields in these namespaces.
 
-The column names `cozip:location` and `taco:location` are reserved for readers. A producer MUST NOT store them in a Parquet file under `METADATA/`.
+The column names `cozip:location`, `taco:location`, and `taco:sample_index` are reserved for readers. A producer MUST NOT store them in a Parquet file under `METADATA/`.
 
-A reader MUST calculate locations from the payload offset, size, and containing file. It MUST ignore or remove stored values that use either reserved name.
+A reader MUST calculate locations from the payload offset, size, and containing file. It MUST ignore or remove stored values that use any reserved name.
 
 On disk, a namespace only qualifies a column name. It does not create a nested struct or identify a Python class. Contracts are equivalent when their structure, levels, qualified fields, types, nullability, and descriptions are the same.
 
@@ -293,7 +293,7 @@ A metadata level MUST choose at most one profile. A profile is a group of tabula
 | `stac` | `crs`, `tensor_shape`, `geotransform`, `time_start`; optional `time_end` and `centroid` override | `centroid`, `time_middle` | Regular affine grid; no footprint geometry is stored |
 | `istac` | `crs`, `geometry`, `time_start`; optional `time_end` and `centroid` override | `centroid`, `time_middle` | Irregular WKB footprint in the declared CRS |
 
-Every profile MUST use the following canonical field declarations. A field is present in each profile listed under Applies to.
+Every profile MUST use the following canonical field declarations. A field is present in each profile listed under Applies to. When the complete profile group is optional, every stored column in that group is nullable. Its fields and types remain canonical.
 
 | Field | Applies to | Type | Nullable | Meaning |
 | --- | --- | --- | --- | --- |
@@ -316,7 +316,7 @@ For example, a valid Temporal profile has exactly these three canonical columns:
 }
 ```
 
-Using `timestamp[ms]`, making `time_start` nullable, or omitting `time_middle` does not conform to the Temporal profile.
+Using `timestamp[ms]` or omitting `time_middle` does not conform to the Temporal profile. `time_start` is non-nullable unless the complete profile group is optional.
 
 For Spatial and STAC, `tensor_shape` contains at least two positive dimensions. Its final two values are height and width. `geotransform` contains the six GDAL affine coefficients. Unless the producer supplies an override, the writer calculates `centroid` from the complete affine transform and reprojects it to EPSG:4326.
 
@@ -472,7 +472,7 @@ Unknown unqualified fields are invalid. Unknown fields in a valid user namespace
 
 ### 5.6. Properties
 
-A sample index and a structure path identify every file. In a FOLDER, they produce a path such as `DATA/42/before/B02.tif`. In a ZIP, Parquet metadata provides the offset and size used in the VSI path.
+A stored sample directory and a structure path identify every file. In a FOLDER, they produce a path such as `DATA/42/before/B02.tif`. In a ZIP, Parquet metadata provides the offset and size used in the VSI path.
 
 Any subset of samples may use the same contract. Each partition assigns its own local sample indices.
 
@@ -564,7 +564,7 @@ TACOCAT reassigns `internal:current_id` after combining its source partitions. T
 
 Parent joins use only `internal:parent_id` and `internal:current_id`. The values of `internal:source_file` and `id` do not change.
 
-The public reader name for `internal:current_id` in `sample.parquet` is `sample_index`.
+Readers expose a generated `taco:sample_index` column for public queries. For one FOLDER, ZIP, or TACOCAT container, its value matches `internal:current_id` in `sample.parquet`. For a source list, the reader assigns it across all sources in source order and then row order. `taco:sample_index` is not stored and MUST NOT be used as a persistent sample identity. Use `id` for stable identity.
 
 Readers use these columns to build VSI paths. ZIP paths use the form `/vsisubfile/{offset}_{size},{zip_path}`. FOLDER files use `DATA/{idx}/{structure_path}` and do not require a Parquet lookup for the data path.
 
@@ -630,7 +630,7 @@ a.zip       | 1          | 1         | 1/image.tif
 b.zip       | 2          | 2         | 0/image.tif
 ```
 
-`internal:relative_path` remains relative to the source ZIP, so the sample with global index 2 still references `0/image.tif` inside `b.zip`.
+`internal:relative_path` remains relative to the source ZIP, so sample row 2 in the consolidated table still references `0/image.tif` inside `b.zip`.
 
 A source path is resolved relative to the directory containing `.tacocat/`. It MUST be a normalized relative POSIX path ending in `.zip`.
 
@@ -867,7 +867,7 @@ FOLDER containers may use `append=True`. ZIP containers may be partitioned. The 
 
 #### Export
 
-`taco.export()` writes selected samples of an existing dataset through the same writer. `samples` is a PyArrow-compatible table, normally selected from the `data` SQL relation. It MUST retain `sample_index`. Every named sample MUST exist in the source or the export fails.
+`taco.export()` writes selected samples of an existing dataset through the same writer. `samples` is a PyArrow-compatible table, normally selected from the `data` SQL relation. It MUST retain `taco:sample_index`. Every named sample MUST exist in the source or the export fails.
 
 The output keeps the source contract, identity, licenses, providers, tasks, and collection metadata unless the caller replaces collection fields. Selected samples keep their `id` and receive new indices from zero in source order. The writer recalculates `extent` and removes `taco:sources`.
 
@@ -876,7 +876,7 @@ Without `samples`, the export copies every sample. This can convert a FOLDER to 
 ```
 source = "https://data.source.coop/major-tom/core-dem/"
 dataset = taco.open_dataset(source)
-samples = dataset.sql("SELECT * FROM data ORDER BY sample_index LIMIT 10")
+samples = dataset.sql('SELECT * FROM data ORDER BY "taco:sample_index" LIMIT 10')
 taco.export(
     source,
     "core-dem-sample.zip",
@@ -964,7 +964,7 @@ The reader reports remote download progress in interactive terminals and stays s
 
 #### read(source, files)
 
-`read` materializes every sample as a wide table. It accepts only the source and an optional file selection. Row filtering and raw metadata access belong to the dataset SQL operation.
+`read` materializes one row per sample. It accepts only the source and an optional file selection. Row filtering and raw metadata access belong to the dataset SQL operation.
 
 **source** is required. It accepts a local path or a remote location supported by the reader, including HTTP, S3, Google Cloud Storage, Azure, Hugging Face, and Source Cooperative. `read(source, files)` and `open_dataset(source).read(files)` MUST return the same result.
 
@@ -980,7 +980,7 @@ Remote file locations use the VSI prefix of their storage, such as `/vsicurl/`, 
 
 **files** limits which structure declarations appear in the result. A fixed file is selected by its full contract path. A variable sequence is selected by its declaration, such as `img*[4,16].tif`. By default every declared file is returned.
 
-The result includes the global `sample_index` and the stable logical `id`. TACOCAT also includes `source_file`, which identifies the ZIP containing each sample.
+The result includes the generated `taco:sample_index` and the stable logical `id`. TACOCAT also includes `source_file`, which identifies the ZIP containing each sample.
 
 Every selected file has a `{file}::location` column calculated by the reader. Location columns are not stored in metadata. A Rumi file also has a `{file}::header` column when its metadata level declares `rumi:header`. These generated columns do not modify the dataset.
 
@@ -990,48 +990,48 @@ Public reader views use the following column order. `source_file` is present onl
 
 | View | Column order |
 | --- | --- |
-| `data` | `source_file` when present, `sample_index`, `id`, then sample metadata in `sample.parquet` schema order |
-| `files` | `source_file` when present, `sample_index`, `id`, `path`, `taco:location`, then effective metadata ordered by qualified name |
-| `read()` | `source_file` when present, `sample_index`, `id`, sample metadata in `sample.parquet` schema order, then generated file columns |
+| `data` | `source_file` when present, `taco:sample_index`, `id`, then sample metadata in `sample.parquet` schema order |
+| `files` | `source_file` when present, `taco:sample_index`, `id`, `path`, `taco:location`, then effective metadata ordered by qualified name |
+| `read()` | `source_file` when present, `taco:sample_index`, `id`, sample metadata in `sample.parquet` schema order, then generated file columns |
 
 Generated file columns follow the selected declarations in structure order. Each `{file}::location` column is immediately followed by `{file}::header` when the file declares `rumi:header`. A variable sequence occupies one list column in the position of its declaration.
 
 ```
 read("cloudsen12.zip")
-# sample_index | id        | ml:split | quality:cloud_cover | s2_l1c.tif::location | s2_l2a.tif::location | target.tif::location
+# taco:sample_index | id        | ml:split | quality:cloud_cover | s2_l1c.tif::location | s2_l2a.tif::location | target.tif::location
 # 0            | lima-001  | train    | 23.5                | /vsisubfile/...     | /vsisubfile/...     | /vsisubfile/...
 
 # Two selected files
 read("change_detection.zip", files=["before/B02.tif", "after/B02.tif"])
-# sample_index | id | ml:split | before__B02.tif::location | after__B02.tif::location
+# taco:sample_index | id | ml:split | before__B02.tif::location | after__B02.tif::location
 
 # Rumi assets carry their header
 read("multisensor.zip")
-# sample_index | id       | optical.rumi::location | optical.rumi::header | radar.rumi::location | radar.rumi::header
+# taco:sample_index | id       | optical.rumi::location | optical.rumi::header | radar.rumi::location | radar.rumi::header
 # 0            | lima-001 | /vsisubfile/...       | b"LOVE..."          | /vsisubfile/...     | b"LOVE..."
 ```
 
-A `/` in a structure path becomes `__` in a wide column name. The suffix is `::location` or `::header`. This mapping is reversible because `__` and `:` are forbidden inside path components. The double `::` distinguishes generated columns from metadata fields, which contain exactly one `:`.
+A `/` in a structure path becomes `__` in a generated column name. The suffix is `::location` or `::header`. This mapping is reversible because `__` and `:` are forbidden inside path components. The double `::` distinguishes generated columns from metadata fields, which contain exactly one `:`.
 
 A variable sequence uses the path to its prefix. `before/img*[1,16].tif` becomes the `LIST(VARCHAR)` column `before__img::location`. A Rumi sequence also has a `LIST(BLOB)` column named `before__img::header`.
 
 ```
 read("multitemporal_s2.zip")
-# sample_index | id       | ml:split | img::location
+# taco:sample_index | id       | ml:split | img::location
 # 0            | lima-001 | train    | [/vsisubfile/..., /vsisubfile/..., ...]
 # 1            | lima-002 | val      | [/vsisubfile/..., /vsisubfile/..., ...]
 ```
 
 The list is ordered by the numeric sequence index and contains between the declared minimum and maximum number of locations.
 
-`read()` MUST order rows by `sample_index`. SQL results have no implicit order unless the query contains `ORDER BY`.
+`read()` MUST order rows by `taco:sample_index`. SQL results have no implicit order unless the query contains `ORDER BY`.
 
 #### Dataset.sql(query)
 
 Every reader MUST expose `Dataset.sql(query)`. It accepts one SQL query and exposes the following relations.
 
-- `data`: one row per sample with `sample_index`, `id`, and sample metadata, but no structural file columns. TACOCAT also includes `source_file`.
-- `files`: one row per file with `sample_index`, `id`, `path`, reader-calculated `taco:location`, and effective metadata. TACOCAT also includes `source_file`. When a field is declared at more than one level, the nearest declaration wins.
+- `data`: one row per sample with `taco:sample_index`, `id`, and sample metadata, but no structural file columns. TACOCAT also includes `source_file`.
+- `files`: one row per file with `taco:sample_index`, `id`, `path`, reader-calculated `taco:location`, and effective metadata. TACOCAT also includes `source_file`. When a field is declared at more than one level, the nearest declaration wins.
 - one raw relation per metadata level. `/` becomes `__`, so the levels `sample`, `children`, and `children/before` are named `sample`, `children`, and `children__before`.
 
 Raw level relations keep their internal identity columns. Repeated field names remain unambiguous because SQL aliases identify the relation:
@@ -1047,11 +1047,11 @@ Partial reads use SQL.
 
 ```
 dataset = open_dataset("cloudsen12.zip")
-rows = dataset.sql("SELECT * FROM data WHERE sample_index < 100")
+rows = dataset.sql('SELECT * FROM data WHERE "taco:sample_index" < 100')
 assets = dataset.sql("SELECT * FROM files WHERE path = 'target.tif'")
 ```
 
-`read()` and `sql()` MUST execute through the same DuckDB context. `read()` is the convenience operation that returns the complete wide view.
+`read()` and `sql()` MUST execute through the same DuckDB context. `read()` is the convenience operation that returns the complete sample table.
 
 #### Inspection
 
@@ -1061,7 +1061,7 @@ Every reader MUST expose `inspect(source, query)`. It reads the contract without
 
 ### 8.3. Dataset API
 
-`open_dataset()` returns a `Dataset` that holds the sources, collection, and shared contract. Every reader provides `read()` for the complete wide view and `sql()` for partial access.
+`open_dataset()` returns a `Dataset` that holds the sources, collection, and shared contract. Every reader provides `read()` for the complete sample table and `sql()` for partial access.
 
 ```
 dataset = open_dataset("cloudsen12.zip")
@@ -1070,7 +1070,7 @@ dataset.collection
 dataset.contract
 dataset.read()
 dataset.read(files=["s2_l1c.tif", "target.tif"])
-dataset.sql("SELECT * FROM data WHERE sample_index = 10")
+dataset.sql('SELECT * FROM data WHERE "taco:sample_index" = 10')
 ```
 
 The same API accepts every TACO container and a list of compatible partitions.
@@ -1085,7 +1085,7 @@ The reader verifies that every entry in a source list belongs to the same collec
 
 A TACOCAT is already consolidated and must be opened as one path.
 
-Rows from a source list include `source_file`. The reader assigns a global `sample_index` by following source-list order and then row order within each source. Reversing the source list may therefore change `sample_index`, while `id` remains unchanged.
+Rows from a source list include `source_file`. The reader assigns `taco:sample_index` globally by following source-list order and then row order within each source. Reversing the source list may therefore change `taco:sample_index`, while `id` remains unchanged.
 
 
 <figure class="dataset-figure">
@@ -1124,8 +1124,6 @@ Rows from a source list include `source_file`. The reader assigns a global `samp
 </figure>
 
 
-The default `wide` layout returns one row per sample with sample metadata and one path column per declared file. The `long` layout returns one row per file and includes metadata inherited from its sample and folders. Collection metadata remains on `dataset.collection` and is never repeated in result rows.
-
 `Dataset` is not a dataframe. It holds dataset semantics, while `read()` and `sql()` return tables. `inspect()` provides direct access to the contract and low-level native SQL.
 
 Notebook environments use the Dataset HTML representation to show the collection identity, structure, and metadata levels without materializing the sample table.
@@ -1154,7 +1152,7 @@ TACO v3 is not compatible with v2 datasets. Existing datasets MUST be rebuilt to
 | TACOCAT format | Binary file with 128-byte header, fixed 7-entry index table | Directory with merged Parquets and COLLECTION.json |
 | TACOLLECTION | Separate `TACOLLECTION.json` file | Merged into TACOCAT COLLECTION.json via `taco:sources` field |
 | Spec versioning | SemVer (`2.0.0`) | SemVer (`3.0.0`) |
-| Hierarchical navigation | `read()` method traversing `__meta__` files | `read()` with the `level` parameter |
+| Hierarchical navigation | `read()` method traversing `__meta__` files | SQL relations for each metadata level |
 | Filtering | `filter_bbox()`, `filter_datetime()` with cascading JOINs | SQL `WHERE` clauses on Parquet columns |
 | Concatenation | `concat()` with column modes | SQL `UNION` or TACOCAT consolidation |
 

@@ -29,12 +29,12 @@ const FIXTURE = joinpath(@__DIR__, "data", "taco.zip")
         @test isempty(dataset.contract.derived)
         @test size(Taco.read(dataset), 1) == 3
         @test occursin("Taco.Dataset", sprint(show, dataset))
-        @test Taco.sql(dataset, "SELECT id FROM data WHERE sample_index = 1").id == ["sample-1"]
+        @test Taco.sql(dataset, "SELECT id FROM data WHERE \"taco:sample_index\" = 1").id == ["sample-1"]
         @test size(Taco.sql(dataset, "SELECT * FROM files WHERE path = 'mask.bin'"), 1) == 3
 
         wide = Taco.read(FIXTURE)
         @test size(wide, 1) == 3
-        @test issubset(["sample_index", "ml:split", "image.bin::location", "mask.bin::location"], names(wide))
+        @test issubset(["taco:sample_index", "ml:split", "image.bin::location", "mask.bin::location"], names(wide))
         @test wide[!, "ml:split"] == ["train", "train", "test"]
 
         long = Taco.sql(dataset, "SELECT * FROM files")
@@ -45,8 +45,8 @@ const FIXTURE = joinpath(@__DIR__, "data", "taco.zip")
         @test !("cozip:location" in names(long))
         @test !("cozip:gdal_vsi" in names(long))
 
-        @test size(Taco.sql(dataset, "SELECT * FROM data WHERE sample_index = 1"), 1) == 1
-        @test size(Taco.sql(dataset, "SELECT * FROM data WHERE sample_index < 2"), 1) == 2
+        @test size(Taco.sql(dataset, "SELECT * FROM data WHERE \"taco:sample_index\" = 1"), 1) == 1
+        @test size(Taco.sql(dataset, "SELECT * FROM data WHERE \"taco:sample_index\" < 2"), 1) == 2
 
         narrowed = Taco.read(FIXTURE; files=["mask.bin"])
         @test "mask.bin::location" in names(narrowed)
@@ -91,7 +91,7 @@ const FIXTURE = joinpath(@__DIR__, "data", "taco.zip")
             parts = Taco.read(dataset)
             @test size(parts, 1) == 6
             @test sort(unique(parts.source_file)) == ["part-1.zip", "taco.zip"]
-            @test parts.sample_index == 0:5
+            @test parts[!, "taco:sample_index"] == 0:5
             @test Taco.read([FIXTURE, part_path]) == parts
         end
     end

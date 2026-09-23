@@ -15,6 +15,7 @@ from ..contract.naming import (
     DATA_DIR,
     OFFSET,
     RELATIVE_PATH,
+    SAMPLE_INDEX,
     SIZE,
     SOURCE_FILE,
     level_folder,
@@ -43,7 +44,7 @@ def export(
 ) -> BuildResult:
     """Copy a dataset or selected samples to a new TACO output.
 
-    ``samples`` is an Arrow-compatible table with ``sample_index``. Other
+    ``samples`` is an Arrow-compatible table with ``taco:sample_index``. Other
     keyword arguments replace collection fields. The export keeps the
     contract, renumbers samples, and recomputes the extent.
     """
@@ -138,11 +139,11 @@ class _Source:
     def select(self, samples: Any) -> set[int]:
         # Accept any table that implements the Arrow C stream protocol.
         table = pa.table(samples)
-        if "sample_index" not in table.column_names:
-            raise ValueError("samples must contain a sample_index column")
-        ids = table.column("sample_index").to_pylist()
+        if SAMPLE_INDEX not in table.column_names:
+            raise ValueError(f"samples must contain a {SAMPLE_INDEX} column")
+        ids = table.column(SAMPLE_INDEX).to_pylist()
         if any(isinstance(sample, bool) or not isinstance(sample, int) or sample < 0 for sample in ids):
-            raise ValueError("samples must contain non-negative integer sample_index values")
+            raise ValueError(f"samples must contain non-negative integer {SAMPLE_INDEX} values")
         return set(ids)
 
     def validate_selection(self, selected: set[int], rows: pa.Table) -> None:

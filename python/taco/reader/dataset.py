@@ -6,6 +6,7 @@ from collections.abc import Sequence
 import pyarrow as pa
 
 from ..contract.contract import CHILDREN_LEVEL, Contract
+from ..contract.naming import SAMPLE_INDEX
 from ..contract.structure import Leaf
 from ..errors import ContainerError
 from . import engine, native
@@ -74,9 +75,9 @@ class Dataset:
         return self._execute_sql(query)
 
     def _read_query(self, files: list[str] | None) -> str:
-        keys = ["sample_index"]
+        keys = [SAMPLE_INDEX]
         using = ", ".join(_identifier(name) for name in keys)
-        order = f"d.{_identifier('sample_index')}"
+        order = f"d.{_identifier(SAMPLE_INDEX)}"
 
         selected = set(self.contract.structure if files is None else files)
         unknown = sorted(selected.difference(self.contract.structure))

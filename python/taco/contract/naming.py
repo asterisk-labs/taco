@@ -14,6 +14,7 @@ RELATIVE_PATH = "internal:relative_path"
 OFFSET = "internal:offset"
 SIZE = "internal:size"
 SOURCE_FILE = "internal:source_file"
+SAMPLE_INDEX = "taco:sample_index"
 
 ID_TYPE = pa.uint64()
 OFFSET_TYPE = pa.uint64()

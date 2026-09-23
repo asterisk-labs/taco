@@ -78,12 +78,14 @@ def test_open_partitions(tmp_path: Path, collection: taco.Collection, make_sampl
     )
     assert ">PARTITIONS<" in dataset._repr_html_()
     assert wide.num_rows == 3
-    assert set(zip(wide.column("source_file").to_pylist(), wide.column("sample_index").to_pylist(), strict=True)) == {
+    assert set(
+        zip(wide.column("source_file").to_pylist(), wide.column("taco:sample_index").to_pylist(), strict=True)
+    ) == {
         ("a.zip", 0),
         ("a.zip", 1),
         ("b.zip", 2),
     }
-    assert dataset.sql("SELECT * FROM data WHERE sample_index = 0").num_rows == 1
+    assert dataset.sql('SELECT * FROM data WHERE "taco:sample_index" = 0').num_rows == 1
     assert dataset.sql("SELECT * FROM files").num_rows == 15
     raw = dataset.sql("SELECT * FROM sample")
     assert raw.num_rows == 3

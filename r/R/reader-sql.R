@@ -13,7 +13,7 @@
 
     path <- if (variable) strsplit(declaration, "*", fixed = TRUE)[[1L]][1L] else declaration
     parts <- strsplit(path, "/", fixed = TRUE)[[1L]]
-    folder <- if (length(parts) == 1L) "children" else paste(c("children", head(parts, -1L)), collapse = "/")
+    folder <- if (length(parts) == 1L) "children" else paste(c("children", parts[-length(parts)]), collapse = "/")
     if ("rumi:header" %in% names(contract$metadata[[folder]])) {
       result <- c(result, paste0(name, "::header"))
     }

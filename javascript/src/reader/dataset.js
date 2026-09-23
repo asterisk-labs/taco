@@ -12,6 +12,7 @@ const ID_PATH = "internal:relative_path";
 const ID_OFFSET = "internal:offset";
 const ID_SIZE = "internal:size";
 const ID_SOURCE = "internal:source_file";
+const SAMPLE_INDEX = "taco:sample_index";
 const HEADER_FIELD = "rumi:header";
 
 /**
@@ -401,7 +402,7 @@ export class Dataset {
     /** @type {Row} */
     const output = {};
     if (this.container === "tacocat") output.source_file = requireSource(sample);
-    output.sample_index = safeInteger(sample[ID_CURRENT], ID_CURRENT);
+    output[SAMPLE_INDEX] = safeInteger(sample[ID_CURRENT], ID_CURRENT);
     output.id = sample.id;
     return output;
   }

@@ -5,7 +5,7 @@ using ProgressMeter: Progress, ProgressUnknown, update!, finish!
 
 
 const _LIBRARY_ENV = "TACO_LIB"
-const _API_VERSION = 1
+const _API_VERSION = 2
 const _HANDLE = Ref{Ptr{Cvoid}}(C_NULL)
 const _SYMBOLS = Dict{Symbol,Ptr{Cvoid}}()
 const _LIBRARY_LOCK = ReentrantLock()
@@ -23,9 +23,6 @@ const _CORE_FUNCTIONS = (
     :taco_dataset_structure,
     :taco_sql,
     :taco_profile,
-    :taco_manifest_candidate,
-    :taco_join_manifest_href,
-    :taco_resolve,
 )
 
 
@@ -231,20 +228,3 @@ end
 
 
 _native_profile(source) = _native_text(:taco_profile, source)
-_native_manifest_candidate(source) = _native_text(:taco_manifest_candidate, source)
-_native_resolve(source) = JSON3.read(_native_text(:taco_resolve, source))
-
-
-function _native_join_manifest_href(candidate, href)
-    out = Ref{Ptr{UInt8}}(C_NULL)
-    status = ccall(
-        _symbol(:taco_join_manifest_href),
-        Cint,
-        (Cstring, Cstring, Ref{Ptr{UInt8}}),
-        _c_text(candidate, "candidate"),
-        _c_text(href, "href"),
-        out,
-    )
-    _check_core(status)
-    return _take_string(out[])
-end

@@ -1,3 +1,16 @@
+function _plain(value::JSON3.Object)
+    result = Dict{String,Any}()
+    for (key, item) in pairs(value)
+        result[String(key)] = _plain(item)
+    end
+    return result
+end
+
+
+_plain(value::JSON3.Array) = Any[_plain(item) for item in value]
+_plain(value) = value
+
+
 function _collection_documents(sources)
     return [_native_collection(_open_native(source)) for source in sources]
 end

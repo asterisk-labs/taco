@@ -13,21 +13,12 @@ const FIXTURE = joinpath(@__DIR__, "data", "taco.zip")
         @test_throws "non-empty" Taco.read("")
         @test_throws "unique" Taco.read(["a.zip", "a.zip"])
         @test_throws "NUL byte" Taco.read("bad\0.zip")
-        @test_throws "must be \"wide\" or \"long\"" Taco.read(FIXTURE; layout="tall")
-        @test_throws "whole, non-negative" Taco.read(FIXTURE; idx=1.5)
-        @test_throws "whole, non-negative" Taco.read(FIXTURE; idx=true)
-        @test_throws "whole, non-negative" Taco.read(FIXTURE; idx=-1)
-        @test_throws "whole, non-negative" Taco.read(FIXTURE; idx=typemax(UInt64))
-        @test_throws "one sample number" Taco.read(FIXTURE; idx=(1, 2, 3))
-        @test_throws "must not exceed" Taco.read(FIXTURE; idx=(5, 2))
-        @test_throws "non-empty" Taco.read(FIXTURE; level="")
         @test_throws "entries must be non-empty" Taco.read(FIXTURE; files=[""])
-        @test_throws TypeError Taco.read(FIXTURE; location="yes")
     end
 
     @testset "read a TACO dataset" begin
-        first_reads = fetch.([Threads.@spawn Taco.read(FIXTURE; idx=0) for _ in 1:32])
-        @test all(frame -> size(frame, 1) == 1, first_reads)
+        first_reads = fetch.([Threads.@spawn Taco.read(FIXTURE) for _ in 1:32])
+        @test all(frame -> size(frame, 1) == 3, first_reads)
 
         dataset = Taco.open_dataset(FIXTURE)
         @test dataset isa Taco.Dataset
@@ -36,18 +27,17 @@ const FIXTURE = joinpath(@__DIR__, "data", "taco.zip")
         @test dataset.contract.structure == ["image.bin", "mask.bin"]
         @test dataset.contract.levels == ["sample", "children"]
         @test isempty(dataset.contract.derived)
-        @test dataset.version == "1.0.0"
-        @test isempty(dataset.versions)
-        @test dataset.manifest === nothing
         @test size(Taco.read(dataset), 1) == 3
         @test occursin("Taco.Dataset", sprint(show, dataset))
+        @test Taco.sql(dataset, "SELECT id FROM data WHERE sample_index = 1").id == ["sample-1"]
+        @test size(Taco.sql(dataset, "SELECT * FROM files WHERE path = 'mask.bin'"), 1) == 3
 
         wide = Taco.read(FIXTURE)
         @test size(wide, 1) == 3
-        @test issubset(["sample_id", "ml:split", "image.bin::location", "mask.bin::location"], names(wide))
+        @test issubset(["sample_index", "ml:split", "image.bin::location", "mask.bin::location"], names(wide))
         @test wide[!, "ml:split"] == ["train", "train", "test"]
 
-        long = Taco.read(FIXTURE; layout="long")
+        long = Taco.sql(dataset, "SELECT * FROM files")
         @test size(long, 1) == 6
         @test sort(unique(long.path)) == ["image.bin", "mask.bin"]
         @test sort(unique(long[!, "file:role"])) == ["image", "mask"]
@@ -55,14 +45,15 @@ const FIXTURE = joinpath(@__DIR__, "data", "taco.zip")
         @test !("cozip:location" in names(long))
         @test !("cozip:gdal_vsi" in names(long))
 
-        @test size(Taco.read(FIXTURE; idx=1), 1) == 1
-        @test size(Taco.read(FIXTURE; idx=(0, 2)), 1) == 2
+        @test size(Taco.sql(dataset, "SELECT * FROM data WHERE sample_index = 1"), 1) == 1
+        @test size(Taco.sql(dataset, "SELECT * FROM data WHERE sample_index < 2"), 1) == 2
 
         narrowed = Taco.read(FIXTURE; files=["mask.bin"])
         @test "mask.bin::location" in names(narrowed)
         @test !("image.bin::location" in names(narrowed))
+        @test Taco.read(FIXTURE; files="mask.bin") == narrowed
 
-        long_narrowed = Taco.read(FIXTURE; layout="long", files=["mask.bin"])
+        long_narrowed = Taco.sql(dataset, "SELECT * FROM files WHERE path = 'mask.bin'")
         @test size(long_narrowed, 1) == 3
         @test unique(long_narrowed.path) == ["mask.bin"]
         @test_throws "structure leaf" Taco.read(
@@ -70,7 +61,7 @@ const FIXTURE = joinpath(@__DIR__, "data", "taco.zip")
             files=["mask.bin", "nope.bin"],
         )
 
-        level = Taco.read(FIXTURE; level="children")
+        level = Taco.sql(dataset, "SELECT * FROM children")
         @test size(level, 1) == 6
         @test "internal:current_id" in names(level)
         @test isempty(intersect(
@@ -78,11 +69,13 @@ const FIXTURE = joinpath(@__DIR__, "data", "taco.zip")
             names(level),
         ))
 
-        quiet = Taco.read(FIXTURE; layout="long", location=false)
-        @test isempty(intersect(
-            ["cozip:location", "taco:location", "cozip:gdal_vsi"],
-            names(quiet),
-        ))
+        @test Taco.inspect(FIXTURE, "structure") == ["image.bin", "mask.bin"]
+        @test Taco.inspect(FIXTURE, "levels") == ["sample", "children"]
+        @test Taco.inspect(FIXTURE, "collection")["id"] == "taco-fixture"
+        @test Taco.inspect(FIXTURE, "profile") == "taco"
+        @test Taco.inspect(FIXTURE, "contract") isa DataFrame
+        @test occursin("read_parquet", Taco.inspect(FIXTURE, "native_sql"))
+        @test_throws "must be one of" Taco.inspect(FIXTURE, "unknown")
     end
 
     @testset "paths and partitions" begin
@@ -98,6 +91,7 @@ const FIXTURE = joinpath(@__DIR__, "data", "taco.zip")
             parts = Taco.read(dataset)
             @test size(parts, 1) == 6
             @test sort(unique(parts.source_file)) == ["part-1.zip", "taco.zip"]
+            @test parts.sample_index == 0:5
             @test Taco.read([FIXTURE, part_path]) == parts
         end
     end
@@ -126,6 +120,3 @@ const FIXTURE = joinpath(@__DIR__, "data", "taco.zip")
         )
     end
 end
-
-
-include("versioned.jl")

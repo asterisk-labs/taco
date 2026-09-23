@@ -1,7 +1,7 @@
 #ifndef TACO_R_VERSIONS_H
 #define TACO_R_VERSIONS_H
 
-#define TACO_VERSION_STRING "0.9.1"
+#define TACO_VERSION_STRING "0.10.0"
 #define KARU_VERSION_STRING "0.2.3"
 
 #endif

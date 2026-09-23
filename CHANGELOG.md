@@ -4,6 +4,20 @@ All notable changes across the TACO core, language bindings, writer, and
 JavaScript reader are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.10.0 - 2026-09-23
+
+### Changed
+
+- `Dataset.sql()` exposes one `dataset` relation with the same wide sample
+  shape returned by `read()`. Raw metadata levels remain available by name.
+- `read(files=...)` is the ordered projection of `dataset` for the selected
+  structure declarations.
+
+### Removed
+
+- The `data` and `files` SQL relations. Queries can select generated file
+  columns from `dataset` or inspect hierarchy levels directly.
+
 ## 0.9.1 - 2026-09-23
 
 ### Changed

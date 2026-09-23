@@ -8,7 +8,7 @@
     <a href="https://pypi.org/project/taco-eo"><img src="https://img.shields.io/pypi/pyversions/taco-eo?style=flat-square" alt="Supported Python versions"/></a>
     <a href="https://asterisk-labs.r-universe.dev/taco"><img src="https://img.shields.io/badge/r--universe-taco-276DC3?logo=r&logoColor=white&style=flat-square" alt="R"/></a>
     <a href="https://github.com/asterisk-labs/AsteriskRegistry"><img src="https://img.shields.io/badge/julia-Taco.jl-9558B2?logo=julia&logoColor=white&style=flat-square" alt="Julia"/></a>
-    <a href="javascript/"><img src="https://img.shields.io/badge/javascript-v0.9.1-F7DF1E?logo=javascript&logoColor=black&style=flat-square" alt="JavaScript 0.9.1"/></a>
+    <a href="javascript/"><img src="https://img.shields.io/badge/javascript-v0.10.0-F7DF1E?logo=javascript&logoColor=black&style=flat-square" alt="JavaScript 0.10.0"/></a>
     <a href="https://asterisk.coop/taco/spec"><img src="https://img.shields.io/badge/spec-v3-A8B9CC?style=flat-square" alt="Specification"/></a>
   </p>
 </div>

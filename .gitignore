@@ -41,3 +41,5 @@ autom4te.cache/
 create-julia-skeleton.sh
 _site/
 numpy_demo.zip
+
+byot-workshop.ipynb

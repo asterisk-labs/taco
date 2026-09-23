@@ -3,7 +3,7 @@ import { deriveLevels, parseStructurePath } from "./structure.js";
 
 /**
  * @typedef {object} TacoContract
- * @property {string[] | null} structure
+ * @property {string[]} structure
  * @property {Record<string, Record<string, any>>} metadata
  * @property {Record<string, any>} derived
  *
@@ -19,7 +19,7 @@ function object(value) {
  * Validate and construct a collection's shared sample contract.
  *
  * @param {Record<string, any>} collection
- * @returns {{contract: TacoContract, leaves: TacoLeaf[] | null, levels: string[]}}
+ * @returns {{contract: TacoContract, leaves: TacoLeaf[], levels: string[]}}
  */
 export function parseContract(collection) {
   if (!("taco:structure" in collection) || !("taco:metadata" in collection)) {
@@ -27,15 +27,11 @@ export function parseContract(collection) {
   }
 
   const structureValue = collection["taco:structure"];
-  if (structureValue !== null && !Array.isArray(structureValue)) {
-    fail("INVALID_CONTRACT", "taco:structure must be a list or null");
+  if (!Array.isArray(structureValue) || structureValue.length === 0) {
+    fail("INVALID_CONTRACT", "taco:structure must be a non-empty list");
   }
-  /** @type {TacoLeaf[] | null} */
-  const leaves =
-    structureValue === null
-      ? null
-      : /** @type {unknown[]} */ (structureValue).map((entry, index) => parseStructurePath(entry, index));
-  if (leaves && new Set(leaves.map((leaf) => leaf.declaration)).size !== leaves.length) {
+  const leaves = /** @type {unknown[]} */ (structureValue).map((entry, index) => parseStructurePath(entry, index));
+  if (new Set(leaves.map((leaf) => leaf.declaration)).size !== leaves.length) {
     fail("INVALID_CONTRACT", "taco:structure contains duplicate declarations");
   }
 
@@ -65,7 +61,7 @@ export function parseContract(collection) {
   if (!object(derived)) fail("INVALID_CONTRACT", "taco:derived must be an object");
   return {
     contract: {
-      structure: leaves === null ? null : leaves.map((leaf) => leaf.declaration),
+      structure: leaves.map((leaf) => leaf.declaration),
       metadata: /** @type {Record<string, Record<string, any>>} */ (metadataObject),
       derived: /** @type {Record<string, any>} */ (derived),
     },

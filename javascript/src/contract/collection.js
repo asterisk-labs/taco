@@ -14,7 +14,7 @@ export const SUPPORTED_TACO_VERSION = "3.0.0";
  * @typedef {object} ParsedCollection
  * @property {Record<string, any>} collection
  * @property {TacoContract} contract
- * @property {TacoLeaf[] | null} leaves
+ * @property {TacoLeaf[]} leaves
  * @property {string[]} levels
  * @property {TacoSources | null} sources
  */
@@ -39,7 +39,7 @@ export function parseCollection(value) {
       `reader supports TACO ${SUPPORTED_TACO_VERSION}; got ${JSON.stringify(collection["taco:version"])}`,
     );
   }
-  for (const name of ["id", "dataset_version", "description"]) {
+  for (const name of ["id", "description"]) {
     if (typeof collection[name] !== "string" || collection[name].length === 0) {
       fail("INVALID_COLLECTION", `${name} must be a non-empty string`);
     }

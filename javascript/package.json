@@ -24,7 +24,7 @@
     "access": "public"
   },
   "scripts": {
-    "types": "tsc",
+    "types": "node --input-type=module -e \"import { rmSync } from 'node:fs'; rmSync('types', { recursive: true, force: true })\" && tsc",
     "test": "node --test test/*.test.js",
     "test:remote": "node --test test/remote.integration.js",
     "prepublishOnly": "npm run types && npm test"

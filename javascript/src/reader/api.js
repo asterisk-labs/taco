@@ -1,6 +1,5 @@
 import { Dataset } from "./dataset.js";
 import { HttpClient } from "../container/http.js";
-import { resolveDataset } from "./manifest.js";
 import { openSource } from "./source.js";
 
 /** @typedef {typeof globalThis.fetch} FetchFunction */
@@ -28,14 +27,8 @@ export async function openDataset(source, options = {}) {
     throw new TypeError("taco: open options must be an object");
   }
   const client = new HttpClient({ fetch: options.fetch, requestInit: options.requestInit });
-  const resolution = await resolveDataset(source, client);
-  const resolved = await openSource(
-    resolution.sources[0],
-    client,
-    options.container ?? "auto",
-    resolution.collection,
-  );
-  return new Dataset(resolved, client, resolution);
+  const resolved = await openSource(source, client, options.container ?? "auto");
+  return new Dataset(resolved, client);
 }
 
 /**

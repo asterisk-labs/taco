@@ -34,7 +34,7 @@ export function parseStructurePath(value, index) {
 
   const minimum = Number(variable[2]);
   const maximum = Number(variable[3]);
-  if (!Number.isSafeInteger(minimum) || !Number.isSafeInteger(maximum) || minimum > maximum || maximum === 0) {
+  if (!Number.isSafeInteger(minimum) || !Number.isSafeInteger(maximum) || minimum < 1 || minimum > maximum) {
     fail("INVALID_CONTRACT", `invalid bounds in variable leaf ${JSON.stringify(declaration)}`);
   }
   const prefix = `${folder}${variable[1]}`;
@@ -47,9 +47,8 @@ export function parseStructurePath(value, index) {
   };
 }
 
-/** @param {TacoLeaf[] | null} leaves */
+/** @param {TacoLeaf[]} leaves */
 export function deriveLevels(leaves) {
-  if (leaves === null) return ["sample"];
   /** @type {Map<string, number>} */
   const folders = new Map();
   let order = 0;

@@ -126,7 +126,8 @@ test("reads wide and long views with calculated TACO locations", async () => {
   const wide = await dataset.read({ idx: 0 });
   assert.deepEqual(wide, [
     {
-      sample_id: 0,
+      sample_index: 0,
+      id: "sample-0",
       "ml:split": "train",
       "image.bin::location": `/vsisubfile/225_64,/vsicurl/${fixture.baseUrl}/dataset.zip`,
       "mask.bin::location": `/vsisubfile/334_32,/vsicurl/${fixture.baseUrl}/dataset.zip`,
@@ -135,12 +136,13 @@ test("reads wide and long views with calculated TACO locations", async () => {
 
   const long = await dataset.read({ idx: 0, layout: "long" });
   assert.deepEqual(
-    long.map((row) => [row.sample_id, row.path, row["file:role"], row["ml:split"]]),
+    long.map((row) => [row.sample_index, row.path, row["file:role"], row["ml:split"]]),
     [
       [0, "image.bin", "image", "train"],
       [0, "mask.bin", "mask", "train"],
     ],
   );
+  assert.deepEqual(Object.keys(long[0]).slice(0, 4), ["sample_index", "id", "path", "taco:location"]);
   assert.match(long[0]["taco:location"], /^\/vsisubfile\/225_64,\/vsicurl\/http:/);
 });
 
@@ -174,7 +176,9 @@ test("supports idx, files, semantic filters, and location opt-out", async () => 
     location: false,
     filter: { "ml:split": { $eq: "test" } },
   });
-  assert.deepEqual(rows, [{ sample_id: 2, "ml:split": "test", "mask.bin::location": null }]);
+  assert.deepEqual(rows, [
+    { sample_index: 2, id: "sample-2", "ml:split": "test", "mask.bin::location": null },
+  ]);
 
   const long = await dataset.read({ idx: [0, 2], layout: "long", files: ["image.bin"] });
   assert.deepEqual(long.map((row) => row.path), ["image.bin", "image.bin"]);
@@ -215,7 +219,7 @@ test("works when a server ignores byte ranges", async () => {
 test("top-level read() opens and materializes a source", async () => {
   const rows = await read(`${fixture.baseUrl}/dataset.zip`, { idx: 1, files: ["image.bin"] });
   assert.equal(rows.length, 1);
-  assert.equal(rows[0].sample_id, 1);
+  assert.equal(rows[0].sample_index, 1);
   assert.equal(rows[0]["ml:split"], "train");
 });
 
@@ -243,13 +247,14 @@ test("tasks is optional but cannot be empty", () => {
   const collection = {
     "taco:version": SUPPORTED_TACO_VERSION,
     id: "no-tasks",
-    dataset_version: "1.0.0",
     description: "No tasks",
     licenses: ["MIT"],
     providers: [{ name: "Asterisk Labs" }],
-    "taco:structure": null,
-    "taco:metadata": { sample: {} },
+    "taco:structure": ["data.bin"],
+    "taco:metadata": { sample: {}, children: {} },
   };
   assert.equal(parseCollection(collection).collection.tasks, undefined);
   assert.throws(() => parseCollection({ ...collection, tasks: [] }), /tasks must be a non-empty list/);
+  assert.throws(() => parseCollection({ ...collection, "taco:structure": null }), /non-empty list/);
+  assert.throws(() => parseCollection({ ...collection, "taco:structure": ["img*[0,3].tif"] }), /invalid bounds/);
 });

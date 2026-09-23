@@ -54,11 +54,10 @@ export class Dataset {
   /**
    * @param {import("./source.js").Source} source
    * @param {import("../container/http.js").HttpClient} client
-   * @param {{sources: string[], version: string | null, versions: string[], manifest: string | null}} resolution
    */
-  constructor(source, client, resolution) {
+  constructor(source, client) {
     this.url = source.url;
-    this.sources = [...resolution.sources];
+    this.sources = [source.url];
     this.container = source.container;
     this.profile = "taco";
     this.collection = source.parsed.collection;
@@ -66,9 +65,6 @@ export class Dataset {
     this.structure = source.parsed.contract.structure;
     this.levels = [...source.parsed.levels];
     this.derived = source.parsed.contract.derived;
-    this.version = resolution.version ?? source.parsed.collection.dataset_version;
-    this.versions = [...resolution.versions];
-    this.manifest = resolution.manifest;
     this.#source = source;
     this.#client = client;
     this.#parquets = new Map();
@@ -150,16 +146,9 @@ export class Dataset {
     const leaves = this.#selectedLeaves(options.files);
     const samples = await this.#sampleRows(idx);
 
-    // The three layouts share sample selection but differ in how payload rows
-    // are attached: one location, columns per leaf, or one row per file.
-    let rows;
-    if (this.structure === null) {
-      rows = samples.map((sample) => this.#nullStructureRow(sample, location));
-    } else if (layout === "wide") {
-      rows = await this.#wideRows(samples, leaves, location);
-    } else {
-      rows = await this.#longRows(samples, leaves, location);
-    }
+    const rows = layout === "wide"
+      ? await this.#wideRows(samples, leaves, location)
+      : await this.#longRows(samples, leaves, location);
     return options.filter ? rows.filter((row) => matchesFilter(row, options.filter)) : rows;
   }
 
@@ -205,12 +194,6 @@ export class Dataset {
 
   /** @param {string[] | null | undefined} requested */
   #selectedLeaves(requested) {
-    if (this.structure === null) {
-      if (requested !== undefined && requested !== null) {
-        fail("INVALID_FILES", "files requires a non-null taco:structure");
-      }
-      return null;
-    }
     if (
       requested !== undefined &&
       requested !== null &&
@@ -221,33 +204,24 @@ export class Dataset {
     }
     const requestedSet = requested == null ? null : new Set(requested);
     const unknown = requestedSet
-      ? [...requestedSet].filter((name) => !this.structure?.includes(name))
+      ? [...requestedSet].filter((name) => !this.structure.includes(name))
       : [];
     if (unknown.length) {
       fail("INVALID_FILES", `files contains unknown structure leaves: ${unknown.join(", ")}`);
     }
-    const leaves = (this.#source.parsed.leaves ?? []).filter(
+    const leaves = this.#source.parsed.leaves.filter(
       (leaf) => requestedSet === null || requestedSet.has(leaf.declaration),
     );
     if (leaves.length === 0) fail("INVALID_FILES", "no structure leaf matches files");
     return leaves;
   }
 
-  /** @param {Row} sample @param {boolean} location */
-  #nullStructureRow(sample, location) {
-    const output = this.#sampleIdentity(sample);
-    output["taco:location"] = location ? this.#source.location(sample) : null;
-    copyUserMetadata(output, sample);
-    return output;
-  }
-
   /**
    * @param {Row[]} samples
-   * @param {TacoLeaf[] | null} leaves
+   * @param {TacoLeaf[]} leaves
    * @param {boolean} location
    */
   async #wideRows(samples, leaves, location) {
-    if (!leaves) throw new Error("taco: internal null-structure mismatch");
     // Seed every sample before reading children. This keeps samples with
     // missing optional files and gives variable leaves an empty-list default.
     const columns = new Map(leaves.map((leaf) => [leaf, this.#wideColumns(leaf)]));
@@ -327,11 +301,10 @@ export class Dataset {
 
   /**
    * @param {Row[]} samples
-   * @param {TacoLeaf[] | null} leaves
+   * @param {TacoLeaf[]} leaves
    * @param {boolean} location
    */
   async #longRows(samples, leaves, location) {
-    if (!leaves) throw new Error("taco: internal null-structure mismatch");
     const files = await this.#fileNodes(samples, leaves, false);
     return files.map((node) => {
       const output = this.#sampleIdentity(node.sample.row);
@@ -410,36 +383,26 @@ export class Dataset {
 
   /** @param {Node[]} parents */
   #parentFilter(parents) {
-    if (this.container !== "tacocat") {
-      return { [ID_PARENT]: { $in: [...new Set(parents.map((node) => node.row[ID_CURRENT]))] } };
-    }
-    return {
-      $or: parents.map((node) => ({
-        $and: [
-          { [ID_SOURCE]: { $eq: requireSource(node.row) } },
-          { [ID_PARENT]: { $eq: node.row[ID_CURRENT] } },
-        ],
-      })),
-    };
+    return { [ID_PARENT]: { $in: [...new Set(parents.map((node) => node.row[ID_CURRENT]))] } };
   }
 
   /** @param {Row} row */
   #identity(row) {
-    const source = this.container === "tacocat" ? requireSource(row) : "";
-    return `${source}\0${safeInteger(row[ID_CURRENT], ID_CURRENT)}`;
+    return String(safeInteger(row[ID_CURRENT], ID_CURRENT));
   }
 
   /** @param {Row} row */
   #parentIdentity(row) {
-    const source = this.container === "tacocat" ? requireSource(row) : "";
-    return `${source}\0${safeInteger(row[ID_PARENT], ID_PARENT)}`;
+    return String(safeInteger(row[ID_PARENT], ID_PARENT));
   }
 
   /** @param {Row} sample */
   #sampleIdentity(sample) {
     /** @type {Row} */
-    const output = { sample_id: safeInteger(sample[ID_CURRENT], ID_CURRENT) };
+    const output = {};
     if (this.container === "tacocat") output.source_file = requireSource(sample);
+    output.sample_index = safeInteger(sample[ID_CURRENT], ID_CURRENT);
+    output.id = sample.id;
     return output;
   }
 }

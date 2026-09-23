@@ -147,7 +147,10 @@ def consolidate(
                     extents.append(dataset.collection.extent)
                 source_entry = _source_entry(dataset, directory)
                 sources.append(source_entry)
-                ids = dataset.level(SAMPLE_LEVEL).column(SAMPLE_ID).to_pylist()
+                sample_table = dataset.level(SAMPLE_LEVEL)
+                if SAMPLE_ID not in sample_table.column_names:
+                    raise ConsolidationError(f"partition {path.name} has no sample id column")
+                ids = sample_table.column(SAMPLE_ID).to_pylist()
                 invalid = [value for value in ids if not isinstance(value, str) or not value.strip()]
                 if invalid:
                     raise ConsolidationError(f"partition {path.name} contains an invalid sample id")

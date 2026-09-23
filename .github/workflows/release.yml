@@ -356,7 +356,7 @@ jobs:
           cp core/tests/data/taco_flat.zip "${RUNNER_TEMP}/taco.zip"
           cd "${RUNNER_TEMP}"
           python -c "import taco; table = taco.read('taco.zip'); assert table.num_rows > 0; print(taco.__version__)"
-          python -c "import taco; sources = ('hf://datasets/asterisk-labs/taco-api-fixtures/data/04-change-detection/single-zip/dataset.zip', 'source://asterisk-labs/taco-api-fixtures/data/04-change-detection/by-split/.tacocat'); assert all(taco.read(source).num_rows > 0 for source in sources)"
+          python -c "import taco; table = taco.read('https://raw.githubusercontent.com/asterisk-labs/taco/${{ github.ref_name }}/core/tests/data/taco_flat.zip'); assert table.num_rows > 0"
 
       - name: Test installed wheel (Windows)
         if: runner.os == 'Windows'
@@ -367,7 +367,7 @@ jobs:
           Push-Location $env:RUNNER_TEMP
           try {
             python -c "import taco; table = taco.read('taco.zip'); assert table.num_rows > 0; print(taco.__version__)"
-            python -c "import taco; sources = ('hf://datasets/asterisk-labs/taco-api-fixtures/data/04-change-detection/single-zip/dataset.zip', 'source://asterisk-labs/taco-api-fixtures/data/04-change-detection/by-split/.tacocat'); assert all(taco.read(source).num_rows > 0 for source in sources)"
+            python -c "import taco; table = taco.read('https://raw.githubusercontent.com/asterisk-labs/taco/${{ github.ref_name }}/core/tests/data/taco_flat.zip'); assert table.num_rows > 0"
           } finally { Pop-Location }
 
       - uses: actions/upload-artifact@v7

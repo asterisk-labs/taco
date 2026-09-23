@@ -16,6 +16,7 @@ from pydantic import BaseModel
 import taco
 from taco.container.view import open_view
 from taco.errors import SampleError, WriterError
+from taco.writer.identity import IdentifierIndex
 
 
 def point(x: float, y: float) -> bytes:
@@ -512,3 +513,12 @@ def test_append_options_are_checked(tmp_path: Path, collection: taco.Collection,
             writer.run()
     with pytest.raises(ValueError, match="only valid"):
         taco.open_writer(collection, tmp_path / "data.zip", link=True)
+
+
+def test_identifier_index_respects_a_zero_duplicate_limit(tmp_path: Path) -> None:
+    index = IdentifierIndex(tmp_path / "ids.sqlite")
+    try:
+        assert index.add("known")
+        assert index.duplicates(["known"], limit=0) == []
+    finally:
+        index.close()

@@ -23,6 +23,8 @@ class IdentifierIndex:
         return cursor.rowcount == 1
 
     def duplicates(self, values: Iterable[str], *, limit: int = 3) -> list[str]:
+        if limit <= 0:
+            return []
         duplicates: list[str] = []
         for value in values:
             if self.contains(value):

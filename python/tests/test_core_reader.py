@@ -39,7 +39,6 @@ def collection(name: str, contract: taco.Contract) -> taco.Collection:
     return taco.Collection(
         contract=contract,
         id=name,
-        dataset_version="1.0.0",
         description=name,
         licenses=["MIT"],
         providers=[{"name": "TACO tests"}],
@@ -56,6 +55,7 @@ def write(name: str, contract: taco.Contract, samples: list[taco.Sample], output
 def nested_samples() -> list[taco.Sample]:
     return [
         taco.Sample(
+            id=f"s{index}",
             metadata=taco.Metadata(ml=Split(split="train" if index % 2 == 0 else "val", n_images=index)),
             folders=[
                 taco.Folder("before", metadata=taco.Metadata(node=Kind(kind="imagery"))),
@@ -98,7 +98,7 @@ def data(tmp_path_factory: pytest.TempPathFactory) -> Path:
     write("nested", NESTED, nested_samples(), root / "nested")
 
     variable = taco.Contract(
-        structure=["img*[0,3].bin", "mask.bin"],
+        structure=["img*[1,3].bin", "mask.bin"],
         metadata=taco.MetadataSchema(taco.Level("sample", ml=Split), taco.Level("children", node=Kind)),
     )
     samples = []
@@ -107,21 +107,28 @@ def data(tmp_path_factory: pytest.TempPathFactory) -> Path:
             taco.Asset(
                 payload(f"img{number}", index), path=f"img{number}.bin", metadata=taco.Metadata(node=Kind(kind="image"))
             )
-            for number in range(index)
+            for number in range(index + 1)
         ]
         assets.append(
             taco.Asset(payload("mask", index), path="mask.bin", metadata=taco.Metadata(node=Kind(kind="label")))
         )
-        samples.append(taco.Sample(metadata=taco.Metadata(ml=Split(split="train", n_images=index)), assets=assets))
+        samples.append(
+            taco.Sample(
+                id=f"s{index}",
+                metadata=taco.Metadata(ml=Split(split="train", n_images=index + 1)),
+                assets=assets,
+            )
+        )
     write("variable", variable, samples, root / "variable.zip")
 
-    nested_variable = taco.Contract(structure=["before/img*[0,3].bin"])
+    nested_variable = taco.Contract(structure=["before/img*[1,3].bin"])
     write(
         "nested-variable",
         nested_variable,
         [
             taco.Sample(
-                assets=[taco.Asset(payload(f"img{number}", 0), path=f"before/img{number}.bin") for number in range(2)]
+                id="s0",
+                assets=[taco.Asset(payload(f"img{number}", 0), path=f"before/img{number}.bin") for number in range(2)],
             )
         ],
         root / "nested-variable.zip",
@@ -137,6 +144,7 @@ def data(tmp_path_factory: pytest.TempPathFactory) -> Path:
     )
     samples = [
         taco.Sample(
+            id=f"s{index}",
             metadata=taco.Metadata(ml=Split(split="train", n_images=1)),
             folders=[taco.Folder("before", metadata=taco.Metadata(raster=Raster(resolution=1)))],
             assets=[
@@ -152,12 +160,16 @@ def data(tmp_path_factory: pytest.TempPathFactory) -> Path:
     ]
     write("shadow", shadow, samples, root / "shadow.zip")
 
-    null = taco.Contract(structure=None, metadata=taco.MetadataSchema(taco.Level("sample", ml=Split)))
+    single = taco.Contract(structure=["data.bin"], metadata=taco.MetadataSchema(taco.Level("sample", ml=Split)))
     samples = [
-        taco.Sample(assets=payload("sample", index), metadata=taco.Metadata(ml=Split(split="train", n_images=index)))
+        taco.Sample(
+            id=f"s{index}",
+            assets=payload("sample", index),
+            metadata=taco.Metadata(ml=Split(split="train", n_images=index)),
+        )
         for index in range(6)
     ]
-    write("null", null, samples, root / "null.zip")
+    write("single", single, samples, root / "single.zip")
 
     (root / "catalog").mkdir()
     write("nested", NESTED, nested_samples(), root / "catalog" / "part.zip", partition_by="ml:split")
@@ -206,6 +218,7 @@ def test_generated_columns_do_not_collide_with_metadata(tmp_path: Path) -> None:
         contract,
         [
             taco.Sample(
+                id="s2",
                 assets=taco.Asset(b"payload", path="image"),
                 metadata=taco.Metadata(image=LocationMetadata(location="metadata-value")),
             )
@@ -240,7 +253,7 @@ def test_files_and_sql_relations(data: Path) -> None:
 def test_variable_leaves_are_ordered_lists(data: Path) -> None:
     path = data / "variable.zip"
     rows = by_sample(taco.read(path))
-    assert [(row["ml:n_images"], len(row["img::location"])) for row in rows] == [(0, 0), (1, 1), (2, 2)]
+    assert [(row["ml:n_images"], len(row["img::location"])) for row in rows] == [(1, 1), (2, 2), (3, 3)]
     long = taco.open_dataset(path).sql("SELECT * FROM files")
     first_image = next(
         row["taco:location"] for row in long.to_pylist() if row["sample_id"] == 2 and row["path"] == "img0.bin"
@@ -249,7 +262,7 @@ def test_variable_leaves_are_ordered_lists(data: Path) -> None:
     assert "img::location" not in taco.open_dataset(path).sql("SELECT * FROM data").column_names
 
     nested = taco.read(data / "nested-variable.zip")
-    assert nested.column_names == ["sample_id", "before__img::location"]
+    assert nested.column_names == ["sample_id", "id", "before__img::location"]
     assert len(nested.column("before__img::location")[0].as_py()) == 2
 
 
@@ -272,14 +285,13 @@ def test_a_redeclared_field_takes_the_deepest_value(data: Path) -> None:
 
 
 def test_single_file_samples(data: Path) -> None:
-    dataset = taco.open_dataset(data / "null.zip")
+    dataset = taco.open_dataset(data / "single.zip")
     table = dataset.read()
     assert table.num_rows == 6
-    assert all(value.startswith("/vsisubfile/") for value in table.column("taco:location").to_pylist())
+    assert all(value.startswith("/vsisubfile/") for value in table.column("data.bin::location").to_pylist())
     files = dataset.sql("SELECT * FROM files ORDER BY sample_id")
-    assert "path" in files.column_names
-    assert files.column("path").null_count == files.num_rows
-    with pytest.raises(ContainerError, match="files requires taco:structure"):
+    assert files.column("path").to_pylist() == ["data.bin"] * 6
+    with pytest.raises(ContainerError, match="unknown structure leaf"):
         dataset.read(files=["change.bin"])
 
 

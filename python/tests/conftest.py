@@ -32,7 +32,7 @@ class AssetInfo(BaseModel):
     resolution: Annotated[int, pa.int32()]
 
 
-STRUCTURE = ["before/B02.tif", "before/B03.tif", "after/B02.tif", "mask.tif", "extra*[0,3].png"]
+STRUCTURE = ["before/B02.tif", "before/B03.tif", "after/B02.tif", "mask.tif", "extra*[1,3].png"]
 
 
 @pytest.fixture
@@ -58,7 +58,6 @@ def collection(contract: taco.Contract) -> taco.Collection:
     return taco.Collection(
         contract=contract,
         id="tiny-change",
-        dataset_version="1.0.0",
         description="Small change-detection fixture",
         licenses=["CC-BY-4.0"],
         providers=[{"name": "Asterisk Labs", "roles": ["producer"]}],
@@ -71,7 +70,7 @@ def collection(contract: taco.Contract) -> taco.Collection:
 
 @pytest.fixture
 def make_sample(tmp_path: Path):
-    def factory(index: int, n_extra: int = 0) -> taco.Sample:
+    def factory(index: int, n_extra: int = 1) -> taco.Sample:
         paths = ["before/B02.tif", "before/B03.tif", "after/B02.tif", "mask.tif"]
         paths.extend(f"extra{k}.png" for k in range(n_extra))
         assets = []
@@ -88,6 +87,7 @@ def make_sample(tmp_path: Path):
             assets.append(taco.Asset(source, path=path, metadata=metadata))
         longitude, latitude = -76 + index, -12 + index / 10
         return taco.Sample(
+            id=f"s{index}",
             metadata=taco.Metadata(
                 stac=taco.metadata.sample.STAC(
                     crs="EPSG:4326",
@@ -111,7 +111,7 @@ def make_sample(tmp_path: Path):
 def archive(tmp_path: Path, collection: taco.Collection, make_sample) -> Path:
     path = tmp_path / "dataset.zip"
     with taco.open_writer(collection, path) as writer:
-        writer.extend(make_sample(index, index % 3) for index in range(4))
+        writer.extend(make_sample(index, max(1, index % 3)) for index in range(4))
         writer.run()
     return path
 
@@ -120,6 +120,6 @@ def archive(tmp_path: Path, collection: taco.Collection, make_sample) -> Path:
 def folder_dataset(tmp_path: Path, collection: taco.Collection, make_sample) -> Path:
     path = tmp_path / "folder"
     with taco.open_writer(collection, path) as writer:
-        writer.extend(make_sample(index, index % 3) for index in range(4))
+        writer.extend(make_sample(index, max(1, index % 3)) for index in range(4))
         writer.run()
     return path

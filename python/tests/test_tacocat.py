@@ -57,7 +57,7 @@ def test_consolidate(tmp_path: Path, collection: taco.Collection, make_sample) -
     assert ">TACOCAT<" in opened._repr_html_()
     assert opened.read().num_rows == 3
     assert set(opened.read().column("source_file").to_pylist()) == {"a.zip", "b.zip"}
-    assert opened.sql("SELECT * FROM files").num_rows == 12
+    assert opened.sql("SELECT * FROM files").num_rows == 15
     with pytest.raises(ContainerError, match="TACOCAT"):
         taco.open_dataset([output, parts[0]])
 
@@ -84,7 +84,7 @@ def test_open_partitions(tmp_path: Path, collection: taco.Collection, make_sampl
         ("b.zip", 0),
     }
     assert dataset.sql("SELECT * FROM data WHERE sample_id = 0").num_rows == 2
-    assert dataset.sql("SELECT * FROM files").num_rows == 12
+    assert dataset.sql("SELECT * FROM files").num_rows == 15
     raw = dataset.sql("SELECT * FROM sample")
     assert raw.num_rows == 3
     assert set(raw.column("source_file").to_pylist()) == {"a.zip", "b.zip"}
@@ -105,7 +105,7 @@ def test_consolidate_preserves_schema_metadata(tmp_path: Path, collection: taco.
 def test_consolidate_rejects_contract_mismatch(tmp_path: Path, collection: taco.Collection, make_sample) -> None:
     first = build(tmp_path / "a.zip", collection, [make_sample(0)])
     changed = collection.replace(contract=taco.Contract(structure=["a.bin"]))
-    second = build(tmp_path / "b.zip", changed, [taco.Sample(assets=[taco.Asset(b"x", path="a.bin")])])
+    second = build(tmp_path / "b.zip", changed, [taco.Sample(id="u25", assets=[taco.Asset(b"x", path="a.bin")])])
     with pytest.raises(ContainerError, match="same collection"):
         taco.open_dataset([first, second])
     with pytest.raises(ConsolidationError, match="contract"):
@@ -136,6 +136,22 @@ def test_sources_shape_is_validated(tmp_path: Path, collection: taco.Collection,
     data = json.loads(file.read_text())
     data["taco:sources"]["samples"] = 99
     file.write_text(json.dumps(data))
+    report = taco.validate(output)
+    assert not report.ok
+    assert any(issue.code == "sources" for issue in report.errors)
+
+
+@pytest.mark.parametrize("source", ["../a.zip", "/tmp/a.zip", "parts\\a.zip", "parts/a", "parts/./a.zip"])
+def test_source_paths_must_be_normalized_zip_paths(
+    source: str, tmp_path: Path, collection: taco.Collection, make_sample
+) -> None:
+    part = build(tmp_path / "a.zip", collection, [make_sample(0)])
+    output = taco.consolidate([part])
+    file = output / "COLLECTION.json"
+    data = json.loads(file.read_text())
+    data["taco:sources"]["partitions"][0]["file"] = source
+    file.write_text(json.dumps(data))
+
     report = taco.validate(output)
     assert not report.ok
     assert any(issue.code == "sources" for issue in report.errors)

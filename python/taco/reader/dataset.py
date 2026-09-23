@@ -5,15 +5,13 @@ from collections.abc import Sequence
 
 import pyarrow as pa
 
-from ..contract.collection import Collection
 from ..contract.contract import CHILDREN_LEVEL, Contract
 from ..contract.structure import Leaf
-from ..errors import CollectionError, ContainerError
+from ..errors import ContainerError
 from . import engine, native
 from .collection import merge_collections
-from .manifest import resolve_dataset
 from .query import normalize_files
-from .source import Source
+from .source import Source, normalize_sources
 
 
 def _identifier(value: str) -> str:
@@ -51,20 +49,8 @@ def _wide_columns(contract: Contract, leaf: Leaf) -> list[tuple[str, str]]:
 
 class Dataset:
     def __init__(self, source: Source) -> None:
-        resolution = resolve_dataset(source)
-        self.sources = resolution.sources
-        # Version manifests may carry the collection inline. Direct datasets
-        # instead read it from their container (and merge TACOCAT partitions).
-        if resolution.collection is None:
-            self.collection = merge_collections(self.sources)
-        else:
-            try:
-                self.collection = Collection.from_dict(resolution.collection)
-            except CollectionError as error:
-                raise ContainerError(f"version {resolution.version!r} embeds an invalid collection: {error}") from error
-        self.version = resolution.version or self.collection.dataset_version
-        self.versions = resolution.versions
-        self.manifest = resolution.manifest
+        self.sources = normalize_sources(source)
+        self.collection = merge_collections(self.sources)
 
     @property
     def contract(self) -> Contract:
@@ -96,11 +82,6 @@ class Dataset:
         using = ", ".join(_identifier(name) for name in keys)
         order_keys = ["source_file", "sample_id"] if "source_file" in keys else keys
         order = ", ".join(f"d.{_identifier(name)}" for name in order_keys)
-
-        if self.contract.structure is None:
-            if files is not None:
-                raise ContainerError("taco: files requires taco:structure")
-            return f'SELECT d.*, f."taco:location" FROM data AS d LEFT JOIN files AS f USING ({using}) ORDER BY {order}'
 
         selected = set(self.contract.structure if files is None else files)
         unknown = sorted(selected.difference(self.contract.structure))
@@ -178,7 +159,7 @@ class Dataset:
 
     def __repr__(self) -> str:
         location = f"source={self.sources[0]!r}" if len(self.sources) == 1 else f"sources={len(self.sources)}"
-        return f"Dataset({self.collection.id!r}, version={self.collection.dataset_version!r}, {location})"
+        return f"Dataset({self.collection.id!r}, {location})"
 
     def _repr_html_(self) -> str:
         from .._repr import dataset_html

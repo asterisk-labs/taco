@@ -115,7 +115,7 @@ def dataset_html(dataset: Dataset) -> str:
 def _facts(dataset: Dataset, kind: str) -> str:
     contract = dataset.contract
     fields = sum(len(level) for level in contract.metadata.values())
-    shape = "single file" if contract.structure is None else f"{len(contract.structure)} leaves"
+    shape = f"{len(contract.structure)} leaves"
     values = [kind, shape, f"{len(contract.levels)} levels"]
     if fields:
         values.append(f"{fields} fields")
@@ -176,8 +176,6 @@ def _source_label(dataset: Dataset) -> str:
 
 def _structure_count(dataset: Dataset) -> str:
     structure = dataset.contract.structure
-    if structure is None:
-        return "single file"
     return f"{len(structure)} leaves"
 
 
@@ -223,12 +221,11 @@ def _collection(dataset: Dataset) -> str:
     collection = dataset.collection
     rows: list[tuple[str, Any]] = [
         ("id", collection.id),
-        ("version", collection.dataset_version),
         ("licenses", list(collection.licenses)),
         ("providers", [provider.name for provider in collection.providers]),
     ]
     if collection.tasks is not None:
-        rows.insert(2, ("tasks", list(collection.tasks)))
+        rows.insert(1, ("tasks", list(collection.tasks)))
     if collection.extent is not None:
         rows.append(("extent", collection.extent.to_dict()))
     if collection.metadata is not None:

@@ -72,8 +72,6 @@ class DatasetView:
             raise KeyError(f"level {name!r} is not part of this dataset; levels: {list(self.tables)}") from exc
 
     def is_leaf_level_row(self, level: str, relative_path: str) -> bool:
-        if self.contract.is_null:
-            return level == SAMPLE_LEVEL
         if level == SAMPLE_LEVEL:
             return False
         return not self.contract.is_folder(level_folder(level), relative_path.rsplit("/", 1)[-1])
@@ -81,7 +79,7 @@ class DatasetView:
     def iter_data_rows(self) -> Iterator[DataRow]:
         for level in self.levels:
             table = self.tables.get(level)
-            if table is None or self.contract.is_null != (level == SAMPLE_LEVEL):
+            if table is None or level == SAMPLE_LEVEL:
                 continue
             columns = [RELATIVE_PATH]
             columns += [name for name in (OFFSET, SIZE, SOURCE_FILE) if name in table.column_names]

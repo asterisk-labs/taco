@@ -23,7 +23,7 @@ class _Node:
     y: float = 0
 
 
-def structure_graph(structure: tuple[str, ...] | None) -> str:
+def structure_graph(structure: tuple[str, ...]) -> str:
     root = _tree(structure)
     _measure(root)
     width = max(_MIN_WIDTH, root.span + 2 * _PADDING)
@@ -39,10 +39,7 @@ def structure_graph(structure: tuple[str, ...] | None) -> str:
     )
 
 
-def _tree(structure: tuple[str, ...] | None) -> _Node:
-    if structure is None:
-        return _Node("sample file", "file")
-
+def _tree(structure: tuple[str, ...]) -> _Node:
     root = _Node("sample", "sample")
     for declaration in structure:
         parent = root

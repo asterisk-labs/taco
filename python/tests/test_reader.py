@@ -25,7 +25,7 @@ def test_reader_inspects_an_archive(archive: Path) -> None:
         "before/B03.tif",
         "after/B02.tif",
         "mask.tif",
-        "extra*[0,3].png",
+        "extra*[1,3].png",
     ]
     assert inspect_module.levels(archive) == ["sample", "children", "children/after", "children/before"]
     assert inspect_module.derived(archive) == {}
@@ -101,7 +101,7 @@ def test_reader_keeps_the_location_of_single_file_samples(tmp_path: Path) -> Non
         writer.run()
 
     dataset = taco.open_dataset(path)
-    assert all(value.startswith("/vsisubfile/") for value in dataset.read().column("taco:location").to_pylist())
+    assert all(value.startswith("/vsisubfile/") for value in dataset.read().column("data.bin::location").to_pylist())
     assert "taco:location" not in dataset.sql("SELECT * FROM data").column_names
 
 
@@ -147,7 +147,7 @@ def test_dataset_html_escapes_collection_text(monkeypatch: pytest.MonkeyPatch, c
     assert '<g class="taco-graph-node taco-graph-folder">' in html
     assert '<g class="taco-graph-node taco-graph-variable">' in html
     assert ">before/<" in html
-    assert "extra*[0,3].png" in html
+    assert "extra*[1,3].png" in html
     assert 'role="tooltip"' in html
     assert "Dataset split" in html
     assert "<span>nullable</span><code>false</code>" in html
@@ -163,7 +163,7 @@ def test_dataset_reads_folder(folder_dataset: Path) -> None:
     assert ">FOLDER<" in html
     assert 'aria-label="TACO folder storage"' in html
     assert dataset.read().num_rows == 4
-    assert dataset.sql("SELECT * FROM files").num_rows == 19
+    assert dataset.sql("SELECT * FROM files").num_rows == 21
 
 
 def test_file_selection_accepts_one_name(archive: Path) -> None:

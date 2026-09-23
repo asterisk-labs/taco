@@ -139,7 +139,6 @@ def collection(
     return taco.Collection(
         contract=contract,
         id=name,
-        dataset_version="1.0.0",
         description=f"Writer regression case: {name}",
         licenses=["MIT"],
         providers=[{"name": "TACO tests", "roles": ["producer"]}],
@@ -150,18 +149,24 @@ def collection(
 
 def single_file() -> DatasetCase:
     contract = taco.Contract(
-        structure=None,
+        structure=["data.bin"],
         metadata=taco.MetadataSchema(taco.Level("sample", core=SampleInfo)),
     )
     samples = tuple(
         taco.Sample(
+            id=f"s{index}",
             assets=f"single-{index}".encode(),
             metadata=taco.Metadata(core=SampleInfo(name=f"sample-{index}", score=index / 2)),
         )
         for index in range(2)
     )
     return DatasetCase(
-        "single_file", collection("single-file", contract), samples, ("sample",), ((None,), (None,)), (2,)
+        "single_file",
+        collection("single-file", contract),
+        samples,
+        contract.levels,
+        (("data.bin",), ("data.bin",)),
+        (2, 2),
     )
 
 
@@ -172,6 +177,7 @@ def flat_assets() -> DatasetCase:
     )
     samples = tuple(
         taco.Sample(
+            id=f"s{index}",
             metadata=taco.Metadata(ml=taco.metadata.sample.Split(split="train" if index == 0 else "validation")),
             assets=[asset("flat", index, "image.tif"), asset("flat", index, "label.tif")],
         )
@@ -209,6 +215,7 @@ def nested_folders() -> DatasetCase:
         assets = [asset("nested", index, path) for path in paths]
         samples.append(
             taco.Sample(
+                id=f"s{index}",
                 metadata=taco.Metadata(core=SampleInfo(name=f"change-{index}")),
                 folders=[
                     taco.Folder("before", metadata=taco.Metadata(stac=stac(index, taco.metadata.folder.STAC))),
@@ -227,28 +234,33 @@ def nested_folders() -> DatasetCase:
     )
 
 
-def optional_sequence() -> DatasetCase:
+def variable_sequence() -> DatasetCase:
     contract = taco.Contract(
-        structure=["image*[0,4].tif"],
+        structure=["image*[1,4].tif"],
         metadata=taco.MetadataSchema(
             taco.Level("sample", core=SampleInfo),
         ),
     )
-    files = ((), ("image0.tif",), tuple(f"image{index}.tif" for index in range(4)))
+    files = (
+        ("image0.tif",),
+        ("image0.tif", "image1.tif"),
+        tuple(f"image{index}.tif" for index in range(4)),
+    )
     samples = tuple(
         taco.Sample(
+            id=f"s{index}",
             metadata=taco.Metadata(core=SampleInfo(name=f"sequence-{index}", score=float(len(paths)))),
             assets=[asset("sequence", index, path) for path in paths],
         )
         for index, paths in enumerate(files)
     )
     return DatasetCase(
-        "optional_sequence",
-        collection("optional-sequence", contract),
+        "variable_sequence",
+        collection("variable-sequence", contract),
         samples,
         contract.levels,
         files,
-        (3, 5),
+        (3, 7),
     )
 
 
@@ -257,7 +269,7 @@ def mixed_structure() -> DatasetCase:
         "reference.tif",
         "images/frame*[2,6].tif",
         "labels/mask.tif",
-        "labels/instance*[0,3].geojson",
+        "labels/instance*[1,3].geojson",
     ]
     contract = taco.Contract(
         structure=structure,
@@ -271,7 +283,13 @@ def mixed_structure() -> DatasetCase:
         ),
     )
     files = (
-        ("reference.tif", "images/frame0.tif", "images/frame1.tif", "labels/mask.tif"),
+        (
+            "reference.tif",
+            "images/frame0.tif",
+            "images/frame1.tif",
+            "labels/mask.tif",
+            "labels/instance0.geojson",
+        ),
         (
             "reference.tif",
             "images/frame0.tif",
@@ -294,6 +312,7 @@ def mixed_structure() -> DatasetCase:
         )
         samples.append(
             taco.Sample(
+                id=f"s{index}",
                 metadata=taco.Metadata(core=SampleInfo(name=f"mixed-{index}")),
                 folders=[
                     taco.Folder("images", metadata=taco.Metadata(node=NodeInfo(kind="images"))),
@@ -309,7 +328,7 @@ def mixed_structure() -> DatasetCase:
         tuple(samples),
         contract.levels,
         files,
-        (2, 6, 5, 4),
+        (2, 6, 5, 5),
     )
 
 
@@ -334,6 +353,7 @@ def deep_hierarchy() -> DatasetCase:
     for index in range(2):
         samples.append(
             taco.Sample(
+                id=f"s{index}",
                 metadata=taco.Metadata(istac=stac(index, taco.metadata.sample.ISTAC)),
                 folders=[
                     taco.Folder("inputs", metadata=taco.Metadata(istac=stac(index, taco.metadata.folder.ISTAC))),
@@ -374,6 +394,7 @@ def rich_metadata() -> DatasetCase:
     )
     samples = tuple(
         taco.Sample(
+            id=f"s{index}",
             metadata=taco.Metadata(
                 rich=RichMetadata(
                     flag=index == 0,
@@ -434,6 +455,7 @@ def derived_metadata() -> DatasetCase:
             )
         samples.append(
             taco.Sample(
+                id=f"s{index}",
                 metadata=taco.Metadata(
                     stac=metadata,
                     ml=taco.metadata.sample.Split(split=split),
@@ -488,6 +510,7 @@ def independent_profile(profile: str) -> DatasetCase:
     )
     samples = tuple(
         taco.Sample(
+            id=f"s{index}",
             metadata=taco.Metadata(**{profile: spatial_profile(profile, index, sample_extension().input_model)}),
             folders=[
                 taco.Folder(
@@ -513,7 +536,7 @@ CASES = (
     single_file(),
     flat_assets(),
     nested_folders(),
-    optional_sequence(),
+    variable_sequence(),
     mixed_structure(),
     deep_hierarchy(),
     rich_metadata(),

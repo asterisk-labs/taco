@@ -8,6 +8,7 @@ from .contract.schema import CollectionMetadata, DerivedMetadata, Extension, Lev
 from .errors import TacoError
 from .metadata._base import ExtensionContext
 from .reader import Dataset, open_dataset, read
+from .reader.inspect import inspect
 from .validate import validate
 from .writer import open_writer
 from .writer.catalog import consolidate
@@ -37,6 +38,7 @@ __all__ = [
     "consolidate",
     "export",
     "extensions",
+    "inspect",
     "metadata",
     "open_dataset",
     "open_writer",

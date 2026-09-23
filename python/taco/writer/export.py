@@ -4,13 +4,14 @@ import json
 from collections.abc import Iterator
 from os import PathLike, fspath
 from pathlib import Path
-from typing import Any, TypeAlias
+from typing import Any
 
 import pyarrow as pa
 
 from ..contract.collection import Collection
 from ..contract.contract import SAMPLE_ID, SAMPLE_LEVEL, Contract
 from ..contract.naming import (
+    CURRENT_ID,
     DATA_DIR,
     OFFSET,
     RELATIVE_PATH,
@@ -28,10 +29,6 @@ from .api import open_writer
 from .base import BuildResult
 from .progress import Progress
 
-# Sample ids restart in every TACOCAT partition, so the partition is part of
-# the key. It is None for FOLDER and ZIP datasets.
-SampleKey: TypeAlias = tuple[str | None, int]
-
 _BATCH_FILES = 256
 _BATCH_BYTES = 256 * 1024 * 1024
 
@@ -46,10 +43,9 @@ def export(
 ) -> BuildResult:
     """Copy a dataset or selected samples to a new TACO output.
 
-    ``samples`` is an Arrow-compatible table with ``sample_id`` and, for a
-    TACOCAT, ``source_file``. Other keyword arguments replace collection
-    fields. The export keeps the contract, renumbers samples, and recomputes
-    the extent.
+    ``samples`` is an Arrow-compatible table with ``sample_index``. Other
+    keyword arguments replace collection fields. The export keeps the
+    contract, renumbers samples, and recomputes the extent.
     """
     sources = source.sources if isinstance(source, Dataset) else normalize_sources(source)
     if len(sources) != 1:
@@ -82,6 +78,7 @@ class _Source:
         self.container = self.opened.container
         self.collection = Collection.from_dict(json.loads(self.opened.collection))
         self.levels: dict[str, pa.Table] = {}
+        self._sample_origins: dict[tuple[str | None, str], int] | None = None
         self.pending: list[tuple[str, int, int, Path]] = []
 
     @property
@@ -92,7 +89,7 @@ class _Source:
     def contract(self) -> Contract:
         return self.collection.contract
 
-    def level(self, name: str, selected: set[SampleKey] | None) -> pa.Table:
+    def level(self, name: str, selected: set[int] | None) -> pa.Table:
         if name not in self.levels:
             sql = native.sql([self.opened], idx=None, level=name, pivoted=True, files=None, location=False)
             connection = engine.open_reader()
@@ -101,59 +98,102 @@ class _Source:
             else:
                 # DuckDB filters while it scans the cached Parquet, before rows
                 # become Python objects, and preserves the source order.
-                keys = pa.table(
-                    {
-                        "partition": pa.array([partition for partition, _ in selected], pa.string()),
-                        "sample": pa.array([sample for _, sample in selected], pa.int64()),
-                    }
-                )
-                partition = f'rows."{SOURCE_FILE}"' if self.container == "tacocat" else "NULL"
+                keys = pa.table({"sample": pa.array(sorted(selected), pa.uint64())})
                 connection.register("export_keys", keys)
                 try:
+                    if name == SAMPLE_LEVEL:
+                        join = "export_keys AS keys"
+                        condition = f'rows."{CURRENT_ID}" = keys.sample'
+                    elif self.container == "tacocat":
+                        origins = self.sample_origins()
+                        chosen = [(origin, index) for origin, index in origins.items() if index in selected]
+                        connection.register(
+                            "export_origins",
+                            pa.table(
+                                {
+                                    "partition": pa.array([origin[0] for origin, _ in chosen], pa.string()),
+                                    "path": pa.array([origin[1] for origin, _ in chosen], pa.string()),
+                                }
+                            ),
+                        )
+                        join = "export_origins AS origin"
+                        condition = (
+                            f'rows."{SOURCE_FILE}" = origin.partition AND '
+                            f"split_part(rows.\"{RELATIVE_PATH}\", '/', 1) = origin.path"
+                        )
+                    else:
+                        join = "export_keys AS keys"
+                        condition = f"CAST(split_part(rows.\"{RELATIVE_PATH}\", '/', 1) AS UBIGINT) = keys.sample"
                     self.levels[name] = connection.execute(
-                        f"""
-                        SELECT rows.* EXCLUDE (ordinal)
-                        FROM (SELECT *, row_number() OVER () AS ordinal FROM ({sql})) AS rows
-                        SEMI JOIN export_keys AS keys
-                          ON CAST(split_part(rows."{RELATIVE_PATH}", '/', 1) AS BIGINT) = keys.sample
-                         AND {partition} IS NOT DISTINCT FROM keys.partition
-                        ORDER BY ordinal
-                        """
+                        f"SELECT rows.* EXCLUDE (ordinal) "
+                        f"FROM (SELECT *, row_number() OVER () AS ordinal FROM ({sql})) AS rows "
+                        f"SEMI JOIN {join} ON {condition} ORDER BY ordinal"
                     ).to_arrow_table()
                 finally:
                     connection.unregister("export_keys")
+                    if name != SAMPLE_LEVEL and self.container == "tacocat":
+                        connection.unregister("export_origins")
         return self.levels[name]
 
-    def select(self, samples: Any) -> set[SampleKey]:
+    def select(self, samples: Any) -> set[int]:
         # Accept any table that implements the Arrow C stream protocol.
         table = pa.table(samples)
-        if "sample_id" not in table.column_names:
-            raise ValueError("samples must contain a sample_id column")
-        ids = table.column("sample_id").to_pylist()
+        if "sample_index" not in table.column_names:
+            raise ValueError("samples must contain a sample_index column")
+        ids = table.column("sample_index").to_pylist()
         if any(isinstance(sample, bool) or not isinstance(sample, int) or sample < 0 for sample in ids):
-            raise ValueError("samples must contain non-negative integer sample_id values")
-        if self.container != "tacocat":
-            return {(None, sample) for sample in ids}
-        if "source_file" not in table.column_names:
-            raise ValueError("samples of a TACOCAT must keep the source_file column")
-        partitions = [
-            _metadata_path({SOURCE_FILE: value}, SOURCE_FILE) for value in table.column("source_file").to_pylist()
-        ]
-        return set(zip(partitions, ids, strict=True))
+            raise ValueError("samples must contain non-negative integer sample_index values")
+        return set(ids)
 
-    def validate_selection(self, selected: set[SampleKey], rows: pa.Table) -> None:
-        found = {key for key, _ in _rows(rows)}
+    def validate_selection(self, selected: set[int], rows: pa.Table) -> None:
+        found = {key for key, _ in self.rows(SAMPLE_LEVEL, rows)}
         missing = selected - found
         if not missing:
             return
-        ordered = sorted(missing, key=lambda key: (key[0] or "", key[1]))
-        if self.container == "tacocat":
-            preview = ", ".join(f"{partition}:{sample}" for partition, sample in ordered[:3])
-        else:
-            preview = ", ".join(str(sample) for _, sample in ordered[:3])
+        ordered = sorted(missing)
+        preview = ", ".join(str(sample) for sample in ordered[:3])
         suffix = "" if len(missing) <= 3 else ", ..."
         noun = "sample" if len(missing) == 1 else "samples"
         raise ValueError(f"{noun} not found in the source: {preview}{suffix}")
+
+    def sample_origins(self) -> dict[tuple[str | None, str], int]:
+        if self._sample_origins is None:
+            sql = native.sql([self.opened], idx=None, level=SAMPLE_LEVEL, pivoted=True, files=None, location=False)
+            table = engine.open_reader().execute(sql).to_arrow_table()
+            origins: dict[tuple[str | None, str], int] = {}
+            for row in table.to_pylist():
+                partition = row.get(SOURCE_FILE)
+                if partition is not None:
+                    partition = _metadata_path(row, SOURCE_FILE)
+                path = _metadata_path(row, RELATIVE_PATH)
+                index = row.get(CURRENT_ID)
+                if isinstance(index, bool) or not isinstance(index, int) or index < 0:
+                    raise ContainerError(f"invalid dataset metadata: {CURRENT_ID} must be a non-negative integer")
+                origins[(partition, path)] = index
+            self._sample_origins = origins
+        return self._sample_origins
+
+    def rows(self, level: str, table: pa.Table) -> Iterator[tuple[int, dict[str, Any]]]:
+        origins = self.sample_origins() if level != SAMPLE_LEVEL and self.container == "tacocat" else None
+        for row in table.to_pylist():
+            if level == SAMPLE_LEVEL:
+                sample = row.get(CURRENT_ID)
+            else:
+                relative_path = _metadata_path(row, RELATIVE_PATH)
+                prefix = relative_path.split("/", 1)[0]
+                source_file = row.get(SOURCE_FILE)
+                if source_file is not None:
+                    source_file = _metadata_path(row, SOURCE_FILE)
+                if origins is not None:
+                    sample = origins.get((source_file, prefix))
+                else:
+                    try:
+                        sample = int(prefix)
+                    except ValueError:
+                        sample = None
+            if isinstance(sample, bool) or not isinstance(sample, int) or sample < 0:
+                raise ContainerError("invalid dataset metadata: row does not belong to a sample")
+            yield sample, row
 
     def stage(self, row: dict[str, Any], target: Path) -> Path:
         # A local FOLDER already exposes the final bytes. Archives and remote
@@ -197,15 +237,15 @@ def _parent(location: Location) -> Location:
     return location.rstrip("/").rsplit("/", 1)[0]
 
 
-def _samples(dataset: _Source, selected: set[SampleKey] | None, stage: Path) -> Iterator[_PreparedSample]:
+def _samples(dataset: _Source, selected: set[int] | None, stage: Path) -> Iterator[_PreparedSample]:
     contract = dataset.contract
-    nodes: dict[SampleKey, dict[str, list[_PreparedNode]]] = {}
-    files: dict[SampleKey, list[dict[str, Any]]] = {}
+    nodes: dict[int, dict[str, list[_PreparedNode]]] = {}
+    files: dict[int, list[dict[str, Any]]] = {}
     # Rebuild the writer's logical tree from the normalized metadata levels.
     # Child rows are indexed first so each sample can be emitted in source order.
     for level in contract.levels[1:]:
         folder = level_folder(level)
-        for key, row in _rows(dataset.level(level, selected)):
+        for key, row in dataset.rows(level, dataset.level(level, selected)):
             name = row[RELATIVE_PATH].rsplit("/", 1)[1]
             is_folder = contract.is_folder(folder, name)
             node = _PreparedNode(name, is_folder, _metadata(contract, level, row))
@@ -215,7 +255,7 @@ def _samples(dataset: _Source, selected: set[SampleKey] | None, stage: Path) -> 
 
     # Preserve source order; each sample is yielded after its files arrive.
     ready: list[_PreparedSample] = []
-    for index, (key, row) in enumerate(_rows(dataset.level(SAMPLE_LEVEL, selected))):
+    for index, (key, row) in enumerate(dataset.rows(SAMPLE_LEVEL, dataset.level(SAMPLE_LEVEL, selected))):
         metadata = _metadata(contract, SAMPLE_LEVEL, row)
         logical_id = row.get(SAMPLE_ID)
         if not isinstance(logical_id, str) or not logical_id.strip():
@@ -227,6 +267,8 @@ def _samples(dataset: _Source, selected: set[SampleKey] | None, stage: Path) -> 
             if not separator:
                 raise ContainerError(f"{RELATIVE_PATH} has no sample prefix: {relative_path!r}")
             assets.append(_PreparedAsset(dataset.stage(child, stage / str(index) / path), path))
+        if not assets:
+            raise ContainerError(f"invalid dataset metadata: sample {logical_id!r} has no data files")
         levels = nodes.pop(key, {})
         rows = {level: tuple(levels.get(level, ())) for level in contract.levels[1:]}
         ready.append(_PreparedSample(logical_id, tuple(assets), metadata, rows))
@@ -236,22 +278,6 @@ def _samples(dataset: _Source, selected: set[SampleKey] | None, stage: Path) -> 
             ready.clear()
     dataset.flush()
     yield from ready
-
-
-def _rows(table: pa.Table) -> Iterator[tuple[SampleKey, dict[str, Any]]]:
-    for row in table.to_pylist():
-        relative_path = _metadata_path(row, RELATIVE_PATH)
-        prefix = relative_path.split("/", 1)[0]
-        try:
-            sample = int(prefix)
-        except ValueError:
-            raise ContainerError(f"{RELATIVE_PATH} must start with a sample index: {relative_path!r}") from None
-        if sample < 0:
-            raise ContainerError(f"{RELATIVE_PATH} must start with a non-negative sample index: {relative_path!r}")
-        source_file = row.get(SOURCE_FILE)
-        if source_file is not None:
-            source_file = _metadata_path(row, SOURCE_FILE)
-        yield (source_file, sample), row
 
 
 def _metadata_path(row: dict[str, Any], field: str) -> str:

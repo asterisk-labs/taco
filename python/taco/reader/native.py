@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 import sys
 import threading
@@ -15,7 +14,7 @@ from cffi import FFI
 
 from ..errors import ContainerError
 
-API_VERSION = 1
+API_VERSION = 2
 LIBRARY_ENV = "TACO_LIB"
 
 _ffi = FFI()
@@ -61,10 +60,6 @@ _ffi.cdef(
     taco_status taco_sql(const taco_dataset* const* datasets, size_t count,
                          const taco_read_options* options, char** out_sql);
     taco_status taco_profile(const char* source, char** out_name);
-    taco_status taco_manifest_candidate(const char* source, char** out_candidate);
-    taco_status taco_join_manifest_href(const char* candidate, const char* href, char** out_source);
-    taco_status taco_resolve(const char* source, char** out_json);
-
     typedef struct {
         const char* uri;
         uint64_t offset;
@@ -251,20 +246,6 @@ def profile(source: str | PathLike[str]) -> str:
     return str(_call("taco_profile", _encode(source)))
 
 
-def manifest_candidate(source: str | PathLike[str]) -> str | None:
-    return _call("taco_manifest_candidate", _encode(source))
-
-
-def join_manifest_href(candidate: str | PathLike[str], href: str) -> str:
-    return str(_call("taco_join_manifest_href", _encode(candidate), href.encode("utf-8")))
-
-
-def resolve(source: str | PathLike[str]) -> dict[str, Any]:
-    value = json.loads(str(_call("taco_resolve", _encode(source))))
-    assert isinstance(value, dict)
-    return value
-
-
 def fetch(items: Sequence[tuple[str, int, int, str | PathLike[str]]]) -> None:
     """Copy object ranges to local files.
 
@@ -288,9 +269,6 @@ __all__ = [
     "LIBRARY_ENV",
     "NativeDataset",
     "fetch",
-    "join_manifest_href",
-    "manifest_candidate",
     "profile",
-    "resolve",
     "sql",
 ]

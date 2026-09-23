@@ -74,14 +74,9 @@ class Dataset:
         return self._execute_sql(query)
 
     def _read_query(self, files: list[str] | None) -> str:
-        # sample_id is local to a partition, so source_file completes the key
-        # whenever several archives share one logical dataset.
-        keys = ["sample_id"]
-        if len(self.sources) > 1 or self.collection.sources is not None:
-            keys.append("source_file")
+        keys = ["sample_index"]
         using = ", ".join(_identifier(name) for name in keys)
-        order_keys = ["source_file", "sample_id"] if "source_file" in keys else keys
-        order = ", ".join(f"d.{_identifier(name)}" for name in order_keys)
+        order = f"d.{_identifier('sample_index')}"
 
         selected = set(self.contract.structure if files is None else files)
         unknown = sorted(selected.difference(self.contract.structure))

@@ -11,6 +11,8 @@ from .collection import load_collection
 from .query import Files, Index, build_native_sql
 from .source import PathInput
 
+_QUERIES = {"collection", "contract", "levels", "native_sql", "profile", "structure"}
+
 
 def contract(path: PathInput) -> pa.Table:
     """Return the contract as rows of ``kind`` and ``value``."""
@@ -28,7 +30,7 @@ def contract(path: PathInput) -> pa.Table:
 
 
 def structure(path: PathInput) -> list[str]:
-    """Return ``taco:structure``, empty when the contract declares none."""
+    """Return the declared ``taco:structure`` paths."""
     return native.NativeDataset(path).structure
 
 
@@ -73,4 +75,13 @@ def native_sql(
     return build_native_sql(path, idx=idx, level=level, pivoted=layout == "wide", files=files, location=location)
 
 
-__all__ = ["collection", "contract", "derived", "levels", "native_sql", "profile", "structure"]
+def inspect(path: PathInput, query: str) -> object:
+    """Inspect one part of a dataset without reading its samples."""
+    if not isinstance(query, str) or query not in _QUERIES:
+        choices = ", ".join(sorted(_QUERIES))
+        raise ValueError(f"query must be one of: {choices}")
+    operation = globals()[query]
+    return operation(path)
+
+
+__all__ = ["collection", "contract", "derived", "inspect", "levels", "native_sql", "profile", "structure"]

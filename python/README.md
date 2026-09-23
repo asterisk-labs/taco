@@ -22,17 +22,6 @@ targets = dataset.read(files="target.tif")
 train = dataset.sql("SELECT * FROM data WHERE \"ml:split\" = 'train'")
 ```
 
-Versioned dataset roots select their declared default release without listing
-remote storage. Use a release URL to open an immutable version directly.
-
-```python
-dataset = taco.open_dataset("https://data.source.coop/major-tom/core-dem/")
-print(dataset.version)
-print(dataset.versions)
-
-previous = taco.open_dataset("https://data.source.coop/major-tom/core-dem/1.0.0/")
-```
-
 `export()` writes a smaller dataset with the same contract. `samples` is a
 PyArrow-compatible table, normally selected from the `data` SQL relation.
 Keyword arguments replace fields of the collection, such
@@ -43,7 +32,7 @@ downloaded. Pass `overwrite=True` to replace an existing TACO output.
 ```python
 source = "https://data.source.coop/major-tom/core-dem/"
 dataset = taco.open_dataset(source)
-rows = dataset.sql("SELECT * FROM data ORDER BY sample_id LIMIT 10")
+rows = dataset.sql("SELECT * FROM data ORDER BY sample_index LIMIT 10")
 taco.export(
     source,
     "core-dem-sample.zip",

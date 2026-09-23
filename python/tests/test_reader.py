@@ -34,6 +34,11 @@ def test_reader_inspects_an_archive(archive: Path) -> None:
     assert "read_parquet(" in inspect_module.native_sql(archive, idx=1)
     with pytest.raises(ValueError, match="layout"):
         inspect_module.native_sql(archive, layout="flat")
+    assert taco.inspect(archive, "structure") == inspect_module.structure(archive)
+    assert taco.inspect(archive, "contract").equals(contract)
+    assert "read_parquet(" in taco.inspect(archive, "native_sql")
+    with pytest.raises(ValueError, match="query must be one of"):
+        taco.inspect(archive, "unknown")
 
 
 def test_dataset_api(archive: Path) -> None:
@@ -46,9 +51,11 @@ def test_dataset_api(archive: Path) -> None:
     assert taco.read(archive).num_rows == 4
     assert repr(dataset).startswith("Dataset(")
 
-    long = dataset.sql("SELECT sample_id, path, \"taco:location\" FROM files WHERE sample_id = 3 AND path = 'mask.tif'")
+    long = dataset.sql(
+        "SELECT sample_index, path, \"taco:location\" FROM files WHERE sample_index = 3 AND path = 'mask.tif'"
+    )
     assert long.column("path").to_pylist() == ["mask.tif"]
-    assert long.column("sample_id").to_pylist() == [3]
+    assert long.column("sample_index").to_pylist() == [3]
     assert long.column("taco:location")[0].as_py().startswith("/vsisubfile/")
     assert "taco:location" not in dataset.sql("SELECT * FROM data").column_names
 
@@ -56,13 +63,14 @@ def test_dataset_api(archive: Path) -> None:
     assert level.num_rows == 8
     assert "internal:current_id" in level.column_names
     assert "taco:location" not in level.column_names
-    assert dataset.sql("SELECT * FROM data WHERE sample_id = 1 -- trailing comment").num_rows == 1
+    assert dataset.sql("SELECT * FROM data WHERE sample_index = 1 -- trailing comment").num_rows == 1
 
 
 def test_high_level_read_signatures() -> None:
     assert list(python_inspect.signature(taco.read).parameters) == ["source", "files"]
     assert list(python_inspect.signature(taco.Dataset.read).parameters) == ["self", "files"]
     assert list(python_inspect.signature(taco.Dataset.sql).parameters) == ["self", "query"]
+    assert list(python_inspect.signature(taco.inspect).parameters) == ["path", "query"]
 
 
 def test_reader_combines_partitions(archive: Path, tmp_path: Path) -> None:
@@ -75,22 +83,29 @@ def test_reader_combines_partitions(archive: Path, tmp_path: Path) -> None:
     assert "2 sources" in dataset._repr_html_()
     wide = dataset.read()
     assert wide.num_rows == 8
-    assert list(zip(wide.column("source_file").to_pylist(), wide.column("sample_id").to_pylist(), strict=True)) == [
+    assert list(zip(wide.column("source_file").to_pylist(), wide.column("sample_index").to_pylist(), strict=True)) == [
         ("dataset.zip", 0),
         ("dataset.zip", 1),
         ("dataset.zip", 2),
         ("dataset.zip", 3),
-        ("part.zip", 0),
-        ("part.zip", 1),
-        ("part.zip", 2),
-        ("part.zip", 3),
+        ("part.zip", 4),
+        ("part.zip", 5),
+        ("part.zip", 6),
+        ("part.zip", 7),
     ]
     assert set(wide.column("source_file").to_pylist()) == {"dataset.zip", "part.zip"}
-    assert dataset.sql("SELECT * FROM data WHERE sample_id >= 2 AND sample_id < 4").num_rows == 4
+    assert dataset.sql("SELECT * FROM data WHERE sample_index >= 2 AND sample_index < 4").num_rows == 2
     assert set(dataset.sql("SELECT * FROM sample").column("source_file").to_pylist()) == {
         "dataset.zip",
         "part.zip",
     }
+
+    selected = engine.open_reader().execute(inspect_module.native_sql([archive, copy], idx=4)).to_arrow_table()
+    assert selected.column("sample_index").to_pylist() == [4]
+    assert selected.column("source_file").to_pylist() == ["part.zip"]
+    window = engine.open_reader().execute(inspect_module.native_sql([archive, copy], idx=(3, 5))).to_arrow_table()
+    assert window.column("sample_index").to_pylist() == [3, 4]
+    assert window.column("source_file").to_pylist() == ["dataset.zip", "part.zip"]
 
 
 def test_reader_keeps_the_location_of_single_file_samples(tmp_path: Path) -> None:
@@ -180,7 +195,7 @@ def test_sql_relations_and_nested_wide_names(archive: Path) -> None:
     assert not any(name.startswith("before/") for name in dataset.read().column_names)
     assert dataset.sql("SELECT count(*) AS n FROM data").column("n").to_pylist() == [4]
     files = dataset.sql(
-        "SELECT sample_id, path, \"taco:location\" FROM files WHERE path = 'before/B02.tif' ORDER BY sample_id"
+        "SELECT sample_index, path, \"taco:location\" FROM files WHERE path = 'before/B02.tif' ORDER BY sample_index"
     )
     assert files.num_rows == 4
     assert all(value.startswith("/vsisubfile/") for value in files.column("taco:location").to_pylist())

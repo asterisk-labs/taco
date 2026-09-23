@@ -178,14 +178,16 @@ def data(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 def by_sample(table: pa.Table) -> list[dict]:
     return sorted(
-        table.to_pylist(), key=lambda row: (row.get("source_file") or "", row["sample_id"], row.get("path") or "")
+        table.to_pylist(), key=lambda row: (row.get("source_file") or "", row["sample_index"], row.get("path") or "")
     )
 
 
 def test_long_rows_carry_their_own_and_ancestor_metadata(data: Path) -> None:
     table = taco.open_dataset(data / "nested.zip").sql("SELECT * FROM files")
     assert table.num_rows == 12
-    first = [row for row in by_sample(table) if row["sample_id"] == 0]
+    assert table.column_names[:4] == ["sample_index", "id", "path", "taco:location"]
+    assert table.column_names[4:] == sorted(table.column_names[4:])
+    first = [row for row in by_sample(table) if row["sample_index"] == 0]
     assert [(row["path"], row["node:kind"], row["raster:resolution"]) for row in first] == [
         ("after/B02.bin", "imagery", 20),
         ("before/B02.bin", "imagery", 10),
@@ -198,7 +200,7 @@ def test_long_rows_carry_their_own_and_ancestor_metadata(data: Path) -> None:
 def test_wide_rows_have_a_location_per_leaf(data: Path) -> None:
     table = taco.read(data / "nested.zip")
     assert table.num_rows == 3
-    assert table.column("sample_id").to_pylist() == [0, 1, 2]
+    assert table.column("sample_index").to_pylist() == [0, 1, 2]
     row = by_sample(table)[0]
     assert row["before__B02.bin::location"].startswith("/vsisubfile/")
     assert row["before__B02.bin::location"].endswith(str((data / "nested.zip").resolve()))
@@ -240,9 +242,11 @@ def test_files_and_sql_relations(data: Path) -> None:
     assert set(dataset.sql("SELECT path FROM files WHERE path = 'change.bin'").column("path").to_pylist()) == {
         "change.bin"
     }
-    assert dataset.sql("SELECT sample_id FROM data WHERE sample_id = 1").column("sample_id").to_pylist() == [1]
+    assert dataset.sql("SELECT sample_index FROM data WHERE sample_index = 1").column("sample_index").to_pylist() == [1]
     assert sorted(
-        dataset.sql("SELECT sample_id FROM data WHERE sample_id >= 1 AND sample_id < 3").column("sample_id").to_pylist()
+        dataset.sql("SELECT sample_index FROM data WHERE sample_index >= 1 AND sample_index < 3")
+        .column("sample_index")
+        .to_pylist()
     ) == [1, 2]
 
     level = dataset.sql("SELECT * FROM children__before")
@@ -256,20 +260,20 @@ def test_variable_leaves_are_ordered_lists(data: Path) -> None:
     assert [(row["ml:n_images"], len(row["img::location"])) for row in rows] == [(1, 1), (2, 2), (3, 3)]
     long = taco.open_dataset(path).sql("SELECT * FROM files")
     first_image = next(
-        row["taco:location"] for row in long.to_pylist() if row["sample_id"] == 2 and row["path"] == "img0.bin"
+        row["taco:location"] for row in long.to_pylist() if row["sample_index"] == 2 and row["path"] == "img0.bin"
     )
     assert rows[2]["img::location"][0] == first_image
     assert "img::location" not in taco.open_dataset(path).sql("SELECT * FROM data").column_names
 
     nested = taco.read(data / "nested-variable.zip")
-    assert nested.column_names == ["sample_id", "id", "before__img::location"]
+    assert nested.column_names == ["sample_index", "id", "before__img::location"]
     assert len(nested.column("before__img::location")[0].as_py()) == 2
 
 
 def test_a_redeclared_field_takes_the_deepest_value(data: Path) -> None:
     dataset = taco.open_dataset(data / "shadow.zip")
     rows = by_sample(dataset.sql("SELECT * FROM files"))
-    assert [(row["sample_id"], row["path"], row["raster:resolution"]) for row in rows] == [
+    assert [(row["sample_index"], row["path"], row["raster:resolution"]) for row in rows] == [
         (0, "before/B02.bin", 3),
         (0, "change.bin", 2),
         (1, "before/B02.bin", 3),
@@ -289,7 +293,7 @@ def test_single_file_samples(data: Path) -> None:
     table = dataset.read()
     assert table.num_rows == 6
     assert all(value.startswith("/vsisubfile/") for value in table.column("data.bin::location").to_pylist())
-    files = dataset.sql("SELECT * FROM files ORDER BY sample_id")
+    files = dataset.sql("SELECT * FROM files ORDER BY sample_index")
     assert files.column("path").to_pylist() == ["data.bin"] * 6
     with pytest.raises(ContainerError, match="unknown structure leaf"):
         dataset.read(files=["change.bin"])

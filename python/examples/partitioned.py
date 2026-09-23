@@ -1,13 +1,12 @@
 import taco
 
 contract = taco.Contract(
-    structure=None,
+    structure=["data.bin"],
     metadata=taco.MetadataSchema(taco.Level("sample", ml=taco.metadata.sample.Split)),
 )
 collection = taco.Collection(
     contract=contract,
     id="partitioned",
-    dataset_version="1.0.0",
     description="Dataset partitioned by training split",
     licenses=["MIT"],
     providers=["Asterisk Labs"],
@@ -23,6 +22,7 @@ with taco.open_writer(
     for index, split in enumerate(("train", "train", "validation", "test")):
         writer.add(
             taco.Sample(
+                id=f"sample-{index}",
                 assets=f"sample-{index}".encode(),
                 metadata=taco.Metadata(ml=taco.metadata.sample.Split(split=split)),
             )

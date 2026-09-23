@@ -98,7 +98,6 @@ contract = taco.Contract(
 collection = taco.Collection(
     contract=contract,
     id="oceantaco-istac",
-    dataset_version="1.0.0",
     title="Synthetic SWOT and Argo collocations",
     description="Irregular ocean swaths with satellite predictors and collocated Argo profiles",
     licenses=["MIT"],
@@ -255,6 +254,7 @@ with taco.open_writer(collection, "oceantaco-istac.zip", overwrite=True) as writ
         )
         writer.add(
             taco.Sample(
+                id=f"swath-{index:04d}",
                 assets=assets,
                 folders=[
                     taco.Folder(

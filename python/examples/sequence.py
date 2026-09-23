@@ -20,7 +20,6 @@ contract = taco.Contract(
 collection = taco.Collection(
     contract=contract,
     id="image-sequence",
-    dataset_version="1.0.0",
     description="Short image sequences with variable length",
     licenses=["MIT"],
     providers=["Asterisk Labs"],
@@ -36,6 +35,7 @@ with taco.open_writer(collection, "image-sequence.zip", overwrite=True) as write
         split = "test" if sample_index == 2 else "train"
         writer.add(
             taco.Sample(
+                id=f"sequence-{sample_index}",
                 assets=assets,
                 metadata=taco.Metadata(ml=taco.metadata.sample.Split(split=split)),
             )

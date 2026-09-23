@@ -34,7 +34,6 @@ contract = taco.Contract(
 collection = taco.Collection(
     contract=contract,
     id="time-series",
-    dataset_version="1.0.0",
     description="Satellite observations collected through time",
     licenses=["MIT"],
     providers=["Asterisk Labs"],
@@ -54,7 +53,13 @@ with taco.open_writer(collection, "time-series.zip", overwrite=True) as writer:
                 ),
             )
             assets.append(taco.Asset(encode(image), path=f"image{step}.npy", metadata=metadata))
-        writer.add(taco.Sample(assets=assets, metadata=taco.Metadata(site=Site(name=f"site-{site_index}"))))
+        writer.add(
+            taco.Sample(
+                id=f"site-{site_index}",
+                assets=assets,
+                metadata=taco.Metadata(site=Site(name=f"site-{site_index}")),
+            )
+        )
     writer.run()
 
 dataset = taco.open_dataset("time-series.zip")

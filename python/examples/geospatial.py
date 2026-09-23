@@ -19,7 +19,6 @@ contract = taco.Contract(
 collection = taco.Collection(
     contract=contract,
     id="peru-sites",
-    dataset_version="1.0.0",
     description="Small geospatial dataset with derived MajorTOM cells",
     licenses=["MIT"],
     providers=["Asterisk Labs"],
@@ -36,7 +35,7 @@ with taco.open_writer(collection, "geospatial.zip", overwrite=True) as writer:
             time_start=datetime(2024, 1, index + 1, tzinfo=timezone.utc),
         )
         asset = taco.Asset(bytes([index + 1]) * 64, path="image.bin")
-        writer.add(taco.Sample(assets=asset, metadata=taco.Metadata(stac=stac)))
+        writer.add(taco.Sample(id=f"scene-{index}", assets=asset, metadata=taco.Metadata(stac=stac)))
     writer.run()
 
 dataset = taco.open_dataset("geospatial.zip")

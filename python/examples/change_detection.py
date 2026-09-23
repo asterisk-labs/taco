@@ -32,7 +32,6 @@ contract = taco.Contract(
 collection = taco.Collection(
     contract=contract,
     id="change-detection",
-    dataset_version="1.0.0",
     description="Paired observations and their change mask",
     licenses=["MIT"],
     providers=["Asterisk Labs"],
@@ -51,6 +50,7 @@ paths = {
 }
 assets = [taco.Asset(encode(array), path=path) for path, array in paths.items()]
 sample = taco.Sample(
+    id="scene-0001",
     assets=assets,
     metadata=taco.Metadata(ml=taco.metadata.sample.Split(split="train")),
     folders=[

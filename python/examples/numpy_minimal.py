@@ -23,7 +23,6 @@ contract = taco.Contract(
 collection = taco.Collection(
     contract=contract,
     id="numpy-demo",
-    dataset_version="1.0.0",
     description="Small NumPy dataset",
     licenses=["MIT"],
     providers=["me"],
@@ -34,6 +33,7 @@ with taco.open_writer(collection, "numpy-demo.zip", overwrite=True) as writer:
         image = np.random.default_rng(index).random((3, 32, 32), dtype=np.float32)
         writer.add(
             taco.Sample(
+                id=f"chip-{index:03d}",
                 metadata=taco.Metadata(ml=ML(split="train" if index < 8 else "test")),
                 assets=[
                     taco.Asset(encode(image), path="image.npy"),

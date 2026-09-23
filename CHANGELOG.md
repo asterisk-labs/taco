@@ -4,6 +4,35 @@ All notable changes across the TACO core, language bindings, writer, and
 JavaScript reader are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Added
+
+- Samples carry a required `id`, passed as `taco.Sample(id=...)` and stored in
+  the `id` column of `sample.parquet`. It must be unique across the dataset and
+  its TACOCAT partitions; the row position stays the physical identity.
+- `MajorTOM` takes `extra`, a mapping of name to distance, so one extension
+  produces several codes in its namespace, such as a cell id and a coarser code
+  for `partition_by`.
+
+### Changed
+
+- Every contract declares a non-empty `taco:structure`. Single-file datasets
+  use one fixed leaf instead of `taco:structure: null`.
+- Variable sequences require at least one file, so their lower bound must be
+  one or greater.
+- Dataset identity no longer includes `dataset_version`. A path ending in
+  `.zip` selects a ZIP container and every other path selects a folder.
+- Nested list, struct, and map values preserve their nullability in contract
+  type names.
+
+### Fixed
+
+- `export()` dropped the sample `id` when subsetting.
+- Writers and validators now reject missing, blank, or duplicate sample ids.
+- `MajorTOM` preserves fractional distances and records the parameters that
+  determine its grid in `COLLECTION.json`.
+
 ## 0.8.2 - 2026-09-18
 
 ### Changed

@@ -62,7 +62,6 @@ contract = taco.Contract(
 collection = taco.Collection(
     contract=contract,
     id="stac-segmentation",
-    dataset_version="1.0.0",
     title="Synthetic Sentinel-2 land-cover chips",
     description="Regular multispectral chips and dense land-cover labels",
     licenses=["MIT"],
@@ -170,6 +169,7 @@ with taco.open_writer(collection, "stac-segmentation.zip", overwrite=True) as wr
         ]
         writer.add(
             taco.Sample(
+                id=f"chip-{index:04d}",
                 assets=assets,
                 metadata=taco.Metadata(
                     stac=stac,

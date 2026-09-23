@@ -29,8 +29,8 @@ def test_minimal_example(tmp_path: Path, monkeypatch) -> None:
     assert taco.validate(archive).ok
     dataset = taco.open_dataset(archive)
     assert dataset.collection.id == "minimal"
-    assert dataset.contract.structure is None
-    assert "sample file" in dataset._repr_html_()
+    assert dataset.contract.structure == ("data.bin",)
+    assert "data.bin" in dataset._repr_html_()
     assert dataset.read().num_rows == 1
     assert dataset.sql("SELECT * FROM files").num_rows == 1
 

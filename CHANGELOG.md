@@ -4,6 +4,12 @@ All notable changes across the TACO core, language bindings, writer, and
 JavaScript reader are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.9.1 - 2026-09-23
+
+### Changed
+
+- Maintenance release with no user-facing changes.
+
 ## 0.9.0 - 2026-09-23
 
 ### Added

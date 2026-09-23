@@ -126,8 +126,9 @@ export async function openSource(source, client, hint = "auto", embedded = null)
     throw new TypeError("taco: container must be auto, folder, zip, or tacocat");
   }
   const pathname = new URL(url).pathname;
+  const sourceName = pathname.replace(/\/+$/, "").split("/").at(-1);
   const zipName = pathname.toLowerCase().endsWith(".zip");
-  const directoryName = pathname.endsWith("/") || pathname.split("/").at(-1) === ".tacocat";
+  const directoryName = pathname.endsWith("/") || sourceName === ".tacocat";
   if (hint === "zip" || (hint === "auto" && zipName)) return openZip(url, client, embedded);
   if (hint === "auto" && !directoryName) {
     try {
@@ -137,8 +138,21 @@ export async function openSource(source, client, hint = "auto", embedded = null)
     }
   }
 
-  const base = directoryUrl(url);
-  const parsed = embedded ?? (await loadCollection(client, new URL(COLLECTION, base).href));
+  let base = directoryUrl(url);
+  let parsed;
+  if (embedded) {
+    parsed = embedded;
+  } else {
+    try {
+      parsed = await loadCollection(client, new URL(COLLECTION, base).href);
+    } catch (error) {
+      if (hint === "folder" || sourceName === ".tacocat" || !isMissing(error)) {
+        throw error;
+      }
+      base = new URL(".tacocat/", base).href;
+      parsed = await loadCollection(client, new URL(COLLECTION, base).href);
+    }
+  }
   const actual = parsed.sources ? "tacocat" : "folder";
   if (hint !== "auto" && hint !== actual) {
     fail("CONTAINER_MISMATCH", `requested ${hint} but COLLECTION.json describes ${actual}`);
@@ -159,6 +173,13 @@ function isNotArchive(error) {
     NOT_ARCHIVE.has(error.code) ||
     (error.code === "HTTP_ERROR" && /\bHTTP 404\b/.test(error.message))
   );
+}
+
+/** @param {unknown} error */
+function isMissing(error) {
+  return error instanceof TacoError &&
+    error.code === "HTTP_ERROR" &&
+    /\bHTTP 404\b/.test(error.message);
 }
 
 /**

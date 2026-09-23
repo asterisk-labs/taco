@@ -210,6 +210,21 @@ test("opens a FOLDER without using ZIP offsets", async () => {
   );
 });
 
+test("finds a TACOCAT from its dataset root", async () => {
+  const start = fixture.requests.length;
+  const dataset = await openDataset(`${fixture.baseUrl}/catalog/`);
+
+  assert.equal(dataset.container, "tacocat");
+  assert.equal(dataset.url, `${fixture.baseUrl}/catalog/.tacocat/`);
+  assert.deepEqual(
+    fixture.requests.slice(start, start + 2).map((request) => request.path),
+    ["/catalog/COLLECTION.json", "/catalog/.tacocat/COLLECTION.json"],
+  );
+
+  const explicit = await openDataset(`${fixture.baseUrl}/catalog/`, { container: "tacocat" });
+  assert.equal(explicit.url, `${fixture.baseUrl}/catalog/.tacocat/`);
+});
+
 test("works when a server ignores byte ranges", async () => {
   const dataset = await openDataset(`${fixture.baseUrl}/full.zip`);
   const rows = await dataset.read({ idx: 2, files: ["mask.bin"] });

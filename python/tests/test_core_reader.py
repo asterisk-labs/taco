@@ -337,6 +337,9 @@ def test_folder_and_catalog_locations(data: Path) -> None:
     locations = catalog.column("change.bin::location").to_pylist()
     assert all(value.split(",", 1)[1].startswith(str((data / "catalog").resolve()) + "/part_") for value in locations)
 
+    catalog_root = taco.read(data / "catalog")
+    assert catalog_root.equals(catalog)
+
 
 def test_contract_errors(data: Path, tmp_path: Path) -> None:
     broken = tmp_path / "broken"

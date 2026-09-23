@@ -256,6 +256,11 @@ void test_open_directories() {
     CHECK(catalog.location_base == data("taco_cat"));
     CHECK((catalog.level_names == Strings{"sample", "children"}));
 
+    const auto catalog_root = taco::open_dataset(data("taco_cat"), cache);
+    CHECK(catalog_root.container == taco::Container::tacocat);
+    CHECK(catalog_root.source == data("taco_cat/.tacocat"));
+    CHECK(catalog_root.location_base == data("taco_cat"));
+
     CHECK_THROWS(taco::open_dataset(data("taco_badjson"), cache), "COLLECTION.json is not valid JSON");
     CHECK_THROWS(taco::open_dataset(data("taco_badversion"), cache), "unsupported TACO version '2.0.0'");
     CHECK_THROWS(taco::open_dataset(data(""), cache), "directory has no COLLECTION.json");
@@ -271,6 +276,9 @@ void test_open_directories() {
     CHECK(uri_folder.level_paths[0].starts_with(cache));
     const auto uri_catalog = taco::open_dataset(root + "/taco_cat/.tacocat/", cache);
     CHECK(uri_catalog.container == taco::Container::tacocat);
+    const auto uri_catalog_root = taco::open_dataset(root + "/taco_cat/", cache);
+    CHECK(uri_catalog_root.container == taco::Container::tacocat);
+    CHECK(uri_catalog_root.source == root + "/taco_cat/.tacocat");
     CHECK(taco::open_dataset(root + "/taco_flat.zip", cache).container == taco::Container::zip);
 
     CHECK(taco::remote_directory("hf://datasets/org/repo") == "/vsihf/datasets/org/repo");

@@ -599,6 +599,8 @@ TACOCAT makes several ZIP partitions queryable as one collection. It contains co
 └── COLLECTION.json
 ```
 
+A reader MUST accept either the `.tacocat/` directory or its parent dataset directory. For example, when `/datasets/clouds/` has no `COLLECTION.json`, the reader tries `/datasets/clouds/.tacocat/COLLECTION.json`.
+
 Each Parquet file combines the corresponding tables from the source ZIPs. Partitions follow their order in `taco:sources.partitions`. Rows within a partition keep their original order.
 
 The consolidator MUST assign `internal:current_id` again from zero in every combined table. It MUST also rewrite `internal:parent_id` using the combined parent table. `internal:source_file` identifies the source ZIP of each row.
@@ -874,7 +876,7 @@ The output keeps the source contract, identity, licenses, providers, tasks, and 
 Without `samples`, the export copies every sample. This can convert a FOLDER to ZIP or merge a TACOCAT into one dataset. `overwrite=True` replaces an existing TACO output.
 
 ```
-source = "https://data.source.coop/major-tom/core-dem/.tacocat/"
+source = "https://data.source.coop/major-tom/core-dem/"
 dataset = taco.open_dataset(source)
 samples = dataset.sql('SELECT * FROM data ORDER BY "taco:sample_index" LIMIT 10')
 taco.export(

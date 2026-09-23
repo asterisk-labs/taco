@@ -29,7 +29,7 @@ console.log(dataset.structure);  // taco:structure
 console.log(dataset.levels);     // sample, children, ...
 ```
 
-The same call accepts the URL of a FOLDER directory or a `.tacocat` directory.
+The same call accepts the URL of a FOLDER directory, a `.tacocat` directory, or the parent directory that contains `.tacocat`.
 Auto-detection verifies the CoZIP profile even when an archive URL has no
 `.zip` suffix, and classifies directories from their `COLLECTION.json`. An
 explicit container hint is also available:

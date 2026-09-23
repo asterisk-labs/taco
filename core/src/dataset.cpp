@@ -242,11 +242,16 @@ Dataset open_zip(const std::string& source, const std::string& cache_root) {
 }
 
 Dataset open_local_directory(const std::string& source) {
-    const std::string directory = trim_trailing_slashes(source);
-    const fs::path root = local_path(directory);
+    std::string directory = trim_trailing_slashes(source);
+    fs::path root = local_path(directory);
     std::error_code error;
-    if (!fs::is_regular_file(root / collection_name, error))
-        fail("directory has no COLLECTION.json: " + directory);
+    if (!fs::is_regular_file(root / collection_name, error)) {
+        const fs::path catalog = root / ".tacocat";
+        if (!fs::is_regular_file(catalog / collection_name, error))
+            fail("directory has no COLLECTION.json or .tacocat/COLLECTION.json: " + directory);
+        root = catalog;
+        directory = utf8(root);
+    }
 
     // TACO spec 7.5: a catalog sits beside the archives it indexes, so
     // internal:source_file resolves against its parent directory.
@@ -339,6 +344,39 @@ Dataset open_uri_directory(const std::string& source, const std::string& cache_r
     stamp.key = remote_sizes_key(validation_sizes);
     cache.store(entry_label(collection, container, directory), files, std::move(stamp));
     return cached_dataset(directory, container, tacocat ? parent_path(location) : location, cache);
+}
+
+std::optional<Dataset> cached_uri_dataset(const std::string& source, const std::string& cache_root);
+
+Dataset open_uri_directory_or_catalog(const std::string& source, const std::string& cache_root) {
+    try {
+        return open_uri_directory(source, cache_root);
+    } catch (const Error& error) {
+        bool missing = error.status() == TACO_ERR_NOT_FOUND || error.transport() == KARU_ERR_AUTH;
+        if (source.starts_with("file://")) {
+            std::string_view path = without_query(source);
+            path.remove_prefix(7);
+#ifdef _WIN32
+            if (path.size() >= 3 && path[0] == '/' && path[2] == ':')
+                path.remove_prefix(1);
+#endif
+            std::error_code ignored;
+            missing = !fs::is_regular_file(local_path(path) / collection_name, ignored);
+        }
+        if (!missing || source_name(source) == ".tacocat")
+            throw;
+        const auto original = std::current_exception();
+        const std::string catalog = child_path(trim_trailing_slashes(source), ".tacocat");
+        try {
+            if (auto cached = cached_uri_dataset(catalog, cache_root))
+                return *cached;
+            return open_uri_directory(catalog, cache_root);
+        } catch (...) {
+            if (error.transport() == KARU_ERR_AUTH)
+                std::rethrow_exception(original);
+            throw;
+        }
+    }
 }
 
 // A cached URI is reused only after its origin object has been revalidated.
@@ -556,7 +594,7 @@ Dataset open_dataset(const std::string& source, const std::string& cache_dir) {
         if (is_zip_name(source)) {
             dataset = open_zip(source, cache_root);
         } else if (is_explicit_remote_directory(source)) {
-            dataset = open_uri_directory(source, cache_root);
+            dataset = open_uri_directory_or_catalog(source, cache_root);
         } else {
             bool archive = false;
             bool opened_as_directory = false;
@@ -570,7 +608,7 @@ Dataset open_dataset(const std::string& source, const std::string& cache_dir) {
                     throw;
                 const auto original = std::current_exception();
                 try {
-                    dataset = open_uri_directory(source, cache_root);
+                    dataset = open_uri_directory_or_catalog(source, cache_root);
                     opened_as_directory = true;
                 } catch (...) {
                     std::rethrow_exception(original);
@@ -578,7 +616,7 @@ Dataset open_dataset(const std::string& source, const std::string& cache_dir) {
             }
             if (!opened_as_directory)
                 dataset = archive ? open_zip(source, cache_root)
-                                  : open_uri_directory(source, cache_root);
+                                  : open_uri_directory_or_catalog(source, cache_root);
         }
     }
     else if (fs::is_directory(local_path(source), error))

@@ -6,6 +6,13 @@ const fixturePath = new URL("../../r/tests/testthat/data/taco.zip", import.meta.
 /** Start a local HTTP server with ZIP and virtual FOLDER views of the fixture. */
 export async function fixtureServer() {
   const archive = new Uint8Array(await readFile(fixturePath));
+  const catalogPath = new URL("../../core/tests/data/taco_cat/.tacocat/", import.meta.url);
+  const catalog = new Map(await Promise.all(
+    ["COLLECTION.json", "sample.parquet", "children.parquet"].map(async (name) => [
+      name,
+      new Uint8Array(await readFile(new URL(name, catalogPath))),
+    ]),
+  ));
   const entries = storedEntries(archive);
   const collection = JSON.parse(new TextDecoder().decode(entries.get("COLLECTION.json")));
   const collisionCollection = new TextEncoder().encode(JSON.stringify({
@@ -54,6 +61,11 @@ export async function fixtureServer() {
     if (path.startsWith("/folder/")) {
       const name = decodeURIComponent(path.slice("/folder/".length));
       const bytes = entries.get(name);
+      if (bytes) return serve(response, bytes, request.headers.range);
+    }
+    if (path.startsWith("/catalog/.tacocat/")) {
+      const name = decodeURIComponent(path.slice("/catalog/.tacocat/".length));
+      const bytes = catalog.get(name);
       if (bytes) return serve(response, bytes, request.headers.range);
     }
     response.writeHead(404);

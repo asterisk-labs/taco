@@ -2,7 +2,7 @@
   <img src="docs/images/banner.svg" alt="TACO — AI-ready Earth Observation datasets." width="700"/>
   <p>
     <a href="docs/spec/LICENSE"><img src="https://img.shields.io/badge/license-MIT-EAB308?style=flat-square" alt="License MIT"/></a>
-    <a href="https://github.com/asterisk-labs/taco/actions/workflows/release.yml"><img src="https://img.shields.io/github/actions/workflow/status/asterisk-labs/taco/release.yml?label=release&style=flat-square" alt="Release"/></a>
+    <a href="https://github.com/asterisk-labs/taco/actions/workflows/release.yml"><img src="https://github.com/asterisk-labs/taco/actions/workflows/release.yml/badge.svg" alt="Release"/></a>
     <a href="https://github.com/asterisk-labs/taco/actions/workflows/python.yml"><img src="https://img.shields.io/badge/python%20coverage-88%25-brightgreen?style=flat-square" alt="Python coverage 88%"/></a>
     <a href="https://pypi.org/project/taco-eo"><img src="https://img.shields.io/pypi/v/taco-eo?label=python&logo=python&logoColor=white&color=3776AB&style=flat-square" alt="Python"/></a>
     <a href="https://pypi.org/project/taco-eo"><img src="https://img.shields.io/pypi/pyversions/taco-eo?style=flat-square" alt="Supported Python versions"/></a>

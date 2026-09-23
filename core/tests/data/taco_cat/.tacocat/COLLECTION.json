@@ -1,7 +1,6 @@
 {
   "taco:version": "3.0.0",
   "id": "taco-cat",
-  "dataset_version": "1.0.0",
   "description": "taco-cat",
   "licenses": [
     "CC-BY-4.0"
@@ -13,9 +12,6 @@
         "producer"
       ]
     }
-  ],
-  "tasks": [
-    "segmentation"
   ],
   "taco:structure": [
     "image.bin"
@@ -45,6 +41,9 @@
     },
     "children": {}
   },
+  "tasks": [
+    "segmentation"
+  ],
   "title": "taco-cat",
   "taco:sources": {
     "samples": 6,

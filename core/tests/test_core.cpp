@@ -2,7 +2,6 @@
 #include "dataset.hpp"
 #include "error.hpp"
 #include "json.hpp"
-#include "manifest.hpp"
 #include "paths.hpp"
 #include "sql.hpp"
 #include "transport.hpp"
@@ -223,9 +222,10 @@ void test_open_archives() {
     CHECK(nested.contract.fields_of("children/before") &&
           *nested.contract.fields_of("children/before") == Strings{"raster:resolution"});
 
-    CHECK_THROWS(taco::open_dataset(data("taco_null.zip"), cache), "taco:structure must be a non-empty array");
+    CHECK_THROWS(taco::open_dataset(data("taco_badstructure"), cache), "taco:structure must be a non-empty array");
 
-    CHECK_THROWS(taco::open_dataset(data("taco_variable.zip"), cache), "must require at least one file");
+    const auto variable = taco::open_dataset(data("taco_variable.zip"), cache);
+    CHECK((variable.contract.structure == Strings{"img*[1,3].bin", "mask.bin"}));
 
     CHECK_THROWS(taco::open_dataset(data("flat_simple.zip"), cache), "Got profile=flat");
     CHECK_THROWS(taco::open_dataset(data("does_not_exist.zip"), cache), "could not open");
@@ -287,6 +287,8 @@ void test_sql() {
     CHECK(contains(wide, "read_parquet(" + taco::sql_literal(nested.level_paths[0]) + ")"));
     CHECK(contains(wide, "'/vsisubfile/'"));
     CHECK(contains(wide, taco::sql_literal(data("taco_nested.zip"))));
+    CHECK(contains(wide, "AS sample_index"));
+    CHECK(contains(wide, "\"id\" AS id"));
     CHECK(contains(wide, "\"before__B02.bin::location\""));
     CHECK(!contains(wide, "AS \"before/B02.bin"));
     CHECK(!contains(wide, "::header"));
@@ -358,89 +360,6 @@ void test_sql() {
     CHECK(contains(taco::build_union_sql({&flat, &folder}, raw), "SELECT 'taco_flat.zip' AS source_file, taco.*"));
 }
 
-std::string collection_json(const std::string& version) {
-    return R"({"taco:version":"3.0.0","id":"versioned","dataset_version":")" + version +
-           R"(","description":"Versioned","licenses":["MIT"],"providers":[{"name":"Asterisk Labs"}],)"
-           R"("tasks":["other"],"taco:structure":null,"taco:metadata":{"sample":{}}})";
-}
-
-std::string manifest_json(const std::string& first_collection = collection_json("1.0.0"),
-                          const std::string& second_collection = collection_json("2.0.0")) {
-    return R"({"taco:container":"versioned","taco:default_version":"2.0.0","taco:versions":{)"
-           R"("1.0.0":{"href":"1.0.0/","collection":)" + first_collection + "},"
-           R"("2.0.0":{"href":"2.0.0/","collection":)" + second_collection + "}}}";
-}
-
-std::string replace(std::string text, const std::string& from, const std::string& to) {
-    const auto at = text.find(from);
-    if (at != std::string::npos)
-        text.replace(at, from.size(), to);
-    return text;
-}
-
-void test_manifest() {
-    const auto cases = taco::json::parse(read_file(TACO_TEST_CONFORMANCE));
-    for (const auto& item : cases.find("manifest_candidates")->items) {
-        const auto candidate = taco::manifest_candidate(item.find("source")->string);
-        const auto* expected = item.find("expected");
-        CHECK(expected->is_null() ? !candidate : candidate && *candidate == expected->string);
-    }
-    for (const auto& item : cases.find("manifest_hrefs")->items)
-        CHECK(taco::join_manifest_href(item.find("candidate")->string, item.find("href")->string) ==
-              item.find("expected")->string);
-
-    CHECK(taco::join_manifest_href("hf://datasets/org/repo/taco.json", "1.0.0/") == "hf://datasets/org/repo/1.0.0/");
-    CHECK(taco::join_manifest_href("/data/root/taco.json", "../2.0.0/") == "/data/root/../2.0.0");
-    CHECK(taco::join_manifest_href("/data/root/taco.json", "/elsewhere/part.zip") == "/elsewhere/part.zip");
-
-    const fs::path root = scratch("versioned");
-    write_file(root / "taco.json", manifest_json());
-    const auto resolved = taco::resolve_dataset(root.string());
-    const auto value = taco::json::parse(resolved);
-    CHECK(value.find("source")->string == (root / "2.0.0").generic_string());
-    CHECK(value.find("version")->string == "2.0.0");
-    CHECK(value.find("versions")->items.size() == 2);
-    CHECK(value.find("versions")->items[0].string == "1.0.0");
-    CHECK(value.find("manifest")->string == (root / "taco.json").generic_string());
-    CHECK(value.find("collection")->find("dataset_version")->string == "2.0.0");
-    CHECK(taco::json::parse(taco::resolve_dataset((root / "taco.json").string())).find("manifest")->string ==
-          (root / "taco.json").string());
-
-    const auto direct = taco::json::parse(taco::resolve_dataset(data("taco_flat.zip")));
-    CHECK(direct.find("source")->string == data("taco_flat.zip"));
-    CHECK(direct.find("collection")->is_null());
-    CHECK(direct.find("manifest")->is_null());
-    CHECK(taco::json::parse(taco::resolve_dataset(data("taco_folder"))).find("version")->is_null());
-    const std::string folder_uri = "file://" + fs::absolute(data("taco_folder")).generic_string();
-    const auto direct_uri = taco::json::parse(taco::resolve_dataset(folder_uri));
-    CHECK(direct_uri.find("source")->string == folder_uri);
-    CHECK(direct_uri.find("manifest")->is_null());
-
-    const std::vector<std::pair<std::string, std::string>> invalid = {
-        {replace(manifest_json(), "\"versioned\"", "\"zip\""), "taco:container must be 'versioned'"},
-        {R"({"taco:container":"versioned","taco:default_version":"2.0.0","taco:versions":{}})", "at least one"},
-        {replace(manifest_json(), "\"taco:default_version\":\"2.0.0\"", "\"taco:default_version\":\"3.0.0\""),
-         "is not present in taco:versions"},
-        {replace(manifest_json(), "\"1.0.0\":{", "\"latest\":{"), "must follow Semantic Versioning"},
-        {replace(manifest_json(), "\"href\":\"1.0.0/\"", "\"href\":\"\""), "needs a non-empty href"},
-        {manifest_json(collection_json("1.0.0"), collection_json("1.0.0")), "embeds collection dataset_version '1.0.0'"},
-        {manifest_json(collection_json("1.0.0"), replace(collection_json("2.0.0"), "\"description\":\"Versioned\",", "")),
-         "embeds an invalid collection: missing required fields description"},
-        {"not JSON", "not valid JSON"},
-    };
-    for (const auto& [text, message] : invalid) {
-        write_file(root / "taco.json", text);
-        CHECK_THROWS(taco::resolve_dataset((root / "taco.json").string()), message);
-    }
-    const std::string no_tasks = "\"tasks\":[\"other\"],";
-    write_file(root / "taco.json",
-               manifest_json(replace(collection_json("1.0.0"), no_tasks, ""), replace(collection_json("2.0.0"), no_tasks, "")));
-    CHECK(taco::json::parse(taco::resolve_dataset((root / "taco.json").string())).find("version")->string == "2.0.0");
-    CHECK_THROWS(taco::resolve_dataset((root / "missing" / "taco.json").string()), "does not exist");
-    CHECK_THROWS(taco::resolve_dataset("file://" + (root / "missing" / "taco.json").generic_string()),
-                 "does not exist");
-}
-
 void set_environment(const char* name, const char* value) {
 #ifdef _WIN32
     _putenv_s(name, value);
@@ -456,19 +375,20 @@ void test_cache() {
     const std::string cache = scratch("cache").generic_string();
     const fs::path copies = scratch("cache-sources");
 
-    // A remote entry is trusted: the source can disappear and the dataset
-    // still opens without a request. TACO_CACHE_REFRESH asks again.
+    // A remote entry is revalidated before reuse.
     const fs::path archive = copies / "dataset.zip";
     fs::copy_file(data("taco_flat.zip"), archive);
     const std::string uri = "file://" + archive.generic_string();
     const auto first = taco::open_dataset(uri, cache);
-    fs::remove(archive);
     const auto again = taco::open_dataset(uri, cache);
     CHECK(again.level_paths == first.level_paths);
     CHECK((again.level_names == Strings{"sample", "children"}));
     CHECK(again.collection == first.collection);
-    set_environment("TACO_CACHE_REFRESH", "1");
+    fs::remove(archive);
     CHECK_THROWS(taco::open_dataset(uri, cache), "could not");
+    fs::copy_file(data("taco_flat.zip"), archive);
+    set_environment("TACO_CACHE_REFRESH", "1");
+    CHECK((taco::open_dataset(uri, cache).level_names == Strings{"sample", "children"}));
     set_environment("TACO_CACHE_REFRESH", "");
 
     fs::copy_options overwrite = fs::copy_options::overwrite_existing;
@@ -476,7 +396,18 @@ void test_cache() {
     fs::copy(data("taco_folder"), copies / "folder", fs::copy_options::recursive | overwrite);
     const std::string folder = "file://" + (copies / "folder").generic_string();
     const auto cached_folder = taco::open_dataset(folder, cache);
-    fs::remove_all(copies / "folder");
+    const auto cached_sample_size = fs::file_size(cached_folder.level_paths[0]);
+    {
+        std::ofstream stream(copies / "folder" / "METADATA" / "sample.parquet", std::ios::app | std::ios::binary);
+        stream.put('\0');
+    }
+    const auto refreshed_folder = taco::open_dataset(folder, cache);
+    CHECK(fs::file_size(refreshed_folder.level_paths[0]) == cached_sample_size + 1);
+    {
+        std::ofstream stream(copies / "folder" / "COLLECTION.json", std::ios::app);
+        stream << '\n';
+    }
+    CHECK(taco::open_dataset(folder, cache).collection == cached_folder.collection + "\n");
     CHECK(taco::open_dataset(folder, cache).container == taco::Container::folder);
     CHECK(taco::open_dataset(folder, cache).level_paths == cached_folder.level_paths);
 
@@ -491,7 +422,7 @@ void test_cache() {
     CHECK(names[2].starts_with("taco-flat-zip-file-"));
     const auto stamp = taco::json::parse(read_file(fs::path(cache) / names[2] / "taco-cache.json"));
     CHECK(stamp.find("source")->string == uri);
-    CHECK(stamp.find("key")->string == "trusted");
+    CHECK(stamp.find("key")->string.starts_with("remote size "));
 
     // Over the size cap, the least recently opened entries go first.
     set_environment("TACO_CACHE_SIZE", "1");
@@ -629,17 +560,6 @@ void test_c_api() {
     CHECK(dataset == nullptr);
     CHECK(taco_open(data("does_not_exist.zip").c_str(), cache.c_str(), &dataset) != TACO_OK);
 
-    char* candidate = nullptr;
-    CHECK(taco_manifest_candidate("https://example.test/data.zip", &candidate) == TACO_OK);
-    CHECK(candidate == nullptr);
-    CHECK(taco_manifest_candidate("https://example.test/data", &candidate) == TACO_OK);
-    CHECK(candidate && std::string(candidate) == "https://example.test/data/taco.json");
-    taco_free(candidate);
-    char* resolved = nullptr;
-    CHECK(taco_resolve(data("taco_flat.zip").c_str(), &resolved) == TACO_OK);
-    CHECK(resolved && contains(resolved, "\"manifest\":null"));
-    taco_free(resolved);
-
     const std::string archive = data("taco_flat.zip");
     const std::string head = cache + "/head.bin";
     const taco_fetch_item item = {archive.c_str(), 0, 4, head.c_str()};
@@ -682,9 +602,6 @@ void test_remote() {
     CHECK(source_coop.container == taco::Container::tacocat);
     CHECK(source_coop.location_base == "/vsisource/asterisk-labs/taco-api-fixtures/data/04-change-detection/by-split");
 
-    const auto resolved = taco::json::parse(taco::resolve_dataset(base + "/folder"));
-    CHECK(resolved.find("manifest")->is_null());
-
     const fs::path out = scratch("remote-fetch");
     taco::fetch_files({taco::Fetch{base + "/single-zip/dataset.zip", 0, 4, (out / "head.bin").generic_string()},
                        taco::Fetch{base + "/folder/COLLECTION.json", 0, 0, (out / "COLLECTION.json").generic_string()}});
@@ -701,7 +618,6 @@ int main() {
     test_open_archives();
     test_open_directories();
     test_sql();
-    test_manifest();
     test_cache();
     test_progress();
     test_fetch();

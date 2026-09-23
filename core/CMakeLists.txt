@@ -48,7 +48,6 @@ set(TACO_SOURCES
     src/cozip_index.cpp
     src/dataset.cpp
     src/json.cpp
-    src/manifest.cpp
     src/paths.cpp
     src/progress.cpp
     src/sql.cpp
@@ -101,7 +100,6 @@ if(TACO_BUILD_TESTS)
     target_link_libraries(taco_tests PRIVATE taco_objects)
     target_include_directories(taco_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
     target_compile_definitions(taco_tests PRIVATE
-        TACO_TEST_DATA="${CMAKE_CURRENT_SOURCE_DIR}/tests/data"
-        TACO_TEST_CONFORMANCE="${CMAKE_CURRENT_SOURCE_DIR}/../r/inst/conformance/reader-resolution.json")
+        TACO_TEST_DATA="${CMAKE_CURRENT_SOURCE_DIR}/tests/data")
     add_test(NAME core COMMAND taco_tests)
 endif()

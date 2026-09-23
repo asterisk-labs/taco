@@ -5,10 +5,9 @@
 // METADATA/ and a taco-cache.json stamp. The label names the dataset for
 // people; the hash names the source for lookups.
 //
-// An entry is trusted once its stamp exists, so opening a cached dataset
-// makes no request. TACO_CACHE_REFRESH in the environment rebuilds the
-// entries it touches. TACO_CACHE_SIZE caps the cache in bytes; the least
-// recently opened entries go first.
+// Cached remote metadata is revalidated against an origin-provided value.
+// TACO_CACHE_REFRESH rebuilds every entry it touches. TACO_CACHE_SIZE caps
+// the cache in bytes; the least recently opened entries go first.
 
 #include <cstdint>
 #include <filesystem>
@@ -23,8 +22,8 @@ namespace taco {
 struct CacheStamp {
     std::string source;
     std::string container;
-    // How the entry stays valid: "trusted", or the size and modification
-    // time of a local archive.
+    // How the entry stays valid: origin-reported remote sizes, or the size
+    // and modification time of a local archive.
     std::string key;
     std::uint64_t size = 0;
     std::string created;

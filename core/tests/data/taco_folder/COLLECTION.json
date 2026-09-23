@@ -1,7 +1,6 @@
 {
   "taco:version": "3.0.0",
   "id": "taco-flat",
-  "dataset_version": "1.0.0",
   "description": "taco-flat",
   "licenses": [
     "CC-BY-4.0"
@@ -13,9 +12,6 @@
         "producer"
       ]
     }
-  ],
-  "tasks": [
-    "segmentation"
   ],
   "taco:structure": [
     "image.bin",
@@ -57,5 +53,8 @@
       }
     }
   },
+  "tasks": [
+    "segmentation"
+  ],
   "title": "taco-flat"
 }

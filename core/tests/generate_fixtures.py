@@ -70,7 +70,6 @@ def collection(contract: taco.Contract, name: str) -> taco.Collection:
     return taco.Collection(
         contract=contract,
         id=name,
-        dataset_version="1.0.0",
         description=name,
         licenses=["CC-BY-4.0"],
         providers=[{"name": "Asterisk Labs", "roles": ["producer"]}],
@@ -91,6 +90,7 @@ def write_flat(output: Path) -> None:
         for index in range(4):
             writer.add(
                 taco.Sample(
+                    id=f"flat-{index}",
                     metadata=sample_metadata(index),
                     assets=[
                         taco.Asset(
@@ -123,6 +123,7 @@ def write_nested(output: Path) -> None:
         for index in range(3):
             writer.add(
                 taco.Sample(
+                    id=f"nested-{index}",
                     metadata=sample_metadata(index),
                     folders=[
                         taco.Folder("before", metadata=taco.Metadata(node=Kind(kind="imagery"))),
@@ -171,12 +172,18 @@ def write_variable(output: Path) -> None:
                     path=f"img{number}.bin",
                     metadata=taco.Metadata(node=Kind(kind="image")),
                 )
-                for number in range(1, index + 2)
+                for number in range(index + 1)
             ]
             assets.append(
                 taco.Asset(payload("mask", index), path="mask.bin", metadata=taco.Metadata(node=Kind(kind="label")))
             )
-            writer.add(taco.Sample(metadata=taco.Metadata(ml=VariableML(split="train", n_images=index)), assets=assets))
+            writer.add(
+                taco.Sample(
+                    id=f"variable-{index}",
+                    metadata=taco.Metadata(ml=VariableML(split="train", n_images=index + 1)),
+                    assets=assets,
+                )
+            )
         writer.run()
 
 
@@ -193,6 +200,7 @@ def write_shadow(output: Path) -> None:
         for index in range(2):
             writer.add(
                 taco.Sample(
+                    id=f"shadow-{index}",
                     metadata=taco.Metadata(ml=VariableML(split="train", n_images=1)),
                     folders=[taco.Folder("before", metadata=taco.Metadata(raster=Raster(resolution=1)))],
                     assets=[
@@ -212,22 +220,6 @@ def write_shadow(output: Path) -> None:
         writer.run()
 
 
-def write_null(output: Path) -> None:
-    contract = taco.Contract(
-        structure=None,
-        metadata=taco.MetadataSchema(taco.Level("sample", ml=VariableML)),
-    )
-    with taco.open_writer(collection(contract, "taco-null"), output, overwrite=True) as writer:
-        for index in range(6):
-            writer.add(
-                taco.Sample(
-                    assets=payload("sample", index),
-                    metadata=taco.Metadata(ml=VariableML(split="train", n_images=index % 3)),
-                )
-            )
-        writer.run()
-
-
 def write_tacocat(output: Path) -> None:
     output.mkdir(parents=True)
     contract = taco.Contract(
@@ -240,6 +232,7 @@ def write_tacocat(output: Path) -> None:
         for index in range(6):
             writer.add(
                 taco.Sample(
+                    id=f"catalog-{index}",
                     metadata=sample_metadata(index),
                     assets=[taco.Asset(payload("image", index), path="image.bin")],
                 )
@@ -265,7 +258,6 @@ def main() -> None:
     write_flat(DATA / "taco_folder")
     write_nested(DATA / "taco_nested.zip")
     write_variable(DATA / "taco_variable.zip")
-    write_null(DATA / "taco_null.zip")
     write_shadow(DATA / "taco_shadow.zip")
     write_tacocat(DATA / "taco_cat")
 
@@ -273,6 +265,8 @@ def main() -> None:
     (DATA / "taco_badjson" / "COLLECTION.json").write_text("{ not json")
     shutil.copytree(DATA / "taco_folder", DATA / "taco_badversion")
     edit_collection(DATA / "taco_badversion", lambda data: data.update({"taco:version": "2.0.0"}))
+    shutil.copytree(DATA / "taco_folder", DATA / "taco_badstructure")
+    edit_collection(DATA / "taco_badstructure", lambda data: data.update({"taco:structure": None}))
     shutil.copytree(DATA / "taco_folder", DATA / "taco_derived")
     edit_collection(
         DATA / "taco_derived",

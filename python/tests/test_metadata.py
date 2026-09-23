@@ -132,7 +132,7 @@ def test_spatial_models_require_canonical_namespaces() -> None:
 def test_contract_rejects_stac_and_istac_on_same_level() -> None:
     with pytest.raises(ContractError, match="either STAC or ISTAC"):
         taco.Contract(
-            structure=None,
+            structure=["data.bin"],
             metadata=taco.MetadataSchema(
                 taco.Level("sample", stac=taco.metadata.sample.STAC, istac=taco.metadata.sample.ISTAC)
             ),
@@ -140,7 +140,7 @@ def test_contract_rejects_stac_and_istac_on_same_level() -> None:
 
     with pytest.raises(ContractError, match="puts geometry in STAC"):
         taco.Contract(
-            structure=None,
+            structure=["data.bin"],
             metadata={
                 "sample": {
                     "stac:geometry": "binary",
@@ -151,7 +151,7 @@ def test_contract_rejects_stac_and_istac_on_same_level() -> None:
 
     with pytest.raises(ContractError, match="puts affine-grid fields in ISTAC"):
         taco.Contract(
-            structure=None,
+            structure=["data.bin"],
             metadata={
                 "sample": {
                     "istac:geometry": "binary",
@@ -161,30 +161,38 @@ def test_contract_rejects_stac_and_istac_on_same_level() -> None:
         )
 
     with pytest.raises(ContractError, match=r"STAC metadata.*missing fields"):
-        taco.Contract(structure=None, metadata={"sample": {"stac:centroid": "binary"}})
+        taco.Contract(structure=["data.bin"], metadata={"sample": {"stac:centroid": "binary"}})
 
     serialized = taco.Contract(
-        structure=None,
+        structure=["data.bin"],
         metadata=taco.MetadataSchema(taco.Level("sample", stac=taco.extensions.STAC())),
     ).to_dict()
     serialized["taco:metadata"]["sample"]["stac:centroid"]["type"] = "string"
     with pytest.raises(ContractError, match="stac:centroid must have type binary"):
         taco.Contract.from_dict(serialized)
 
+    serialized = taco.Contract(
+        structure=["data.bin"],
+        metadata=taco.MetadataSchema(taco.Level("sample", stac=taco.extensions.STAC())),
+    ).to_dict()
+    del serialized["taco:metadata"]["sample"]["stac:time_middle"]
+    with pytest.raises(ContractError, match=r"STAC metadata.*missing fields"):
+        taco.Contract.from_dict(serialized)
+
 
 def test_contract_rejects_mixed_profiles_and_incomplete_new_profiles() -> None:
     with pytest.raises(ContractError, match="must choose one metadata profile"):
         taco.Contract(
-            structure=None,
+            structure=["data.bin"],
             metadata=taco.MetadataSchema(
                 taco.Level("sample", spatial=taco.extensions.Spatial(), temporal=taco.extensions.Temporal())
             ),
         )
     with pytest.raises(ContractError, match=r"SPATIAL metadata.*missing fields"):
-        taco.Contract(structure=None, metadata={"sample": {"spatial:centroid": "binary"}})
+        taco.Contract(structure=["data.bin"], metadata={"sample": {"spatial:centroid": "binary"}})
     with pytest.raises(ContractError, match=r"TEMPORAL metadata.*missing fields"):
         taco.Contract(
-            structure=None,
+            structure=["data.bin"],
             metadata={"sample": {"temporal:time_middle": "timestamp[us, UTC]"}},
         )
 
@@ -219,6 +227,21 @@ def test_major_tom_vector_batch() -> None:
     assert len(codes) == 3
     assert all(code.startswith("MT100km_") for code in codes)
     assert len(set(codes)) == 3
+
+
+def test_major_tom_preserves_fractional_grid_distances() -> None:
+    extension = taco.extensions.MajorTOM(
+        dist_km=0.5,
+        extra={"coarse": 320.5, "fine": 320.9},
+    )
+    descriptions = [field.metadata[b"description"].decode() for field in extension.fields]
+    assert descriptions == [
+        "MajorTOM spherical grid cell identifier at 0.5 km",
+        "MajorTOM spherical grid cell identifier at 320.5 km",
+        "MajorTOM spherical grid cell identifier at 320.9 km",
+    ]
+    result = taco.extensions.MajorTOM(dist_km=100.4).compute({"stac:centroid": [point(-76, -12)]})
+    assert result["code"][0].startswith("MT100.4km_")
 
 
 @pytest.mark.parametrize(
@@ -417,13 +440,13 @@ def test_arrow_type_inference() -> None:
         exact: Annotated[float, pa.float32()]
 
     contract = taco.Contract(
-        structure=None,
+        structure=["data.bin"],
         metadata=taco.MetadataSchema(taco.Level("sample", types=Types)),
     )
     fields = contract.metadata["sample"]
     assert fields["types:flag"].type == "bool"
     assert fields["types:fixed"].type == "fixed_size_list<int64, 2>"
-    assert fields["types:nested"].type == "struct<name: string, score: double>"
+    assert fields["types:nested"].type == "struct<name: string, score: double?>"
     assert fields["types:mapped"].type == "map<string, int64>"
     assert fields["types:exact"].type == "float"
 
@@ -445,11 +468,11 @@ def test_runtime_model_must_match_contract() -> None:
         value: int
 
     contract = taco.Contract(
-        structure=None,
+        structure=["data.bin"],
         metadata=taco.MetadataSchema(taco.Level("sample", value=First)),
     )
     with pytest.raises(SampleError, match="must be First"):
-        contract.validate_sample(taco.Sample(assets=b"x", metadata=taco.Metadata(value=Second(value=1))))
+        contract.validate_sample(taco.Sample(id="u21", assets=b"x", metadata=taco.Metadata(value=Second(value=1))))
 
 
 def test_computed_fields_are_not_stored_implicitly() -> None:
@@ -462,10 +485,11 @@ def test_computed_fields_are_not_stored_implicitly() -> None:
             return self.value * 2
 
     contract = taco.Contract(
-        structure=None,
+        structure=["data.bin"],
         metadata=taco.MetadataSchema(taco.Level("sample", value=Value)),
     )
-    sample = contract.prepare_sample(taco.Sample(assets=b"x", metadata=taco.Metadata(value=Value(value=2))))
+    sample = contract.prepare_sample(taco.Sample(id="u22", assets=b"x", metadata=taco.Metadata(value=Value(value=2))))
+    assert sample.id == "u22"
     assert sample.metadata == {"value:value": 2}
 
 
@@ -491,21 +515,20 @@ def test_custom_derived_group(tmp_path) -> None:
         value: int
 
     contract = taco.Contract(
-        structure=None,
+        structure=["data.bin"],
         metadata=taco.MetadataSchema(taco.Level("sample", base=Base, next=PlusOne())),
     )
     assert contract.extensions["sample"]["next"]["configuration"] == {"values": [1, 2]}
     collection = taco.Collection(
         contract=contract,
         id="derived",
-        dataset_version="1.0.0",
         description="Derived test",
         licenses=["MIT"],
         providers=["me"],
         tasks=["other"],
     )
     with taco.open_writer(collection, tmp_path / "derived") as writer:
-        writer.add(taco.Sample(assets=b"x", metadata=taco.Metadata(base=Base(value=2))))
+        writer.add(taco.Sample(id="u23", assets=b"x", metadata=taco.Metadata(base=Base(value=2))))
         writer.run()
     from taco.container.view import open_view
 
@@ -536,13 +559,12 @@ def test_derived_group_may_not_read_across_its_batch(tmp_path) -> None:
         value: int
 
     contract = taco.Contract(
-        structure=None,
+        structure=["data.bin"],
         metadata=taco.MetadataSchema(taco.Level("sample", base=Base, batch=BatchSize())),
     )
     collection = taco.Collection(
         contract=contract,
         id="derived",
-        dataset_version="1.0.0",
         description="Derived test",
         licenses=["MIT"],
         providers=["me"],
@@ -550,6 +572,6 @@ def test_derived_group_may_not_read_across_its_batch(tmp_path) -> None:
     )
     with taco.open_writer(collection, tmp_path / "batched", batch_size=4) as writer:
         for value in range(8):
-            writer.add(taco.Sample(assets=b"x", metadata=taco.Metadata(base=Base(value=value))))
+            writer.add(taco.Sample(id=f"u24-{value}", assets=b"x", metadata=taco.Metadata(base=Base(value=value))))
         with pytest.raises(taco.TacoError, match="depends on the other rows"):
             writer.run()

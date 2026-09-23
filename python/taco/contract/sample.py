@@ -86,6 +86,7 @@ def _assets(values: AssetInput) -> tuple[Asset, ...]:
 
 @dataclass(frozen=True, init=False)
 class Sample:
+    id: str
     assets: tuple[Asset, ...]
     metadata: Metadata
     folders: tuple[Folder, ...]
@@ -93,10 +94,13 @@ class Sample:
     def __init__(
         self,
         *,
+        id: str,
         assets: AssetInput | Sequence[Asset] = (),
         metadata: Metadata | None = None,
         folders: Sequence[Folder] = (),
     ) -> None:
+        if not isinstance(id, str) or not id.strip():
+            raise SampleError("sample id must be a non-empty string")
         if metadata is not None and not isinstance(metadata, Metadata):
             raise SampleError("sample metadata must be taco.Metadata")
         if isinstance(folders, (str, bytes)) or not isinstance(folders, Sequence):
@@ -107,12 +111,13 @@ class Sample:
         paths = [folder.path for folder in normalized_folders]
         if len(paths) != len(set(paths)):
             raise SampleError("a folder appears more than once")
+        object.__setattr__(self, "id", id)
         object.__setattr__(self, "assets", _assets(assets))
         object.__setattr__(self, "metadata", metadata or Metadata())
         object.__setattr__(self, "folders", normalized_folders)
 
     def replace_assets(self, assets: Sequence[Asset]) -> Sample:
-        return Sample(assets=assets, metadata=self.metadata, folders=self.folders)
+        return Sample(id=self.id, assets=assets, metadata=self.metadata, folders=self.folders)
 
 
 @dataclass(frozen=True)
@@ -137,15 +142,16 @@ class _PreparedNode:
 
 @dataclass(frozen=True)
 class _PreparedSample:
+    id: str
     assets: tuple[_PreparedAsset, ...]
     metadata: dict[str, object]
     rows: dict[str, tuple[_PreparedNode, ...]]
 
     def replace_assets(self, assets: Sequence[_PreparedAsset]) -> _PreparedSample:
-        return _PreparedSample(tuple(assets), self.metadata, self.rows)
+        return _PreparedSample(self.id, tuple(assets), self.metadata, self.rows)
 
     def replace_metadata(self, metadata: dict[str, object]) -> _PreparedSample:
-        return _PreparedSample(self.assets, metadata, self.rows)
+        return _PreparedSample(self.id, self.assets, metadata, self.rows)
 
 
 __all__ = ["Asset", "Folder", "Sample", "SourceLike"]

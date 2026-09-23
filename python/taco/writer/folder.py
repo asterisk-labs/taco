@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 from ..container.publish import publish_many
 from ..contract.collection import Collection
+from ..contract.contract import SAMPLE_ID, SAMPLE_LEVEL
 from ..contract.naming import COLLECTION_FILENAME, DATA_DIR, METADATA_DIR
 from ..errors import WriterError
 from .base import BuildResult, Writer
@@ -20,11 +21,6 @@ if TYPE_CHECKING:
 
 def _looks_like_taco_folder(path: Path) -> bool:
     return (path / COLLECTION_FILENAME).is_file() and (path / DATA_DIR).is_dir() and (path / METADATA_DIR).is_dir()
-
-
-def _version_core(value: str) -> tuple[int, int, int]:
-    major, minor, patch = value.split("+", 1)[0].split("-", 1)[0].split(".")
-    return int(major), int(minor), int(patch)
 
 
 class FolderWriter(Writer):
@@ -70,15 +66,26 @@ class FolderWriter(Writer):
                 raise WriterError(f"{directory} is not a FOLDER dataset")
 
             # Existing sample ids and paths remain valid only when identity and
-            # structure stay fixed. A higher minor version marks the append.
+            # structure stay fixed.
             if existing.collection.id != self.collection.id:
                 raise WriterError("append cannot change the dataset id")
             if existing.contract != self.contract:
                 raise WriterError("the existing dataset was built with a different contract")
-            old_major, old_minor, _ = _version_core(existing.collection.dataset_version)
-            new_major, new_minor, _ = _version_core(self.collection.dataset_version)
-            if new_major != old_major or new_minor <= old_minor:
-                raise WriterError("append needs a higher minor dataset version with the same major version")
+            existing_collection = existing.collection.to_dict()
+            incompatible = [
+                name
+                for name, value in self.contract.extension_metadata().items()
+                if existing_collection.get(name) != value
+            ]
+            if incompatible:
+                raise WriterError(f"append uses different extension metadata: {incompatible}")
+            sample_table = existing.level(SAMPLE_LEVEL)
+            if SAMPLE_ID not in sample_table.column_names:
+                raise WriterError("the existing dataset has no sample id column and cannot be appended")
+            existing_ids = set(sample_table.column(SAMPLE_ID).to_pylist())
+            repeated = sorted(existing_ids.intersection(self._sample_ids))
+            if repeated:
+                raise WriterError(f"append would duplicate sample ids: {repeated}")
             return existing
         if directory.exists():
             if not directory.is_dir():
@@ -163,11 +170,8 @@ class FolderWriter(Writer):
                         sample_dir.mkdir()
                         for asset in sample.assets:
                             assert isinstance(asset.source, Path)
-                            target = sample_dir if asset.path is None else sample_dir / asset.path
-                            if asset.path is None:
-                                # A structure=None sample is DATA/<id> itself,
-                                # not a file inside a DATA/<id>/ directory.
-                                sample_dir.rmdir()
+                            assert asset.path is not None
+                            target = sample_dir / asset.path
                             copied_bytes += self._copy_asset(asset.source, target)
                             copied_files += 1
                         tables.add_sample(index, sample)

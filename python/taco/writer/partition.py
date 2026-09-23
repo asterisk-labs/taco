@@ -92,8 +92,9 @@ def _apply_partition_metadata(
 ) -> Iterator[tuple[_PreparedSample, int]]:
     rows = [dict(sample.metadata) for sample, _ in batch]
     assets = []
+    single_fixed_file = len(writer.contract.leaves) == 1 and not writer.contract.leaves[0].variable
     for sample, _ in batch:
-        source = sample.assets[0].source if writer.contract.is_null else None
+        source = sample.assets[0].source if single_fixed_file else None
         assert source is None or isinstance(source, Path)
         assets.append(source)
     writer.contract.apply_extensions(SAMPLE_LEVEL, rows, assets=assets)

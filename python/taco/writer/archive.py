@@ -9,7 +9,7 @@ from typing import Any
 from ..container.cozip import cozip_plan, cozip_write
 from ..container.publish import publish_file
 from ..contract.collection import Collection
-from ..contract.contract import SAMPLE_LEVEL
+from ..contract.contract import SAMPLE_ID, SAMPLE_LEVEL
 from ..contract.naming import (
     COLLECTION_FILENAME,
     DATA_DIR,
@@ -74,6 +74,8 @@ class ArchiveWriter(Writer):
             raise ValueError("workers must be a positive integer")
         if workers > 1 and parsed_partition_size is None and partition_by is None:
             raise ValueError("workers requires a partitioned ZIP dataset")
+        if partition_by == SAMPLE_ID:
+            raise ValueError("partition_by cannot be 'id'; it is unique, so every sample would be its own partition")
         if partition_by is not None and partition_by not in collection.contract.metadata[SAMPLE_LEVEL]:
             raise ValueError(
                 f"partition_by field {partition_by!r} is not sample metadata; "

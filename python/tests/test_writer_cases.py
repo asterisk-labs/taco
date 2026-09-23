@@ -18,12 +18,10 @@ def write_case(
     path: Path,
     *,
     samples: tuple[taco.Sample, ...] | None = None,
-    version: str | None = None,
     append: bool = False,
     batch_size: int = 2,
 ):
-    collection = case.collection if version is None else case.collection.replace(dataset_version=version)
-    with taco.open_writer(collection, path, append=append, batch_size=batch_size) as writer:
+    with taco.open_writer(case.collection, path, append=append, batch_size=batch_size) as writer:
         writer.extend(case.samples if samples is None else samples)
         return writer.run()
 
@@ -114,13 +112,12 @@ def test_append_matches_one_pass_write(case: DatasetCase, tmp_path: Path) -> Non
     direct_path = tmp_path / "direct"
     append_path = tmp_path / "append"
 
-    write_case(case, direct_path, version="1.1.0", batch_size=100)
+    write_case(case, direct_path, batch_size=100)
     write_case(case, append_path, samples=case.samples[:split], batch_size=1)
     write_case(
         case,
         append_path,
         samples=case.samples[split:],
-        version="1.1.0",
         append=True,
         batch_size=2,
     )

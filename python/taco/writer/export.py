@@ -9,7 +9,7 @@ from typing import Any, TypeAlias
 import pyarrow as pa
 
 from ..contract.collection import Collection
-from ..contract.contract import SAMPLE_LEVEL, Contract
+from ..contract.contract import SAMPLE_ID, SAMPLE_LEVEL, Contract
 from ..contract.naming import (
     DATA_DIR,
     OFFSET,
@@ -23,8 +23,7 @@ from ..contract.sample import _PreparedAsset, _PreparedNode, _PreparedSample
 from ..errors import ContainerError
 from ..reader import engine, native
 from ..reader.dataset import Dataset
-from ..reader.manifest import resolve_dataset
-from ..reader.source import Location, Source
+from ..reader.source import Location, Source, normalize_sources
 from .api import open_writer
 from .base import BuildResult
 from .progress import Progress
@@ -52,7 +51,7 @@ def export(
     fields. The export keeps the contract, renumbers samples, and recomputes
     the extent.
     """
-    sources = source.sources if isinstance(source, Dataset) else resolve_dataset(source).sources
+    sources = source.sources if isinstance(source, Dataset) else normalize_sources(source)
     if len(sources) != 1:
         raise ValueError("export reads one dataset")
     if "contract" in fields or "sources" in fields:
@@ -218,20 +217,19 @@ def _samples(dataset: _Source, selected: set[SampleKey] | None, stage: Path) -> 
     ready: list[_PreparedSample] = []
     for index, (key, row) in enumerate(_rows(dataset.level(SAMPLE_LEVEL, selected))):
         metadata = _metadata(contract, SAMPLE_LEVEL, row)
-        if contract.is_null:
-            asset = _PreparedAsset(dataset.stage(row, stage / str(index)), None)
-            ready.append(_PreparedSample((asset,), metadata, {}))
-        else:
-            assets = []
-            for child in files.pop(key, []):
-                relative_path = _metadata_path(child, RELATIVE_PATH)
-                _, separator, path = relative_path.partition("/")
-                if not separator:
-                    raise ContainerError(f"{RELATIVE_PATH} has no sample prefix: {relative_path!r}")
-                assets.append(_PreparedAsset(dataset.stage(child, stage / str(index) / path), path))
-            levels = nodes.pop(key, {})
-            rows = {level: tuple(levels.get(level, ())) for level in contract.levels[1:]}
-            ready.append(_PreparedSample(tuple(assets), metadata, rows))
+        logical_id = row.get(SAMPLE_ID)
+        if not isinstance(logical_id, str) or not logical_id.strip():
+            raise ContainerError("invalid dataset metadata: id must be a non-empty string")
+        assets = []
+        for child in files.pop(key, []):
+            relative_path = _metadata_path(child, RELATIVE_PATH)
+            _, separator, path = relative_path.partition("/")
+            if not separator:
+                raise ContainerError(f"{RELATIVE_PATH} has no sample prefix: {relative_path!r}")
+            assets.append(_PreparedAsset(dataset.stage(child, stage / str(index) / path), path))
+        levels = nodes.pop(key, {})
+        rows = {level: tuple(levels.get(level, ())) for level in contract.levels[1:]}
+        ready.append(_PreparedSample(logical_id, tuple(assets), metadata, rows))
         if dataset.full:
             dataset.flush()
             yield from ready

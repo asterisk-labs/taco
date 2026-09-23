@@ -10,7 +10,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from ..container.parquet import parquet_writer_options
-from ..contract.contract import SAMPLE_LEVEL, Contract
+from ..contract.contract import SAMPLE_ID, SAMPLE_LEVEL, Contract
 from ..contract.naming import (
     CURRENT_ID,
     DATA_DIR,
@@ -89,7 +89,7 @@ def internal_columns_for(contract: Contract, level: str, *, with_offsets: bool) 
     if level != SAMPLE_LEVEL:
         columns.append(PARENT_ID)
     columns.append(RELATIVE_PATH)
-    if with_offsets and (level != SAMPLE_LEVEL or contract.is_null):
+    if with_offsets and level != SAMPLE_LEVEL:
         columns.extend((OFFSET, SIZE))
     return columns
 
@@ -103,6 +103,15 @@ def table_schema(contract: Contract, level: str, *, with_offsets: bool) -> pa.Sc
             fields.append(pa.field(name, pa.string(), nullable=False))
         else:
             fields.append(pa.field(name, ID_TYPE, nullable=False))
+    if level == SAMPLE_LEVEL:
+        fields.append(
+            pa.field(
+                SAMPLE_ID,
+                pa.string(),
+                nullable=False,
+                metadata={b"description": b"Unique sample identifier"},
+            )
+        )
     for name, spec in contract.metadata[level].items():
         metadata = {b"description": spec.description.encode()} if spec.description else None
         fields.append(pa.field(name, contract.arrow_types(level)[name], nullable=spec.nullable, metadata=metadata))
@@ -171,16 +180,16 @@ class MetadataTableWriter:
         if self.with_offsets and locate is None:
             raise RuntimeError("offsets requested without a locator")
 
-        sample_row: dict[str, Any] = {CURRENT_ID: sample_id, RELATIVE_PATH: str(sample_id)}
-        if self.contract.is_null and self.with_offsets:
-            assert locate is not None
-            sample_row[OFFSET], sample_row[SIZE] = locate(f"{DATA_DIR}/{sample_id}")
+        sample_row: dict[str, Any] = {
+            CURRENT_ID: sample_id,
+            RELATIVE_PATH: str(sample_id),
+            SAMPLE_ID: sample.id,
+        }
         sample_row.update(sample.metadata)
-        sample_asset = sample.assets[0].source if self.contract.is_null else None
+        single_fixed_file = len(self.contract.leaves) == 1 and not self.contract.leaves[0].variable
+        sample_asset = sample.assets[0].source if single_fixed_file else None
         assert sample_asset is None or isinstance(sample_asset, Path)
         self._append_row(SAMPLE_LEVEL, sample_row, sample_asset)
-        if self.contract.is_null:
-            return
 
         # Folder ids are local to a metadata level. Remember them by path while
         # this sample is expanded so child rows can point at the right parent.

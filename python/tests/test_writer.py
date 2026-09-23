@@ -31,7 +31,7 @@ def test_zip_end_to_end(tmp_path: Path, collection: taco.Collection, make_sample
         assert writer.run() is result
     assert result.path == output.resolve()
     assert result.samples == 3
-    assert result.data_files == 15
+    assert result.data_files == 16
     assert taco.validate(output).ok
 
     dataset = open_view(output)
@@ -42,7 +42,7 @@ def test_zip_end_to_end(tmp_path: Path, collection: taco.Collection, make_sample
         ("2024-01-01T00:00:00Z", "2024-01-03T00:00:00Z"),
     )
     assert dataset.level("sample").column("majortom:code").null_count == 0
-    assert dataset.level("children").num_rows == 3 * 3 + 3
+    assert dataset.level("children").num_rows == 13
 
 
 def test_zip_layout_and_offsets(archive: Path) -> None:
@@ -63,8 +63,8 @@ def test_zip_layout_and_offsets(archive: Path) -> None:
     assert schema.metadata == {b"taco:level": b"sample"}
     assert schema.field("ml:cloud_cover").nullable
     assert "stac:geometry" not in schema.names
-    assert schema.field("stac:tensor_shape").type == pa.list_(pa.int64())
-    assert schema.field("stac:geotransform").type == pa.list_(pa.float64())
+    assert schema.field("stac:tensor_shape").type == pa.list_(pa.field("item", pa.int64(), nullable=False))
+    assert schema.field("stac:geotransform").type == pa.list_(pa.field("item", pa.float64(), nullable=False))
 
     raw = archive.read_bytes()
     dataset = open_view(archive)
@@ -92,17 +92,37 @@ def test_folder_append(tmp_path: Path, collection: taco.Collection, make_sample)
     with taco.open_writer(collection, output) as writer:
         writer.add(make_sample(0))
         writer.run()
-    updated = collection.replace(dataset_version="1.1.0")
-    with taco.open_writer(updated, output, append=True) as writer:
+    with taco.open_writer(collection, output, append=True) as writer:
         writer.extend([make_sample(1), make_sample(2)])
         writer.run()
     dataset = open_view(output)
     assert dataset.sample_count == 3
-    assert dataset.collection.dataset_version == "1.1.0"
     assert dataset.collection.extent == taco.contract.Extent(
         (-76, -12, -74, -11.8),
         ("2024-01-01T00:00:00Z", "2024-01-03T00:00:00Z"),
     )
+    assert taco.validate(output).ok
+
+
+def test_writer_rejects_duplicate_sample_ids(tmp_path: Path, collection: taco.Collection, make_sample) -> None:
+    with taco.open_writer(collection, tmp_path / "data.zip") as writer:
+        writer.add(make_sample(0))
+        with pytest.raises(SampleError, match="appears more than once"):
+            writer.add(make_sample(0))
+
+
+def test_folder_append_rejects_an_existing_sample_id(tmp_path: Path, collection: taco.Collection, make_sample) -> None:
+    output = tmp_path / "data"
+    with taco.open_writer(collection, output) as writer:
+        writer.add(make_sample(0))
+        writer.run()
+
+    with taco.open_writer(collection, output, append=True) as writer:
+        writer.add(make_sample(0))
+        with pytest.raises(WriterError, match="duplicate sample ids"):
+            writer.run()
+
+    assert open_view(output).sample_count == 1
     assert taco.validate(output).ok
 
 
@@ -121,7 +141,7 @@ def test_failed_append_keeps_existing_dataset(
         raise OSError("disk full")
 
     monkeypatch.setattr(folder_module, "publish_many", fail)
-    with taco.open_writer(collection.replace(dataset_version="1.1.0"), output, append=True) as writer:
+    with taco.open_writer(collection, output, append=True) as writer:
         writer.add(make_sample(1))
         with pytest.raises(OSError, match="disk full"):
             writer.run()
@@ -133,12 +153,12 @@ def test_failed_append_keeps_existing_dataset(
 def test_writer_mode_is_selected_from_path(tmp_path: Path, collection: taco.Collection) -> None:
     with taco.open_writer(collection, tmp_path / "folder") as writer:
         assert writer.__class__.__name__ == "FolderWriter"
-    with taco.open_writer(collection, tmp_path / collection.dataset_version) as writer:
+    with taco.open_writer(collection, tmp_path / "dataset.v1") as writer:
         assert writer.__class__.__name__ == "FolderWriter"
     with taco.open_writer(collection, tmp_path / "archive.zip") as writer:
         assert writer.__class__.__name__ == "ArchiveWriter"
-    with pytest.raises(ValueError, match="must end"):
-        taco.open_writer(collection, tmp_path / "archive.taco")
+    with taco.open_writer(collection, tmp_path / "archive.taco") as writer:
+        assert writer.__class__.__name__ == "FolderWriter"
     with pytest.raises(ValueError, match="immutable"):
         taco.open_writer(collection, tmp_path / "archive.zip", append=True)
 
@@ -160,7 +180,7 @@ def test_invalid_sources_are_rejected(tmp_path: Path, collection: taco.Collectio
     assets[-1] = taco.Asset(empty, path=assets[-1].path, metadata=assets[-1].metadata)
     with taco.open_writer(collection, tmp_path / "data.zip") as writer:
         with pytest.raises(SampleError, match="zero-byte"):
-            writer.add(taco.Sample(assets=assets, metadata=sample.metadata, folders=sample.folders))
+            writer.add(taco.Sample(id="u26", assets=assets, metadata=sample.metadata, folders=sample.folders))
         with pytest.raises(WriterError, match="without samples"):
             writer.run()
 
@@ -175,13 +195,12 @@ def test_single_file_dataset(tmp_path: Path) -> None:
         value: int
 
     contract = taco.Contract(
-        structure=None,
+        structure=["data.bin"],
         metadata=taco.MetadataSchema(taco.Level("sample", label=Label)),
     )
     collection = taco.Collection(
         contract=contract,
         id="single",
-        dataset_version="1.0.0",
         description="Single files",
         licenses=["MIT"],
         providers=["me"],
@@ -189,30 +208,28 @@ def test_single_file_dataset(tmp_path: Path) -> None:
     )
     output = tmp_path / "single.zip"
     with taco.open_writer(collection, output) as writer:
-        writer.add(taco.Sample(assets=b"one", metadata=taco.Metadata(label=Label(value=1))))
+        writer.add(taco.Sample(id="u27", assets=b"one", metadata=taco.Metadata(label=Label(value=1))))
         writer.run()
     table = open_view(output).level("sample")
-    assert table.column_names[:4] == [
+    assert table.column_names[:3] == [
         "internal:current_id",
         "internal:relative_path",
-        "internal:offset",
-        "internal:size",
+        "id",
     ]
-    assert zipfile.ZipFile(output).read("DATA/0") == b"one"
+    assert zipfile.ZipFile(output).read("DATA/0/data.bin") == b"one"
 
 
 def test_collection_without_tasks_round_trips(tmp_path: Path) -> None:
     collection = taco.Collection(
-        contract=taco.Contract(structure=None, metadata=taco.MetadataSchema(taco.Level("sample"))),
+        contract=taco.Contract(structure=["data.bin"], metadata=taco.MetadataSchema(taco.Level("sample"))),
         id="untasked",
-        dataset_version="1.0.0",
         description="No tasks",
         licenses=["MIT"],
         providers=["me"],
     )
     output = tmp_path / "untasked.zip"
     with taco.open_writer(collection, output) as writer:
-        writer.add(taco.Sample(assets=b"one"))
+        writer.add(taco.Sample(id="u28", assets=b"one"))
         writer.run()
     assert "tasks" not in json.loads(zipfile.ZipFile(output).read("COLLECTION.json"))
     assert taco.validate(output).ok
@@ -223,13 +240,12 @@ def test_collection_without_tasks_round_trips(tmp_path: Path) -> None:
 
 def test_stac_generates_extent(tmp_path: Path) -> None:
     contract = taco.Contract(
-        structure=None,
+        structure=["data.bin"],
         metadata=taco.MetadataSchema(taco.Level("sample", stac=taco.extensions.STAC())),
     )
     collection = taco.Collection(
         contract=contract,
         id="spatiotemporal",
-        dataset_version="1.0.0",
         description="Spatiotemporal samples",
         licenses=["MIT"],
         providers=["me"],
@@ -242,9 +258,10 @@ def test_stac_generates_extent(tmp_path: Path) -> None:
         (-3, 5, datetime(2024, 1, 3, tzinfo=timezone.utc), None),
     ]
     with taco.open_writer(collection, tmp_path / "data.zip", batch_size=1) as writer:
-        for lon, lat, start, end in records:
+        for index, (lon, lat, start, end) in enumerate(records):
             writer.add(
                 taco.Sample(
+                    id=f"s{index}",
                     assets=b"x",
                     metadata=taco.Metadata(
                         stac=taco.metadata.sample.STAC(
@@ -267,13 +284,12 @@ def test_stac_generates_extent(tmp_path: Path) -> None:
 
 def test_istac_keeps_geometry_and_generates_centroid_extent(tmp_path: Path) -> None:
     contract = taco.Contract(
-        structure=None,
+        structure=["data.bin"],
         metadata=taco.MetadataSchema(taco.Level("sample", istac=taco.extensions.ISTAC())),
     )
     collection = taco.Collection(
         contract=contract,
         id="irregular",
-        dataset_version="1.0.0",
         description="Irregular spatiotemporal sample",
         licenses=["MIT"],
         providers=["me"],
@@ -285,6 +301,7 @@ def test_istac_keeps_geometry_and_generates_centroid_extent(tmp_path: Path) -> N
     with taco.open_writer(collection, tmp_path / "irregular.zip") as writer:
         writer.add(
             taco.Sample(
+                id="s1",
                 assets=b"x",
                 metadata=taco.Metadata(
                     istac=taco.metadata.sample.ISTAC(
@@ -311,13 +328,12 @@ def test_istac_keeps_geometry_and_generates_centroid_extent(tmp_path: Path) -> N
 
 def test_empty_stac_summary_removes_extent(tmp_path: Path) -> None:
     contract = taco.Contract(
-        structure=None,
+        structure=["data.bin"],
         metadata=taco.MetadataSchema(taco.Level("sample", stac=taco.metadata.sample.STAC | None)),
     )
     collection = taco.Collection(
         contract=contract,
         id="without-location",
-        dataset_version="1.0.0",
         description="Sample without location",
         licenses=["MIT"],
         providers=["me"],
@@ -325,28 +341,24 @@ def test_empty_stac_summary_removes_extent(tmp_path: Path) -> None:
         extent={"spatial": [0, 0, 0, 0]},
     )
     with taco.open_writer(collection, tmp_path / "data.zip") as writer:
-        writer.add(taco.Sample(assets=b"x"))
+        writer.add(taco.Sample(id="u29", assets=b"x"))
         writer.run()
 
     assert open_view(tmp_path / "data.zip").collection.extent is None
 
 
-def test_optional_only_structure_can_have_no_data(tmp_path: Path) -> None:
+def test_variable_structure_requires_data(tmp_path: Path) -> None:
     collection = taco.Collection(
-        contract=taco.Contract(structure=["image*[0,2].tif"]),
+        contract=taco.Contract(structure=["image*[1,2].tif"]),
         id="empty-sample",
-        dataset_version="1.0.0",
         description="Optional files",
         licenses=["MIT"],
         providers=["me"],
         tasks=["other"],
     )
     output = tmp_path / "empty-sample.zip"
-    with taco.open_writer(collection, output) as writer:
-        writer.add(taco.Sample())
-        writer.run()
-    assert open_view(output).sample_count == 1
-    assert taco.validate(output).ok
+    with taco.open_writer(collection, output) as writer, pytest.raises(SampleError, match="contiguous"):
+        writer.add(taco.Sample(id="u30"))
 
 
 def test_partition_by_sample_metadata(tmp_path: Path, collection: taco.Collection, make_sample) -> None:
@@ -457,23 +469,17 @@ def test_append_requires_same_contract(tmp_path: Path, collection: taco.Collecti
     with taco.open_writer(collection, output) as writer:
         writer.add(make_sample(0))
         writer.run()
-    changed = collection.replace(contract=taco.Contract(structure=["a.bin"]), dataset_version="2.0.0")
+    changed = collection.replace(contract=taco.Contract(structure=["a.bin"]))
     with taco.open_writer(changed, output, append=True) as writer:
-        writer.add(taco.Sample(assets=[taco.Asset(b"x", path="a.bin")]))
+        writer.add(taco.Sample(id="u31", assets=[taco.Asset(b"x", path="a.bin")]))
         with pytest.raises(WriterError, match="different contract"):
             writer.run()
 
-    renamed = collection.replace(id="other", dataset_version="1.1.0")
+    renamed = collection.replace(id="other")
     with taco.open_writer(renamed, output, append=True) as writer:
         writer.add(make_sample(1))
         with pytest.raises(WriterError, match="dataset id"):
             writer.run()
-
-    for version in ("1.0.0", "2.0.0"):
-        with taco.open_writer(collection.replace(dataset_version=version), output, append=True) as writer:
-            writer.add(make_sample(1))
-            with pytest.raises(WriterError, match="higher minor"):
-                writer.run()
 
 
 def test_folder_destination_checks(tmp_path: Path, collection: taco.Collection, make_sample) -> None:

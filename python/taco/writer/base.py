@@ -55,6 +55,7 @@ class Writer:
         # Archive planning needs multiple passes without retaining every sample.
         self._samples: StagedSamples[tuple[_PreparedSample, int]] = StagedSamples(self._stage / "samples.stage")
         self._inline_assets = self._stage / "inline-assets"
+        self._sample_ids: set[str] = set()
 
     def __enter__(self) -> Writer:
         return self
@@ -93,10 +94,16 @@ class Writer:
 
     def _add_prepared(self, sample: _PreparedSample) -> int:
         # Exported rows already satisfy the source contract.
+        logical_id = sample.id
+        if not isinstance(logical_id, str) or not logical_id.strip():
+            raise SampleError("sample id must be a non-empty string")
+        if logical_id in self._sample_ids:
+            raise SampleError(f"sample id {logical_id!r} appears more than once")
         sample_id = self.sample_count
         sample = self._materialize_inline_assets(sample_id, sample)
         data_size = sum(self._asset_size(asset) for asset in sample.assets)
         self._samples.append((sample, data_size))
+        self._sample_ids.add(logical_id)
         return sample_id
 
     def extend(self, samples: Iterable[Sample]) -> int:

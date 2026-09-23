@@ -97,7 +97,7 @@ def test_export_subset_matches_direct_write(
     subset = collection.replace(id="tiny-change-val", description="Validation samples")
     direct = tmp_path / "direct"
     with taco.open_writer(subset, direct) as writer:
-        writer.extend([make_sample(1, 1), make_sample(3, 0)])
+        writer.extend([make_sample(1, 1), make_sample(3, 1)])
         writer.run()
 
     output = tmp_path / "val"
@@ -123,12 +123,10 @@ def test_export_subset_to_zip(archive: Path, tmp_path: Path) -> None:
         samples=taco.open_dataset(archive).sql("SELECT * FROM data WHERE sample_id >= 1 AND sample_id < 3").to_pandas(),
         id="tiny-change-middle",
         description="Second and third samples",
-        dataset_version="1.0.1",
     )
 
     dataset = open_view(output)
     assert taco.validate(output).ok
-    assert dataset.collection.dataset_version == "1.0.1"
     assert dataset.level("sample").column("ml:cloud_cover").to_pylist() == [10.5, 21.0]
     with zipfile.ZipFile(output) as archive_file:
         assert archive_file.read("DATA/0/mask.tif") == b"1:mask.tif"

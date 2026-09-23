@@ -171,6 +171,7 @@ def data(tmp_path_factory: pytest.TempPathFactory) -> Path:
         for index in range(6)
     ]
     write("single", single, samples, root / "single.zip")
+    write("single", single, samples, root / "single")
 
     (root / "catalog").mkdir()
     write("nested", NESTED, nested_samples(), root / "catalog" / "part.zip", partition_by="ml:split")
@@ -351,6 +352,21 @@ def test_contract_errors(data: Path, tmp_path: Path) -> None:
     (old / "COLLECTION.json").write_text(json.dumps(document))
     with pytest.raises(ContainerError, match="unsupported TACO version"):
         taco.reader.inspect.levels(old)
+
+
+def test_remote_folder_cache_recovers_when_a_metadata_level_disappears(data: Path, tmp_path: Path) -> None:
+    source = tmp_path / "moving"
+    shutil.copytree(data / "nested", source)
+    uri = source.as_uri()
+
+    assert taco.open_dataset(uri).contract.levels == ("sample", "children", "children/before", "children/after")
+
+    shutil.rmtree(source)
+    shutil.copytree(data / "single", source)
+
+    dataset = taco.open_dataset(uri)
+    assert dataset.contract.levels == ("sample", "children")
+    assert dataset.read().num_rows == 6
 
 
 @pytest.mark.skipif(

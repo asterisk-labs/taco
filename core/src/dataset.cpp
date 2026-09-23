@@ -351,44 +351,50 @@ std::optional<Dataset> cached_uri_dataset(const std::string& source, const std::
         const auto stamp = entry.find({std::string(collection_name)}, "");
         if (!stamp)
             continue;
-        const auto container = parse_container(stamp->container);
-        if (!container)
+        try {
+            const auto container = parse_container(stamp->container);
+            if (!container)
+                continue;
+            const std::string collection = read_local(local_path(entry.path(collection_name)));
+            const json::Value root = parse_collection(collection, directory);
+            const json::Value* metadata = root.find("taco:metadata");
+            if (!metadata || !metadata->is_object())
+                continue;
+            std::vector<std::string> files = {std::string(collection_name)};
+            std::vector<std::string> validation_sources;
+            if (*container == Container::zip) {
+                validation_sources.push_back(source);
+            } else {
+                validation_sources.push_back(child_path(directory, collection_name));
+            }
+            const std::string parquet_directory =
+                *container == Container::tacocat ? directory : child_path(directory, "METADATA");
+            std::vector<std::string> levels;
+            for (const auto& [name, value] : metadata->members)
+                levels.push_back(name);
+            std::sort(levels.begin(), levels.end(), [](const auto& left, const auto& right) {
+                const auto left_depth = level_depth(left);
+                const auto right_depth = level_depth(right);
+                return left_depth != right_depth ? left_depth < right_depth : left < right;
+            });
+            for (const auto& level : levels) {
+                files.push_back(std::string(metadata_prefix) + level_to_file(level));
+                if (*container != Container::zip)
+                    validation_sources.push_back(child_path(parquet_directory, level_to_file(level)));
+            }
+            const std::string key = *container == Container::zip ? expected_key(source)
+                                                                  : remote_sizes_key(validation_sources);
+            if (!entry.find(files, key))
+                continue;
+            if (*container == Container::zip)
+                return cached_dataset(source, Container::zip, location_base(source), entry);
+            return cached_dataset(directory, *container,
+                                  *container == Container::tacocat ? parent_path(location) : location, entry);
+        } catch (const Error&) {
+            // A stale entry may name metadata that no longer exists. Treat any
+            // failed validation as a miss and rebuild it from COLLECTION.json.
             continue;
-        const std::string collection = read_local(local_path(entry.path(collection_name)));
-        const json::Value root = parse_collection(collection, directory);
-        const json::Value* metadata = root.find("taco:metadata");
-        if (!metadata || !metadata->is_object())
-            continue;
-        std::vector<std::string> files = {std::string(collection_name)};
-        std::vector<std::string> validation_sources;
-        if (*container == Container::zip) {
-            validation_sources.push_back(source);
-        } else {
-            validation_sources.push_back(child_path(directory, collection_name));
         }
-        const std::string parquet_directory =
-            *container == Container::tacocat ? directory : child_path(directory, "METADATA");
-        std::vector<std::string> levels;
-        for (const auto& [name, value] : metadata->members)
-            levels.push_back(name);
-        std::sort(levels.begin(), levels.end(), [](const auto& left, const auto& right) {
-            const auto left_depth = level_depth(left);
-            const auto right_depth = level_depth(right);
-            return left_depth != right_depth ? left_depth < right_depth : left < right;
-        });
-        for (const auto& level : levels) {
-            files.push_back(std::string(metadata_prefix) + level_to_file(level));
-            if (*container != Container::zip)
-                validation_sources.push_back(child_path(parquet_directory, level_to_file(level)));
-        }
-        const std::string key = *container == Container::zip ? expected_key(source)
-                                                              : remote_sizes_key(validation_sources);
-        if (!entry.find(files, key))
-            continue;
-        if (*container == Container::zip)
-            return cached_dataset(source, Container::zip, location_base(source), entry);
-        return cached_dataset(directory, *container,
-                              *container == Container::tacocat ? parent_path(location) : location, entry);
     }
     return std::nullopt;
 }

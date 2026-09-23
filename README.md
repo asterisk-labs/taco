@@ -15,13 +15,14 @@
 
 ---
 
-TACO packages Earth observation data, metadata, and sample structure as one
-portable dataset. Query by region, time, cloud cover, split, or any other field
-before loading a pixel.
+TACO packages Earth observation data for machine learning. It treats each
+training or evaluation example as a sample, an atomic unit that keeps its files
+and metadata together.
 
-Every dataset declares a contract for the files and metadata in each sample.
-TACO validates that contract while writing and uses it to provide predictable
-access from folders, cloud-optimized ZIPs, and partitioned catalogs.
+A contract defines the structure shared by all samples, allowing TACO to
+validate the dataset as it is built and filter it by region, time, cloud cover,
+split, or any other field before reading the files. TACO is agnostic to deep
+learning frameworks, programming languages, and operating systems.
 
 ## Bindings
 
@@ -32,8 +33,8 @@ access from folders, cloud-optimized ZIPs, and partitioned catalogs.
 | Julia | `Pkg.Registry.add(url="https://github.com/asterisk-labs/AsteriskRegistry"); Pkg.add("Taco")` | **reader** | [README](julia/README.md) |
 | JavaScript | `npm install @asterisk-labs/taco` | **reader** | [README](javascript/README.md) |
 
-The [TACO viewer](docs/playground/) uses the JavaScript reader with the public
-TACO/Rumi fixtures.
+The [TACO viewer](docs/playground/) uses the JavaScript reader to inspect TACO
+datasets directly in the browser.
 
 ## Specification
 
@@ -47,11 +48,35 @@ Release history for the core and all language packages is recorded in the
 
 MIT.
 
+## Partners
+
+The groups below build datasets with TACO. What they need from it is what
+shapes the specification.
+
+| Institution | Group | Contact |
+|-------------|-------|---------|
+| [Asterisk Labs](https://asterisk.coop) | | Cesar Aybar |
+| [Universitat de València](https://isp.uv.es) | Image and Signal Processing | Luis Gómez-Chova |
+| [University of Salamanca](https://www.usal.es) | TIDOP Research Group | Roy Yali Samaniego |
+| [Leipzig University](https://www.uni-leipzig.de) | Remote sensing and Earth system data | David Montero |
+| [Technical University of Munich](https://www.tum.de) | Munich Center for Machine Learning | Nils Lehmann |
+| [ELLIOT](https://elliot-ai.eu) | European open multimodal foundation models | Oscar José Pellicer Valero |
+
 <div align="center">
   <br>
-  Made with ♥ by
-  <br><br>
-  <a href="https://asterisk.coop">
-    <img src="https://raw.githubusercontent.com/asterisk-labs/cozip/refs/heads/main/images/asterisk_logo.svg" alt="Asterisk Labs" width="320"/>
-  </a>
+  <!-- Heights are tuned per logo so every mark covers a similar area: a wide
+       wordmark and a square badge look unbalanced at one shared height. -->
+  <a href="https://asterisk.coop"><img src="https://raw.githubusercontent.com/asterisk-labs/cozip/refs/heads/main/images/asterisk_logo.svg" alt="Asterisk Labs" height="26"/></a>
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+  <a href="https://isp.uv.es"><img src="docs/images/partners/uv.svg" alt="Universitat de València" height="34"/></a>
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+  <a href="https://tidop.usal.es"><img src="docs/images/partners/tidop.svg" alt="TIDOP Research Group at the University of Salamanca" height="34"/></a>
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+  <a href="https://www.uni-leipzig.de"><img src="docs/images/partners/leipzig.svg" alt="Leipzig University" height="34"/></a>
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+  <a href="https://www.tum.de"><img src="docs/images/partners/tum.svg" alt="Technical University of Munich" height="32"/></a>
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+  <a href="https://elliot-ai.eu"><img src="docs/images/partners/elliot.webp" alt="ELLIOT" height="34"/></a>
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+  <a href="https://www.climatechange.ai/innovation_grants"><img src="docs/images/partners/ccai.png" alt="Climate Change AI" height="42"/></a>
 </div>

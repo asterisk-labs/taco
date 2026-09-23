@@ -66,17 +66,17 @@ shapes the specification.
   <br>
   <!-- Heights are tuned per logo so every mark covers a similar area: a wide
        wordmark and a square badge look unbalanced at one shared height. -->
-  <a href="https://asterisk.coop"><img src="https://raw.githubusercontent.com/asterisk-labs/cozip/refs/heads/main/images/asterisk_logo.svg" alt="Asterisk Labs" height="26"/></a>
+  <a href="https://asterisk.coop"><img src="https://raw.githubusercontent.com/asterisk-labs/cozip/refs/heads/main/images/asterisk_logo.svg" alt="Asterisk Labs" height="36"/></a>
   &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-  <a href="https://isp.uv.es"><img src="docs/images/partners/uv.svg" alt="Universitat de València" height="34"/></a>
+  <a href="https://isp.uv.es"><img src="docs/images/partners/uv.svg" alt="Universitat de València" height="54"/></a>
   &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-  <a href="https://tidop.usal.es"><img src="docs/images/partners/tidop.svg" alt="TIDOP Research Group at the University of Salamanca" height="34"/></a>
+  <a href="https://tidop.usal.es"><img src="docs/images/partners/tidop.svg" alt="TIDOP Research Group at the University of Salamanca" height="54"/></a>
   &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-  <a href="https://www.uni-leipzig.de"><img src="docs/images/partners/leipzig.svg" alt="Leipzig University" height="34"/></a>
+  <a href="https://www.uni-leipzig.de"><img src="docs/images/partners/leipzig.svg" alt="Leipzig University" height="56"/></a>
   &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-  <a href="https://www.tum.de"><img src="docs/images/partners/tum.svg" alt="Technical University of Munich" height="32"/></a>
+  <a href="https://www.tum.de"><img src="docs/images/partners/tum.svg" alt="Technical University of Munich" height="44"/></a>
   &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-  <a href="https://elliot-ai.eu"><img src="docs/images/partners/elliot.webp" alt="ELLIOT" height="34"/></a>
+  <a href="https://elliot-ai.eu"><img src="docs/images/partners/elliot.webp" alt="ELLIOT" height="54"/></a>
   &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-  <a href="https://www.climatechange.ai/innovation_grants"><img src="docs/images/partners/ccai.png" alt="Climate Change AI" height="42"/></a>
+  <a href="https://www.climatechange.ai/innovation_grants"><img src="docs/images/partners/ccai.png" alt="Climate Change AI" height="60"/></a>
 </div>

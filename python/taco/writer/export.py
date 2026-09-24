@@ -32,6 +32,7 @@ from .progress import Progress
 
 _BATCH_FILES = 256
 _BATCH_BYTES = 256 * 1024 * 1024
+_BATCH_ROWS = 4096
 
 
 def export(
@@ -101,8 +102,7 @@ class _Source:
                         join = "export_keys AS keys"
                         condition = f'rows."{CURRENT_ID}" = keys.sample'
                     elif self.container == "tacocat":
-                        origins = self.sample_origins()
-                        chosen = [(origin, index) for origin, index in origins.items() if index in selected]
+                        chosen = list(self.sample_origins(selected).items())
                         connection.register(
                             "export_origins",
                             pa.table(
@@ -139,9 +139,13 @@ class _Source:
         ]
         relations.extend((level.replace("/", "__"), self._selection_level(level)) for level in self.contract.levels)
         context = ",\n".join(f"{_sql_identifier(name)} AS ({statement})" for name, statement in relations)
-        table = connection.execute(f"WITH {context}\nSELECT * FROM (\n{query}\n) AS taco_export").to_arrow_table()
-        if SAMPLE_INDEX not in table.column_names:
+        selection = f"WITH {context}\nSELECT * FROM (\n{query}\n) AS taco_export"
+        columns = [row[0] for row in connection.execute(f"DESCRIBE {selection}").fetchall()]
+        if SAMPLE_INDEX not in columns:
             raise ValueError(f"sql must return {SAMPLE_INDEX}; use SELECT * or include it explicitly")
+        table = connection.execute(
+            f"SELECT DISTINCT {_sql_identifier(SAMPLE_INDEX)} FROM ({selection}) AS taco_selected"
+        ).to_arrow_table()
         ids = table.column(SAMPLE_INDEX).to_pylist()
         if any(isinstance(sample, bool) or not isinstance(sample, int) or sample < 0 for sample in ids):
             raise ValueError(f"sql must return non-negative integer {SAMPLE_INDEX} values")
@@ -166,44 +170,44 @@ class _Source:
             f"samples.{_sql_identifier(RELATIVE_PATH)}"
         )
 
-    def sample_origins(self) -> dict[tuple[str | None, str], int]:
+    def sample_origins(self, selected: set[int] | None = None) -> dict[tuple[str | None, str], int]:
         if self._sample_origins is None:
-            sql = native.sql([self.opened], idx=None, level=SAMPLE_LEVEL, pivoted=True, files=None, location=False)
-            table = engine.open_reader().execute(sql).to_arrow_table()
             origins: dict[tuple[str | None, str], int] = {}
-            for row in table.to_pylist():
-                partition = row.get(SOURCE_FILE)
-                if partition is not None:
-                    partition = _metadata_path(row, SOURCE_FILE)
-                path = _metadata_path(row, RELATIVE_PATH)
-                index = row.get(CURRENT_ID)
-                if isinstance(index, bool) or not isinstance(index, int) or index < 0:
-                    raise ContainerError(f"invalid dataset metadata: {CURRENT_ID} must be a non-negative integer")
-                origins[(partition, path)] = index
+            for batch in self.level(SAMPLE_LEVEL, selected).to_batches(max_chunksize=_BATCH_ROWS):
+                for row in batch.to_pylist():
+                    partition = row.get(SOURCE_FILE)
+                    if partition is not None:
+                        partition = _metadata_path(row, SOURCE_FILE)
+                    path = _metadata_path(row, RELATIVE_PATH)
+                    index = row.get(CURRENT_ID)
+                    if isinstance(index, bool) or not isinstance(index, int) or index < 0:
+                        raise ContainerError(f"invalid dataset metadata: {CURRENT_ID} must be a non-negative integer")
+                    origins[(partition, path)] = index
             self._sample_origins = origins
         return self._sample_origins
 
     def rows(self, level: str, table: pa.Table) -> Iterator[tuple[int, dict[str, Any]]]:
         origins = self.sample_origins() if level != SAMPLE_LEVEL and self.container == "tacocat" else None
-        for row in table.to_pylist():
-            if level == SAMPLE_LEVEL:
-                sample = row.get(CURRENT_ID)
-            else:
-                relative_path = _metadata_path(row, RELATIVE_PATH)
-                prefix = relative_path.split("/", 1)[0]
-                source_file = row.get(SOURCE_FILE)
-                if source_file is not None:
-                    source_file = _metadata_path(row, SOURCE_FILE)
-                if origins is not None:
-                    sample = origins.get((source_file, prefix))
+        for batch in table.to_batches(max_chunksize=_BATCH_ROWS):
+            for row in batch.to_pylist():
+                if level == SAMPLE_LEVEL:
+                    sample = row.get(CURRENT_ID)
                 else:
-                    try:
-                        sample = int(prefix)
-                    except ValueError:
-                        sample = None
-            if isinstance(sample, bool) or not isinstance(sample, int) or sample < 0:
-                raise ContainerError("invalid dataset metadata: row does not belong to a sample")
-            yield sample, row
+                    relative_path = _metadata_path(row, RELATIVE_PATH)
+                    prefix = relative_path.split("/", 1)[0]
+                    source_file = row.get(SOURCE_FILE)
+                    if source_file is not None:
+                        source_file = _metadata_path(row, SOURCE_FILE)
+                    if origins is not None:
+                        sample = origins.get((source_file, prefix))
+                    else:
+                        try:
+                            sample = int(prefix)
+                        except ValueError:
+                            sample = None
+                if isinstance(sample, bool) or not isinstance(sample, int) or sample < 0:
+                    raise ContainerError("invalid dataset metadata: row does not belong to a sample")
+                yield sample, row
 
     def stage(self, row: dict[str, Any], target: Path) -> Path:
         # A local FOLDER already exposes the final bytes. Archives and remote
@@ -266,45 +270,71 @@ def _parent(location: Location) -> Location:
 
 def _samples(dataset: _Source, selected: set[int] | None, stage: Path) -> Iterator[_PreparedSample]:
     contract = dataset.contract
-    nodes: dict[int, dict[str, list[_PreparedNode]]] = {}
-    files: dict[int, list[dict[str, Any]]] = {}
-    # Rebuild the writer's logical tree from the normalized metadata levels.
-    # Child rows are indexed first so each sample can be emitted in source order.
+    groups: dict[str, Iterator[tuple[int, list[dict[str, Any]]]]] = {}
+    current: dict[str, tuple[int, list[dict[str, Any]]] | None] = {}
     for level in contract.levels[1:]:
-        folder = level_folder(level)
-        for key, row in dataset.rows(level, dataset.level(level, selected)):
-            name = row[RELATIVE_PATH].rsplit("/", 1)[1]
-            is_folder = contract.is_folder(folder, name)
-            node = _PreparedNode(name, is_folder, _metadata(contract, level, row))
-            nodes.setdefault(key, {}).setdefault(level, []).append(node)
-            if not is_folder:
-                files.setdefault(key, []).append(row)
+        groups[level] = _group_rows(dataset.rows(level, dataset.level(level, selected)))
+        current[level] = next(groups[level], None)
 
-    # Preserve source order; each sample is yielded after its files arrive.
     ready: list[_PreparedSample] = []
     for index, (key, row) in enumerate(dataset.rows(SAMPLE_LEVEL, dataset.level(SAMPLE_LEVEL, selected))):
         metadata = _metadata(contract, SAMPLE_LEVEL, row)
         logical_id = row.get(SAMPLE_ID)
         if not isinstance(logical_id, str) or not logical_id.strip():
             raise ContainerError("invalid dataset metadata: id must be a non-empty string")
-        assets = []
-        for child in files.pop(key, []):
-            relative_path = _metadata_path(child, RELATIVE_PATH)
-            _, separator, path = relative_path.partition("/")
-            if not separator:
-                raise ContainerError(f"{RELATIVE_PATH} has no sample prefix: {relative_path!r}")
-            assets.append(_PreparedAsset(dataset.stage(child, stage / str(index) / path), path))
+
+        assets: list[_PreparedAsset] = []
+        rows: dict[str, tuple[_PreparedNode, ...]] = {}
+        for level in contract.levels[1:]:
+            grouped = current[level]
+            if grouped is not None and grouped[0] < key:
+                raise ContainerError("invalid dataset metadata: child rows are not grouped by sample order")
+            children = grouped[1] if grouped is not None and grouped[0] == key else []
+            nodes: list[_PreparedNode] = []
+            folder = level_folder(level)
+            for child in children:
+                name = _metadata_path(child, RELATIVE_PATH).rsplit("/", 1)[1]
+                is_folder = contract.is_folder(folder, name)
+                nodes.append(_PreparedNode(name, is_folder, _metadata(contract, level, child)))
+                if not is_folder:
+                    relative_path = _metadata_path(child, RELATIVE_PATH)
+                    _, separator, path = relative_path.partition("/")
+                    if not separator:
+                        raise ContainerError(f"{RELATIVE_PATH} has no sample prefix: {relative_path!r}")
+                    assets.append(_PreparedAsset(dataset.stage(child, stage / str(index) / path), path))
+            rows[level] = tuple(nodes)
+            if children:
+                current[level] = next(groups[level], None)
+
         if not assets:
             raise ContainerError(f"invalid dataset metadata: sample {logical_id!r} has no data files")
-        levels = nodes.pop(key, {})
-        rows = {level: tuple(levels.get(level, ())) for level in contract.levels[1:]}
         ready.append(_PreparedSample(logical_id, tuple(assets), metadata, rows))
-        if dataset.full:
+        if dataset.full or len(ready) >= _BATCH_FILES:
             dataset.flush()
             yield from ready
             ready.clear()
+
+    if any(grouped is not None for grouped in current.values()):
+        raise ContainerError("invalid dataset metadata: child row does not belong to a selected sample")
     dataset.flush()
     yield from ready
+
+
+def _group_rows(rows: Iterator[tuple[int, dict[str, Any]]]) -> Iterator[tuple[int, list[dict[str, Any]]]]:
+    key: int | None = None
+    grouped: list[dict[str, Any]] = []
+    for sample, row in rows:
+        if key is None:
+            key = sample
+        elif sample != key:
+            if sample < key:
+                raise ContainerError("invalid dataset metadata: child rows are not grouped by sample order")
+            yield key, grouped
+            key = sample
+            grouped = []
+        grouped.append(row)
+    if key is not None:
+        yield key, grouped
 
 
 def _metadata_path(row: dict[str, Any], field: str) -> str:

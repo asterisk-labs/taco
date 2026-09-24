@@ -198,6 +198,51 @@ def test_export_tacocat(tmp_path: Path, collection: taco.Collection, make_sample
         assert archive_file.read("DATA/1/mask.tif") == b"2:mask.tif"
 
 
+def test_export_tacocat_indexes_only_selected_samples(
+    tmp_path: Path, collection: taco.Collection, make_sample, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with taco.open_writer(collection, tmp_path / "parts" / "dataset.zip", partition_size=1) as writer:
+        writer.extend(make_sample(index) for index in range(4))
+        catalog = writer.run().path
+
+    counts: list[int] = []
+    sample_origins = export_module._Source.sample_origins
+
+    def tracked(source, selected=None):
+        origins = sample_origins(source, selected)
+        counts.append(len(origins))
+        return origins
+
+    monkeypatch.setattr(export_module._Source, "sample_origins", tracked)
+    result = taco.export(
+        catalog,
+        tmp_path / "selected.zip",
+        sql='SELECT * FROM sample WHERE "internal:current_id" = 2',
+    )
+
+    assert result.samples == 1
+    assert counts
+    assert set(counts) == {1}
+
+
+def test_export_streams_local_samples(folder_dataset: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    source = export_module._Source(folder_dataset)
+    staged: list[Path] = []
+    stage = source.stage
+
+    def tracked(row, target):
+        staged.append(target)
+        return stage(row, target)
+
+    monkeypatch.setattr(export_module, "_BATCH_FILES", 2)
+    monkeypatch.setattr(source, "stage", tracked)
+    samples = export_module._samples(source, set(range(4)), tmp_path / "stage")
+
+    assert next(samples).id == "s0"
+    assert len(staged) == 10
+    assert len(list(samples)) == 3
+
+
 def test_export_tacocat_opened_at_its_root(tmp_path: Path, collection: taco.Collection, make_sample) -> None:
     with taco.open_writer(collection, tmp_path / "parts" / "dataset.zip", partition_size=1) as writer:
         writer.extend(make_sample(index) for index in range(4))

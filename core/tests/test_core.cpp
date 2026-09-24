@@ -301,6 +301,9 @@ void test_sql() {
     CHECK(contains(wide, "\"before__B02.bin::location\""));
     CHECK(!contains(wide, "AS \"before/B02.bin"));
     CHECK(!contains(wide, "::header"));
+    CHECK(contains(wide, "LEFT JOIN LATERAL"));
+    CHECK(contains(wide, "l1.\"internal:parent_id\" = l0.\"internal:current_id\""));
+    CHECK(!contains(wide, "pivoted AS"));
 
     // A level that declares rumi:header carries it next to every location.
     auto rumi = nested;
@@ -504,6 +507,12 @@ void test_fetch() {
     const auto index = taco::read_cozip_index(archive);
     const taco::CozipEntry* collection = index.find("COLLECTION.json");
     const auto target = [&](const char* name) { return (out / name).generic_string(); };
+
+    const auto sizes = taco::object_sizes({archive, data("taco_folder/COLLECTION.json")});
+    CHECK(sizes.size() == 2);
+    CHECK(sizes[0] == whole.size());
+    CHECK(sizes[1] == read_file(data("taco_folder/COLLECTION.json")).size());
+    CHECK(taco::object_sizes({}).empty());
 
     // A range, a whole object and a tail, into directories that do not exist yet.
     taco::fetch_files({taco::Fetch{archive, collection->offset, collection->size, target("a/COLLECTION.json")},

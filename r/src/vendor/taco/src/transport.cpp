@@ -10,6 +10,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <future>
 #include <memory>
 
 namespace fs = std::filesystem;
@@ -78,6 +79,15 @@ Locator resolve(const std::string& uri) {
     return Locator(raw);
 }
 
+std::uint64_t size_with(const std::shared_ptr<karu_client>& transport, const std::string& uri) {
+    const Locator locator = resolve(uri);
+    std::uint64_t size = 0;
+    const karu_status status = karu_client_size(transport.get(), locator.get(), &size);
+    if (status != KARU_OK)
+        transport_error(status, "could not open " + redact_uri(uri));
+    return size;
+}
+
 } // namespace
 
 std::string canonical_uri(const std::string& uri) {
@@ -85,13 +95,28 @@ std::string canonical_uri(const std::string& uri) {
 }
 
 std::uint64_t object_size(const std::string& uri) {
+    return size_with(client(), uri);
+}
+
+std::vector<std::uint64_t> object_sizes(const std::vector<std::string>& uris) {
+    constexpr std::size_t batch_size = 8;
+    std::vector<std::uint64_t> sizes(uris.size());
+    if (uris.empty())
+        return sizes;
     const auto transport = client();
-    const Locator locator = resolve(uri);
-    std::uint64_t size = 0;
-    const karu_status status = karu_client_size(transport.get(), locator.get(), &size);
-    if (status != KARU_OK)
-        transport_error(status, "could not open " + redact_uri(uri));
-    return size;
+    for (std::size_t start = 0; start < uris.size(); start += batch_size) {
+        const auto stop = std::min(start + batch_size, uris.size());
+        std::vector<std::future<std::uint64_t>> pending;
+        pending.reserve(stop - start);
+        for (std::size_t index = start; index < stop; ++index) {
+            pending.push_back(std::async(std::launch::async, [transport, &uris, index] {
+                return size_with(transport, uris[index]);
+            }));
+        }
+        for (std::size_t index = start; index < stop; ++index)
+            sizes[index] = pending[index - start].get();
+    }
+    return sizes;
 }
 
 std::vector<std::string> read_ranges(const std::vector<Range>& ranges) {

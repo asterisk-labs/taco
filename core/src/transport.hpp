@@ -20,6 +20,9 @@ std::string canonical_uri(const std::string& uri);
 
 std::uint64_t object_size(const std::string& uri);
 
+// Gets several sizes concurrently, preserving input order.
+std::vector<std::uint64_t> object_sizes(const std::vector<std::string>& uris);
+
 // Reads every range in one karu batch, in request order.
 std::vector<std::string> read_ranges(const std::vector<Range>& ranges);
 

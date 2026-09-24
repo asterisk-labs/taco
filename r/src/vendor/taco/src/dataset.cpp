@@ -146,11 +146,7 @@ std::string remote_sizes_key(const std::vector<std::uint64_t>& sizes) {
 }
 
 std::string remote_sizes_key(const std::vector<std::string>& sources) {
-    std::vector<std::uint64_t> sizes;
-    sizes.reserve(sources.size());
-    for (const auto& source : sources)
-        sizes.push_back(object_size(source));
-    return remote_sizes_key(sizes);
+    return remote_sizes_key(object_sizes(sources));
 }
 
 std::optional<Container> parse_container(const std::string& name) {
@@ -329,12 +325,17 @@ Dataset open_uri_directory(const std::string& source, const std::string& cache_r
         levels.push_back(Level{name, child_path(parquet_directory, level_to_file(name))});
     sort_and_validate(levels, directory);
 
-    std::vector<std::uint64_t> validation_sizes = {object_size(collection_source)};
+    std::vector<std::string> level_sources;
+    level_sources.reserve(levels.size());
+    for (const auto& level : levels)
+        level_sources.push_back(level.origin);
+    const auto level_sizes = object_sizes(level_sources);
+
+    std::vector<std::uint64_t> validation_sizes = {collection.size()};
     std::vector<Range> ranges;
-    for (const auto& level : levels) {
-        const auto size = object_size(level.origin);
-        validation_sizes.push_back(size);
-        ranges.push_back(Range{level.origin, 0, size});
+    for (std::size_t index = 0; index < levels.size(); ++index) {
+        validation_sizes.push_back(level_sizes[index]);
+        ranges.push_back(Range{levels[index].origin, 0, level_sizes[index]});
     }
     const auto contents = download(ranges, metadata_phase(directory));
     std::vector<std::pair<std::string, std::string>> files = {{std::string(collection_name), collection}};

@@ -198,21 +198,8 @@ class QueryBuilder {
             return out;
         }
 
-        // Build the file relation once, pivot its locations by contract leaf,
-        // then attach those values to every sample. The LEFT JOIN preserves
-        // samples whose optional files are absent.
+        // Pivot one sample at a time so filters reach the child scans.
         std::string out = common_table_expressions();
-        out += ", flat AS (\n" + flat_branches(true, options_.has_files ? &leaves : nullptr) + "\n)";
-        out += ", pivoted AS (SELECT " + sql_identifier(sample_index);
-        if (tacocat_)
-            out += ", source_file";
-        for (const auto& leaf : leaves) {
-            out += pivot_column(leaf, location_column, location_name(leaf));
-            if (has_header(leaf))
-                out += pivot_column(leaf, header_field, header_name(leaf));
-        }
-        out += " FROM flat GROUP BY ALL)";
-
         out += "\nSELECT ";
         if (tacocat_)
             out += alias(0) + "." + sql_identifier(id_source) + " AS source_file, ";
@@ -232,8 +219,14 @@ class QueryBuilder {
             else
                 out += ", p." + sql_identifier(header);
         }
-        out += " FROM " + alias(0) + " LEFT JOIN pivoted p ON p." + sql_identifier(sample_index) + " = " +
-               alias(0) + "." + sql_identifier(id_current);
+        out += " FROM " + alias(0) + " LEFT JOIN LATERAL (SELECT 1 AS taco_anchor";
+        for (const auto& leaf : leaves) {
+            out += pivot_column(leaf, location_column, location_name(leaf));
+            if (has_header(leaf))
+                out += pivot_column(leaf, header_field, header_name(leaf));
+        }
+        out += " FROM (" + pivot_branches(options_.has_files ? &leaves : nullptr) + ") AS flat";
+        out += ") p ON true";
         const auto idx = idx_filter(alias(0));
         if (!idx.empty())
             out += " WHERE " + idx;
@@ -428,6 +421,42 @@ class QueryBuilder {
                 filters.push_back(std::move(files));
             if (auto idx = idx_filter(alias(0)); !idx.empty())
                 filters.push_back(std::move(idx));
+            if (selected)
+                filters.push_back(selected_files_filter(level, *selected));
+            for (std::size_t i = 0; i < filters.size(); ++i)
+                out += (i ? " AND " : " WHERE ") + filters[i];
+        }
+        return out;
+    }
+
+    // Child rows for the outer sample, without joining sample.parquet again.
+    [[nodiscard]] std::string pivot_branches(const std::vector<Leaf>* selected) const {
+        std::string out;
+        for (std::size_t level = 1; level < dataset_.level_names.size(); ++level) {
+            if (!out.empty())
+                out += "\nUNION ALL BY NAME\n";
+            out += "SELECT " + path_expression(level) + " AS path, " + location_expression(level) + " AS " +
+                   sql_identifier(location_column);
+            const auto* fields = dataset_.contract.fields_of(dataset_.level_names[level]);
+            if (fields && std::find(fields->begin(), fields->end(), header_field) != fields->end())
+                out += ", " + alias(level) + "." + sql_identifier(header_field);
+            out += " FROM " + alias(level);
+
+            auto child = level;
+            while (child > 1) {
+                const auto parent = dataset_.level_index(parent_level(dataset_.level_names[child]));
+                out += " JOIN " + alias(parent) + " ON " + alias(child) + "." + sql_identifier(id_parent) + " = " +
+                       alias(parent) + "." + sql_identifier(id_current);
+                child = parent;
+            }
+
+            std::vector<std::string> filters = {
+                alias(1) + "." + sql_identifier(id_parent) + " = " + alias(0) + "." + sql_identifier(id_current)};
+            if (tacocat_)
+                filters.push_back(alias(1) + "." + sql_identifier(id_source) + " = " + alias(0) + "." +
+                                  sql_identifier(id_source));
+            if (auto files = file_filter(level); !files.empty())
+                filters.push_back(std::move(files));
             if (selected)
                 filters.push_back(selected_files_filter(level, *selected));
             for (std::size_t i = 0; i < filters.size(); ++i)

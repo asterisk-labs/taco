@@ -1,6 +1,6 @@
 {
   "name": "@asterisk-labs/taco",
-  "version": "0.10.2",
+  "version": "0.10.3",
   "description": "JavaScript reader for the TACO format, independent of libtaco.",
   "type": "module",
   "exports": {

@@ -30,7 +30,7 @@ rejects it before that branch can run.
 | `ISTAC(check_antimeridian=False, model=...)` | the `istac:` inputs | `istac:centroid`, `istac:time_middle` | sample, folder |
 | `Rumi(stats=False, nodata=None)` | nothing | `rumi:header`, optional `rumi:stats` | sample, asset |
 | `MajorTOM(dist_km=100, extra=(), latitude_range=(-85, 85), longitude_range=(-180, 180), sep="_", centroid="stac:centroid")` | the centroid field | `majortom:code` plus one per extra grid | sample |
-| `GeoEnrich(variables=None, scale_m=5120, batch_size=250, max_concurrency=8, centroid="stac:centroid")` | the centroid field | one column per variable | sample |
+| `GeoEnrich(variables=None, backend="majortom-index", scale_m=5120, batch_size=250, max_concurrency=8, centroid="stac:centroid", code="majortom:code", index_url=...)` | the 10 km MajorTOM code by default; the centroid field for `earthengine` | one column per variable | sample |
 
 The five profile extensions also carry the producer's input model, so
 `taco.Level("sample", stac=taco.extensions.STAC())` declares the inputs and the
@@ -78,15 +78,23 @@ kilometres, plus one column per `extra` grid. An extra grid may not be called `c
 may not contain `:`, and needs a positive distance. `sep` must contain no
 alphanumerics.
 
-`GeoEnrich` fetches Earth Engine variables (elevation, cisi, precipitation,
-temperature, administrative names, ...) for every centroid. It sets
-`__taco_complete_level__`, so its level is buffered whole rather than flushed per
-batch. It needs `earthengine-api`: `GeoEnrich requires earthengine-api; install
-taco-eo[geoenrich]`.
+`GeoEnrich` attaches elevation, climate, soil, population, and administrative
+variables through one of two backends. The default `majortom-index` backend joins
+the sample's 10 km MajorTOM identifier against
+`https://data.source.coop/major-tom/index/global.parquet`; it needs no Earth Engine
+account. Use `MajorTOM(dist_km=10)` before it, or set `code=` to another metadata
+field containing those identifiers.
 
-Both default to `centroid="stac:centroid"`; point them at `spatial:centroid` or
-`istac:centroid` when the level uses another profile. The value must match
-`[a-z][a-z0-9_]*:centroid`.
+Set `backend="earthengine"` explicitly to sample every centroid. That backend needs
+`earthengine-api`: `GeoEnrich requires earthengine-api; install taco-eo[geoenrich]`.
+For this backend, both extensions default to `centroid="stac:centroid"`; point them
+at `spatial:centroid` or `istac:centroid` when the level uses another profile. The
+value must match `[a-z][a-z0-9_]*:centroid`.
+
+`GeoEnrich` sets `__taco_complete_level__`, so its level is buffered whole rather
+than flushed per batch. The index backend and source URL are recorded in collection
+metadata; Earth Engine keeps the collection metadata written by TACO 0.10.2 so
+existing FOLDER datasets remain append-compatible.
 
 ## Writing an extension
 

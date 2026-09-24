@@ -266,16 +266,21 @@ def _get_info(request: Any) -> Any:
 
 @dataclass(frozen=True, init=False)
 class GeoEnrich(DerivedMetadata):
-    """Fetch selected Earth Engine variables and resolve administrative names."""
+    """Attach selected environmental variables from an explicit backend."""
 
     __taco_scopes__: ClassVar[frozenset[str]] = frozenset({"sample"})
     __taco_complete_level__: ClassVar[bool] = True
 
     variables: tuple[str, ...]
+    backend: str
     scale_m: float
     batch_size: int
     max_concurrency: int
     centroid: str
+    code: str
+    index_url: str
+    _MAJORTOM_INDEX_URL: ClassVar[str] = "https://data.source.coop/major-tom/index/global.parquet"
+    _BACKENDS: ClassVar[frozenset[str]] = frozenset({"earthengine", "majortom-index"})
     _PRODUCTS: ClassVar[dict[str, _Product]] = {
         "elevation": _Product(
             "projects/sat-io/open-datasets/GLO-30",
@@ -367,10 +372,13 @@ class GeoEnrich(DerivedMetadata):
         self,
         variables: tuple[str, ...] | list[str] | None = None,
         *,
+        backend: str = "majortom-index",
         scale_m: float = 5120,
         batch_size: int = 250,
         max_concurrency: int = 8,
         centroid: str = "stac:centroid",
+        code: str = "majortom:code",
+        index_url: str = _MAJORTOM_INDEX_URL,
     ) -> None:
         if isinstance(variables, (str, bytes)):
             raise TypeError("variables must be a sequence of names")
@@ -382,21 +390,31 @@ class GeoEnrich(DerivedMetadata):
         unknown = sorted(set(selected) - set(self._PRODUCTS))
         if unknown:
             raise ValueError(f"unknown GeoEnrich variables: {unknown}")
+        if backend not in self._BACKENDS:
+            raise ValueError(f"backend must be one of {sorted(self._BACKENDS)}, got {backend!r}")
         if not math.isfinite(scale_m) or scale_m <= 0:
             raise ValueError("scale_m must be positive")
         if isinstance(batch_size, bool) or batch_size < 1:
             raise ValueError("batch_size must be positive")
         if isinstance(max_concurrency, bool) or max_concurrency < 1:
             raise ValueError("max_concurrency must be positive")
+        validate_field_name(code, context="GeoEnrich code")
+        if code.count(":") != 1:
+            raise ValueError("code must be a qualified metadata field")
+        if not isinstance(index_url, str) or not index_url:
+            raise ValueError("index_url must be a non-empty string")
         object.__setattr__(self, "variables", selected)
+        object.__setattr__(self, "backend", backend)
         object.__setattr__(self, "scale_m", float(scale_m))
         object.__setattr__(self, "batch_size", int(batch_size))
         object.__setattr__(self, "max_concurrency", int(max_concurrency))
         object.__setattr__(self, "centroid", _centroid_field(centroid))
+        object.__setattr__(self, "code", code)
+        object.__setattr__(self, "index_url", index_url)
 
     @property
     def requires(self) -> tuple[str, ...]:
-        return (self.centroid,)
+        return (self.code,) if self.backend == "majortom-index" else (self.centroid,)
 
     @property
     def fields(self) -> pa.Schema:
@@ -411,17 +429,75 @@ class GeoEnrich(DerivedMetadata):
         )
 
     def configuration(self) -> dict[str, Any]:
-        configuration = {
-            "variables": list(self.variables),
-            "scale_m": self.scale_m,
-            "batch_size": self.batch_size,
-            "max_concurrency": self.max_concurrency,
-        }
-        if self.centroid != "stac:centroid":
-            configuration["centroid"] = self.centroid
+        configuration: dict[str, Any] = {"variables": list(self.variables), "backend": self.backend}
+        if self.backend == "majortom-index":
+            configuration.update({"code": self.code, "index_url": self.index_url})
+        else:
+            configuration.update(
+                {
+                    "scale_m": self.scale_m,
+                    "batch_size": self.batch_size,
+                    "max_concurrency": self.max_concurrency,
+                }
+            )
+            if self.centroid != "stac:centroid":
+                configuration["centroid"] = self.centroid
         return configuration
 
+    def collection_metadata(self) -> Mapping[str, Any]:
+        if self.backend == "majortom-index":
+            return {"backend": self.backend, "index_url": self.index_url}
+        # Preserve append compatibility with datasets written by TACO <= 0.10.2.
+        return {}
+
     def compute(self, columns: Mapping[str, Sequence[Any]]) -> Mapping[str, Sequence[Any]]:
+        if self.backend == "majortom-index":
+            return self._compute_majortom_index(columns)
+        return self._compute_earthengine(columns)
+
+    def _compute_majortom_index(self, columns: Mapping[str, Sequence[Any]]) -> Mapping[str, Sequence[Any]]:
+        import duckdb
+        import numpy as np
+
+        codes = list(columns[self.code])
+        if not codes:
+            return {name: [] for name in self.variables}
+        if any(not isinstance(value, str) or not value for value in codes):
+            raise ValueError(f"{self.code} must contain non-empty MajorTOM identifiers")
+
+        requested = pa.table({"taco_index": range(len(codes)), "code": codes})
+        selections = ", ".join(f'indexed."geoenrich:{name}" AS "{name}"' for name in self.variables)
+        connection = duckdb.connect()
+        try:
+            connection.register("requested", requested)
+            rows = connection.execute(
+                f"""
+                SELECT requested.taco_index, indexed.id IS NOT NULL AS matched, {selections}
+                FROM requested
+                LEFT JOIN read_parquet(?) AS indexed ON indexed.id = requested.code
+                ORDER BY requested.taco_index
+                """,
+                [self.index_url],
+            ).fetchall()
+        except Exception as exc:
+            raise RuntimeError(f"GeoEnrich could not read MajorTOM index {self.index_url!r}") from exc
+        finally:
+            connection.close()
+
+        missing = [codes[index] for index, row in enumerate(rows) if not row[1]]
+        if missing:
+            preview = ", ".join(repr(value) for value in missing[:5])
+            suffix = "" if len(missing) <= 5 else f" (and {len(missing) - 5} more)"
+            raise ValueError(f"MajorTOM index has no row for {preview}{suffix}")
+
+        result: dict[str, list[Any]] = {name: [] for name in self.variables}
+        for row in rows:
+            for position, name in enumerate(self.variables, start=2):
+                value = row[position]
+                result[name].append(value if name.startswith("admin_") or value is None else float(np.float32(value)))
+        return result
+
+    def _compute_earthengine(self, columns: Mapping[str, Sequence[Any]]) -> Mapping[str, Sequence[Any]]:
         try:
             from importlib import import_module
 

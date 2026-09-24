@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from typing import Annotated, Literal
 
 import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 from pydantic import BaseModel, computed_field
 
@@ -199,7 +200,7 @@ def test_contract_rejects_mixed_profiles_and_incomplete_new_profiles() -> None:
 
 def test_derived_centroid_dependency_is_configurable() -> None:
     majortom = taco.extensions.MajorTOM(centroid="spatial:centroid")
-    geoenrich = taco.extensions.GeoEnrich(["elevation"], centroid="ispatial:centroid")
+    geoenrich = taco.extensions.GeoEnrich(["elevation"], backend="earthengine", centroid="ispatial:centroid")
     assert majortom.requires == ("spatial:centroid",)
     assert majortom.configuration()["centroid"] == "spatial:centroid"
     assert geoenrich.requires == ("ispatial:centroid",)
@@ -315,7 +316,12 @@ def test_geoenrich_batches_requests(monkeypatch: pytest.MonkeyPatch) -> None:
     FakeImage.calls.clear()
     FakeImage.unmask_values.clear()
     monkeypatch.setitem(sys.modules, "ee", fake_earth_engine())
-    extension = taco.metadata.sample.GeoEnrich(["elevation", "admin_countries"], batch_size=1, max_concurrency=1)
+    extension = taco.metadata.sample.GeoEnrich(
+        ["elevation", "admin_countries"],
+        backend="earthengine",
+        batch_size=1,
+        max_concurrency=1,
+    )
     result = extension.compute({"stac:centroid": [point(0, 0), point(1, 1)]})
     assert result == {
         "elevation": [0.5, 1.5],
@@ -343,7 +349,7 @@ def test_geoenrich_replaces_missing_admin_name(monkeypatch: pytest.MonkeyPatch) 
         )
 
     monkeypatch.setattr(FakeImage, "reduceRegions", reduce_regions)
-    extension = taco.metadata.sample.GeoEnrich(["admin_districts"])
+    extension = taco.metadata.sample.GeoEnrich(["admin_districts"], backend="earthengine")
     result = extension.compute({"stac:centroid": [point(63.794370059438705, 36.06268468013294)]})
 
     assert result == {"admin_districts": ["Unknown"]}
@@ -367,7 +373,7 @@ def test_geoenrich_converts_units_and_keeps_missing_values(monkeypatch: pytest.M
         )
 
     monkeypatch.setattr(FakeImage, "reduceRegions", reduce_regions)
-    extension = taco.metadata.sample.GeoEnrich(["temperature", "soil_ph", "population"])
+    extension = taco.metadata.sample.GeoEnrich(["temperature", "soil_ph", "population"], backend="earthengine")
     result = extension.compute({"stac:centroid": [point(0, 0), point(1, 1)]})
 
     assert result["temperature"] == [pytest.approx(26.85, abs=1e-5), None]
@@ -391,7 +397,9 @@ def test_geoenrich_retries_failed_requests(monkeypatch: pytest.MonkeyPatch) -> N
         return SimpleNamespace(getInfo=get_info)
 
     monkeypatch.setattr(FakeImage, "reduceRegions", reduce_regions)
-    result = taco.metadata.sample.GeoEnrich(["elevation"]).compute({"stac:centroid": [point(0, 0)]})
+    result = taco.metadata.sample.GeoEnrich(["elevation"], backend="earthengine").compute(
+        {"stac:centroid": [point(0, 0)]}
+    )
 
     assert result == {"elevation": [12.0]}
     assert delays == [1]
@@ -414,6 +422,10 @@ def test_geoenrich_configuration() -> None:
         taco.metadata.sample.GeoEnrich(batch_size=0)
     with pytest.raises(ValueError, match="max_concurrency"):
         taco.metadata.sample.GeoEnrich(max_concurrency=0)
+    with pytest.raises(ValueError, match="backend"):
+        taco.metadata.sample.GeoEnrich(backend="unknown")
+    with pytest.raises(ValueError, match="index_url"):
+        taco.metadata.sample.GeoEnrich(index_url="")
 
     fields = taco.metadata.sample.GeoEnrich(["gdp", "admin_countries"]).fields
     assert fields.field("gdp").type == pa.float32()
@@ -421,6 +433,66 @@ def test_geoenrich_configuration() -> None:
     assert fields.field("gdp").nullable
     assert not fields.field("admin_countries").nullable
     assert fields.field("admin_countries").metadata[b"description"]
+
+    default = taco.metadata.sample.GeoEnrich(["elevation"])
+    assert default.requires == ("majortom:code",)
+    assert default.configuration() == {
+        "variables": ["elevation"],
+        "backend": "majortom-index",
+        "code": "majortom:code",
+        "index_url": "https://data.source.coop/major-tom/index/global.parquet",
+    }
+    assert default.collection_metadata() == {
+        "backend": "majortom-index",
+        "index_url": "https://data.source.coop/major-tom/index/global.parquet",
+    }
+
+    earthengine = taco.metadata.sample.GeoEnrich(["elevation"], backend="earthengine")
+    assert earthengine.requires == ("stac:centroid",)
+    assert earthengine.collection_metadata() == {}
+
+
+def test_geoenrich_reads_majortom_index_in_input_order(tmp_path) -> None:
+    index = tmp_path / "global.parquet"
+    pq.write_table(
+        pa.table(
+            {
+                "id": ["MT10km_0000U_0000R", "MT10km_0000U_0001R"],
+                "geoenrich:elevation": pa.array([12.25, None], type=pa.float32()),
+                "geoenrich:admin_countries": ["Peru", "Ecuador"],
+            }
+        ),
+        index,
+    )
+    extension = taco.metadata.sample.GeoEnrich(
+        ["elevation", "admin_countries"],
+        index_url=str(index),
+    )
+
+    assert extension.compute(
+        {
+            "majortom:code": [
+                "MT10km_0000U_0001R",
+                "MT10km_0000U_0000R",
+                "MT10km_0000U_0001R",
+            ]
+        }
+    ) == {
+        "elevation": [None, 12.25, None],
+        "admin_countries": ["Ecuador", "Peru", "Ecuador"],
+    }
+
+
+def test_geoenrich_majortom_index_rejects_missing_codes(tmp_path) -> None:
+    index = tmp_path / "global.parquet"
+    pq.write_table(
+        pa.table({"id": ["MT10km_0000U_0000R"], "geoenrich:elevation": [12.25]}),
+        index,
+    )
+    extension = taco.metadata.sample.GeoEnrich(["elevation"], index_url=str(index))
+
+    with pytest.raises(ValueError, match="MT10km_9999U_9999R"):
+        extension.compute({"majortom:code": ["MT10km_9999U_9999R"]})
 
 
 def test_arrow_type_inference() -> None:

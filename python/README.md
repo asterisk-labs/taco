@@ -40,6 +40,27 @@ taco.export(
 Remote reads and exports show download progress in interactive terminals.
 Writers show their build progress when opened with `progress=True`.
 
+## GeoEnrich
+
+`GeoEnrich` uses the public 10 km MajorTOM index on Source Cooperative by
+default, so it needs no Earth Engine account. Place `MajorTOM(dist_km=10)` in
+the same metadata level before using it:
+
+```python
+taco.Level(
+    "sample",
+    stac=taco.extensions.STAC(),
+    majortom=taco.extensions.MajorTOM(dist_km=10),
+    geoenrich=taco.extensions.GeoEnrich(
+        ["elevation", "temperature", "admin_countries"],
+    ),
+)
+```
+
+Set `backend="earthengine"` explicitly to retain centroid-based Earth Engine
+sampling. That backend requires `taco-eo[geoenrich]` and an authenticated Earth
+Engine installation.
+
 ## Examples
 
 Every example is self-contained, uses synthetic data, and writes its output in

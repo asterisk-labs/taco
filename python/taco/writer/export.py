@@ -38,28 +38,24 @@ def export(
     source: Source | Dataset,
     output: str | PathLike[str],
     *,
-    samples: Any = None,
+    sql: str,
     overwrite: bool = False,
     **fields: Any,
 ) -> BuildResult:
-    """Copy a dataset or selected samples to a new TACO output.
+    """Write the complete samples selected by a SQL query.
 
-    ``samples`` is an Arrow-compatible table with ``taco:sample_index``. Other
-    keyword arguments replace collection fields. The export keeps the
-    contract, renumbers samples, and recomputes the extent.
+    The query may use any dataset relation and must retain
+    ``taco:sample_index``. Other keyword arguments replace collection fields.
     """
     sources = source.sources if isinstance(source, Dataset) else normalize_sources(source)
     if len(sources) != 1:
         raise ValueError("export reads one dataset")
     if "contract" in fields or "sources" in fields:
         raise ValueError("export keeps the contract and drops taco:sources")
-    dataset = _Source(sources[0])
-    selected = None if samples is None else dataset.select(samples)
-    # Validate the complete selection before fetching payload bytes. A typo in
-    # a sample id therefore cannot leave a partially populated writer stage.
+    opened = source._opened[0] if isinstance(source, Dataset) else None
+    dataset = _Source(sources[0], opened)
+    selected = dataset.select(sql)
     sample_rows = dataset.level(SAMPLE_LEVEL, selected)
-    if selected is not None:
-        dataset.validate_selection(selected, sample_rows)
     collection = dataset.collection.replace(sources=None, **fields)
 
     with open_writer(collection, output, overwrite=overwrite, progress=True) as writer:
@@ -72,10 +68,9 @@ def export(
 
 
 class _Source:
-    def __init__(self, location: Location) -> None:
+    def __init__(self, location: Location, opened: native.NativeDataset | None = None) -> None:
         self.location = location
-        # Reuse the native handle; opening a remote source costs round trips.
-        self.opened = native.NativeDataset(location)
+        self.opened = native.NativeDataset(location) if opened is None else opened
         self.container = self.opened.container
         self.collection = Collection.from_dict(json.loads(self.opened.collection))
         self.levels: dict[str, pa.Table] = {}
@@ -136,26 +131,40 @@ class _Source:
                         connection.unregister("export_origins")
         return self.levels[name]
 
-    def select(self, samples: Any) -> set[int]:
-        # Accept any table that implements the Arrow C stream protocol.
-        table = pa.table(samples)
+    def select(self, query: str) -> set[int]:
+        query = _query(query)
+        connection = engine.open_reader()
+        relations = [
+            ("dataset", native.sql([self.opened], idx=None, level=None, pivoted=True, files=None, location=True))
+        ]
+        relations.extend((level.replace("/", "__"), self._selection_level(level)) for level in self.contract.levels)
+        context = ",\n".join(f"{_sql_identifier(name)} AS ({statement})" for name, statement in relations)
+        table = connection.execute(f"WITH {context}\nSELECT * FROM (\n{query}\n) AS taco_export").to_arrow_table()
         if SAMPLE_INDEX not in table.column_names:
-            raise ValueError(f"samples must contain a {SAMPLE_INDEX} column")
+            raise ValueError(f"sql must return {SAMPLE_INDEX}; use SELECT * or include it explicitly")
         ids = table.column(SAMPLE_INDEX).to_pylist()
         if any(isinstance(sample, bool) or not isinstance(sample, int) or sample < 0 for sample in ids):
-            raise ValueError(f"samples must contain non-negative integer {SAMPLE_INDEX} values")
+            raise ValueError(f"sql must return non-negative integer {SAMPLE_INDEX} values")
         return set(ids)
 
-    def validate_selection(self, selected: set[int], rows: pa.Table) -> None:
-        found = {key for key, _ in self.rows(SAMPLE_LEVEL, rows)}
-        missing = selected - found
-        if not missing:
-            return
-        ordered = sorted(missing)
-        preview = ", ".join(str(sample) for sample in ordered[:3])
-        suffix = "" if len(missing) <= 3 else ", ..."
-        noun = "sample" if len(missing) == 1 else "samples"
-        raise ValueError(f"{noun} not found in the source: {preview}{suffix}")
+    def _selection_level(self, level: str) -> str:
+        statement = native.sql([self.opened], idx=None, level=level, pivoted=True, files=None, location=False)
+        rows = f"({statement}) AS rows"
+        if level == SAMPLE_LEVEL:
+            return f"SELECT rows.*, rows.{_sql_identifier(CURRENT_ID)} AS {_sql_identifier(SAMPLE_INDEX)} FROM {rows}"
+        if self.container != "tacocat":
+            path = f"rows.{_sql_identifier(RELATIVE_PATH)}"
+            return (
+                f"SELECT rows.*, CAST(split_part({path}, '/', 1) AS UBIGINT) AS {_sql_identifier(SAMPLE_INDEX)} "
+                f"FROM {rows}"
+            )
+        return (
+            f"SELECT rows.*, samples.{_sql_identifier(SAMPLE_INDEX)} FROM {rows} "
+            f"JOIN {_sql_identifier(SAMPLE_LEVEL)} AS samples ON "
+            f"rows.{_sql_identifier(SOURCE_FILE)} = samples.{_sql_identifier(SOURCE_FILE)} AND "
+            f"split_part(rows.{_sql_identifier(RELATIVE_PATH)}, '/', 1) = "
+            f"samples.{_sql_identifier(RELATIVE_PATH)}"
+        )
 
     def sample_origins(self) -> dict[tuple[str | None, str], int]:
         if self._sample_origins is None:
@@ -221,7 +230,7 @@ class _Source:
         archive = (
             fspath(self.location)
             if self.container == "zip"
-            else _join(_parent(self.location), _metadata_path(row, SOURCE_FILE))
+            else _join(_parent(self.opened.source), _metadata_path(row, SOURCE_FILE))
         )
         return archive, row[OFFSET], row[SIZE]
 
@@ -230,6 +239,23 @@ def _join(location: Location, *parts: str) -> str:
     if isinstance(location, Path):
         return fspath(location.joinpath(*parts))
     return "/".join((location.rstrip("/"), *parts))
+
+
+def _query(value: str) -> str:
+    if not isinstance(value, str):
+        raise TypeError("sql must be a string")
+    value = value.strip()
+    if value.endswith(";"):
+        value = value[:-1].rstrip()
+    if not value:
+        raise ValueError("sql must not be empty")
+    if "\0" in value:
+        raise ValueError("sql must not contain NUL")
+    return value
+
+
+def _sql_identifier(value: str) -> str:
+    return '"' + value.replace('"', '""') + '"'
 
 
 def _parent(location: Location) -> Location:

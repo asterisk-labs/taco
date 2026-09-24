@@ -10,7 +10,6 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pyarrow as pa
-import pyarrow.compute as pc
 import pytest
 
 import taco
@@ -23,6 +22,8 @@ from taco.writer.export import _metadata_path
 
 from .datasets import CASES, DatasetCase, case_id
 from .test_writer_cases import data_files, write_case
+
+ALL_SAMPLES = "SELECT * FROM sample"
 
 
 def assert_same_dataset(expected: DatasetView, actual: DatasetView) -> None:
@@ -51,7 +52,7 @@ def test_export_copies_every_case(case: DatasetCase, tmp_path: Path) -> None:
     write_case(case, archive_path)
 
     exported_path = tmp_path / "exported"
-    result = taco.export(archive_path, exported_path)
+    result = taco.export(archive_path, exported_path, sql=ALL_SAMPLES)
 
     assert result.samples == len(case.samples)
     assert taco.validate(exported_path).ok
@@ -59,7 +60,7 @@ def test_export_copies_every_case(case: DatasetCase, tmp_path: Path) -> None:
     assert data_files(exported_path) == data_files(direct_path)
 
     repacked_path = tmp_path / "repacked.zip"
-    taco.export(exported_path, repacked_path)
+    taco.export(exported_path, repacked_path, sql=ALL_SAMPLES)
     assert taco.validate(repacked_path).ok
     assert_same_dataset(open_view(direct_path), open_view(repacked_path))
 
@@ -73,7 +74,7 @@ def test_export_enables_writer_progress(archive: Path, tmp_path: Path, monkeypat
         return open_writer(*args, **kwargs)
 
     monkeypatch.setattr(export_module, "open_writer", capture)
-    taco.export(archive, tmp_path / "copy.zip")
+    taco.export(archive, tmp_path / "copy.zip", sql=ALL_SAMPLES)
 
     assert calls == [True]
 
@@ -85,18 +86,18 @@ def test_export_does_not_index_every_sample_in_a_zip(
         raise AssertionError("ZIP export must not build a sample origin map")
 
     monkeypatch.setattr(export_module._Source, "sample_origins", unexpected)
-    result = taco.export(archive, tmp_path / "copy.zip")
+    result = taco.export(archive, tmp_path / "copy.zip", sql=ALL_SAMPLES)
     assert result.samples == 4
 
 
 def test_export_overwrites_an_existing_output(archive: Path, tmp_path: Path) -> None:
     output = tmp_path / "copy.zip"
-    taco.export(archive, output)
+    taco.export(archive, output, sql=ALL_SAMPLES)
 
     with pytest.raises(FileExistsError, match="overwrite=True"):
-        taco.export(archive, output)
+        taco.export(archive, output, sql=ALL_SAMPLES)
 
-    result = taco.export(archive, output, overwrite=True)
+    result = taco.export(archive, output, sql=ALL_SAMPLES, overwrite=True)
 
     assert result.path == output
     assert taco.validate(output).ok
@@ -115,7 +116,7 @@ def test_export_subset_matches_direct_write(
     result = taco.export(
         archive,
         output,
-        samples=taco.read(archive).filter(pc.field("ml:split") == "val"),
+        sql="SELECT * FROM sample WHERE \"ml:split\" = 'val'",
         id="tiny-change-val",
         description="Validation samples",
     )
@@ -131,9 +132,7 @@ def test_export_subset_to_zip(archive: Path, tmp_path: Path) -> None:
     taco.export(
         taco.open_dataset(archive),
         output,
-        samples=taco.open_dataset(archive)
-        .sql('SELECT * FROM dataset WHERE "taco:sample_index" >= 1 AND "taco:sample_index" < 3')
-        .to_pandas(),
+        sql='SELECT * FROM dataset WHERE "taco:sample_index" >= 1 AND "taco:sample_index" < 3',
         id="tiny-change-middle",
         description="Second and third samples",
     )
@@ -146,21 +145,52 @@ def test_export_subset_to_zip(archive: Path, tmp_path: Path) -> None:
         assert archive_file.read("DATA/1/extra1.png") == b"2:extra1.png"
 
 
+@pytest.mark.parametrize("container", ["folder", "zip", "tacocat"])
+def test_export_selects_complete_samples_from_child_rows(
+    container: str, tmp_path: Path, collection: taco.Collection, make_sample
+) -> None:
+    suffix = ".zip" if container != "folder" else ""
+    source = tmp_path / f"source{suffix}"
+    options = {"partition_size": 1} if container == "tacocat" else {}
+    with taco.open_writer(collection, source, **options) as writer:
+        writer.extend(make_sample(index, after_resolution=20 + index) for index in range(4))
+        result = writer.run()
+
+    output = tmp_path / "selected.zip"
+    exported = taco.export(
+        result.path,
+        output,
+        sql='SELECT * FROM children__after WHERE "file:resolution" >= 22',
+    )
+
+    assert exported.samples == 2
+    assert taco.validate(output).ok
+    with zipfile.ZipFile(output) as archive_file:
+        assert archive_file.read("DATA/0/before/B02.tif") == b"2:before/B02.tif"
+        assert archive_file.read("DATA/0/after/B02.tif") == b"2:after/B02.tif"
+        assert archive_file.read("DATA/1/before/B02.tif") == b"3:before/B02.tif"
+        assert archive_file.read("DATA/1/after/B02.tif") == b"3:after/B02.tif"
+
+
 def test_export_tacocat(tmp_path: Path, collection: taco.Collection, make_sample) -> None:
     with taco.open_writer(collection, tmp_path / "parts" / "dataset.zip", partition_size=1) as writer:
         writer.extend(make_sample(index) for index in range(4))
         catalog = writer.run().path
 
     merged = tmp_path / "merged"
-    taco.export(catalog, merged)
+    taco.export(catalog, merged, sql=ALL_SAMPLES)
     assert taco.validate(merged).ok
     assert open_view(merged).sample_count == 4
     assert "taco:sources" not in open_view(merged).collection_json
 
     train = tmp_path / "train.zip"
-    train_rows = taco.read(catalog).filter(pc.field("ml:split") == "train")
-    train_rows = train_rows.drop_columns(["source_file"])
-    taco.export(catalog, train, samples=train_rows, id="tiny-change-train", description="Training samples")
+    taco.export(
+        catalog,
+        train,
+        sql="SELECT * FROM sample WHERE \"ml:split\" = 'train'",
+        id="tiny-change-train",
+        description="Training samples",
+    )
     dataset = open_view(train)
     assert taco.validate(train).ok
     assert dataset.level("sample").column("ml:cloud_cover").to_pylist() == [0.0, 21.0]
@@ -168,12 +198,23 @@ def test_export_tacocat(tmp_path: Path, collection: taco.Collection, make_sample
         assert archive_file.read("DATA/1/mask.tif") == b"2:mask.tif"
 
 
+def test_export_tacocat_opened_at_its_root(tmp_path: Path, collection: taco.Collection, make_sample) -> None:
+    with taco.open_writer(collection, tmp_path / "parts" / "dataset.zip", partition_size=1) as writer:
+        writer.extend(make_sample(index) for index in range(4))
+        catalog = writer.run().path
+
+    merged = tmp_path / "merged.zip"
+    taco.export(catalog.parent, merged, sql=ALL_SAMPLES)
+    assert taco.validate(merged).ok
+    assert open_view(merged).sample_count == 4
+
+
 def test_collection_fields_are_inherited_unless_given(archive: Path, tmp_path: Path) -> None:
     output = tmp_path / "subset.zip"
     taco.export(
         archive,
         output,
-        samples=taco.open_dataset(archive).sql('SELECT * FROM dataset WHERE "taco:sample_index" = 0'),
+        sql='SELECT * FROM dataset WHERE "taco:sample_index" = 0',
         id="tiny-change-0",
     )
     exported = open_view(output).collection
@@ -184,33 +225,53 @@ def test_collection_fields_are_inherited_unless_given(archive: Path, tmp_path: P
     assert exported.contract == source.contract
 
     with pytest.raises(TypeError, match="unexpected keyword"):
-        taco.export(archive, tmp_path / "bad.zip", nonsense="x")
+        taco.export(archive, tmp_path / "bad.zip", sql=ALL_SAMPLES, nonsense="x")
     with pytest.raises(ValueError, match="keeps the contract"):
-        taco.export(archive, tmp_path / "bad.zip", contract=source.contract)
+        taco.export(archive, tmp_path / "bad.zip", sql=ALL_SAMPLES, contract=source.contract)
     with pytest.raises(WriterError, match="without samples"):
-        taco.export(archive, tmp_path / "none.zip", samples=taco.read(archive).slice(0, 0), id="tiny-change-none")
+        taco.export(archive, tmp_path / "none.zip", sql="SELECT * FROM sample LIMIT 0", id="tiny-change-none")
     assert not (tmp_path / "none.zip").exists()
 
 
-def test_samples_must_name_rows_of_the_source(
-    archive: Path, tmp_path: Path, collection: taco.Collection, make_sample
-) -> None:
+def test_export_sql_must_preserve_sample_index(archive: Path, tmp_path: Path) -> None:
+    with pytest.raises(TypeError, match="required keyword-only argument: 'sql'"):
+        taco.export(archive, tmp_path / "bad.zip")  # type: ignore[call-arg]
     with pytest.raises(ValueError, match="taco:sample_index"):
-        taco.export(archive, tmp_path / "bad.zip", samples=pa.table({"x": [1]}), id="tiny-change-x")
-    with pytest.raises(ValueError, match=r"not found.*999"):
-        taco.export(
-            archive,
-            tmp_path / "bad.zip",
-            samples=pa.table({"taco:sample_index": [0, 999]}),
-            id="tiny-change-x",
-        )
+        taco.export(archive, tmp_path / "bad.zip", sql="SELECT id FROM sample")
     with pytest.raises(ValueError, match="non-negative integer"):
         taco.export(
             archive,
             tmp_path / "bad.zip",
-            samples=pa.table({"taco:sample_index": [-1]}),
-            id="tiny-change-x",
+            sql='SELECT -1 AS "taco:sample_index" FROM sample LIMIT 1',
         )
+
+
+def test_export_intersects_and_deduplicates_sql_results(archive: Path, tmp_path: Path) -> None:
+    output = tmp_path / "selected.zip"
+    result = taco.export(
+        archive,
+        output,
+        sql=(
+            'SELECT "taco:sample_index" FROM sample WHERE "internal:current_id" = 1 '
+            'UNION ALL SELECT "taco:sample_index" FROM sample WHERE "internal:current_id" = 1 '
+            "UNION ALL SELECT 999::UBIGINT"
+        ),
+    )
+
+    assert result.samples == 1
+    assert open_view(output).level("sample").column("id").to_pylist() == ["s1"]
+
+
+def test_export_reuses_an_open_dataset(archive: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    dataset = taco.open_dataset(archive)
+
+    def unexpected(_source):
+        raise AssertionError("export reopened the dataset")
+
+    monkeypatch.setattr(export_module.native, "NativeDataset", unexpected)
+    result = taco.export(dataset, tmp_path / "copy.zip", sql=ALL_SAMPLES)
+
+    assert result.samples == 4
 
 
 @pytest.mark.parametrize(
@@ -229,7 +290,7 @@ def test_export_rejects_unsafe_metadata_paths(field: str, value: str) -> None:
 
 def test_export_reads_one_dataset(archive: Path, tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="one dataset"):
-        taco.export([archive, tmp_path / "other.zip"], tmp_path / "out.zip")
+        taco.export([archive, tmp_path / "other.zip"], tmp_path / "out.zip", sql=ALL_SAMPLES)
 
 
 class RangeHandler(SimpleHTTPRequestHandler):
@@ -271,19 +332,31 @@ def server(root: Path) -> Iterator[str]:
         httpd.server_close()
 
 
+def test_export_remote_tacocat_root(tmp_path: Path, collection: taco.Collection, make_sample) -> None:
+    release = tmp_path / "release"
+    with taco.open_writer(collection, release / "dataset.zip", partition_size=1) as writer:
+        writer.extend(make_sample(index) for index in range(4))
+        writer.run()
+
+    output = tmp_path / "copy.zip"
+    with server(tmp_path) as base:
+        taco.export(f"{base}/release", output, sql=ALL_SAMPLES)
+
+    assert taco.validate(output).ok
+    assert open_view(output).sample_count == 4
+
+
 def test_export_from_remote_archive_and_folder(archive: Path, folder_dataset: Path, tmp_path: Path) -> None:
     output = tmp_path / "out"
     with server(tmp_path) as base:
         subset = taco.export(
             f"{base}/dataset.zip",
             output / "middle.zip",
-            samples=taco.open_dataset(f"{base}/dataset.zip").sql(
-                'SELECT * FROM dataset WHERE "taco:sample_index" >= 1 AND "taco:sample_index" < 3'
-            ),
+            sql='SELECT * FROM dataset WHERE "taco:sample_index" >= 1 AND "taco:sample_index" < 3',
             id="tiny-change-middle",
             description="Second and third samples",
         )
-        everything = taco.export(f"{base}/folder", output / "copy.zip")
+        everything = taco.export(f"{base}/folder", output / "copy.zip", sql=ALL_SAMPLES)
 
     assert subset.samples == 2
     assert taco.validate(output / "middle.zip").ok
@@ -310,7 +383,7 @@ def test_export_remote_subsets(tmp_path: Path) -> None:
     first = taco.export(
         archive,
         tmp_path / "hf.zip",
-        samples=taco.open_dataset(archive).sql('SELECT * FROM dataset WHERE "taco:sample_index" < 2'),
+        sql='SELECT * FROM dataset WHERE "taco:sample_index" < 2',
         id="change-detection-mini",
         description="Two samples",
     )
@@ -321,7 +394,7 @@ def test_export_remote_subsets(tmp_path: Path) -> None:
     test_split = taco.export(
         catalog,
         tmp_path / "test",
-        samples=taco.read(catalog).filter(pc.field("ml:split") == "test"),
+        sql="SELECT * FROM sample WHERE \"ml:split\" = 'test'",
         id="change-detection-test",
         description="Test samples",
     )

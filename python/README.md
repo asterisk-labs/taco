@@ -22,23 +22,18 @@ targets = dataset.read(files="target.tif")
 train = dataset.sql("SELECT * FROM dataset WHERE \"ml:split\" = 'train'")
 ```
 
-`export()` writes a smaller dataset with the same contract. `samples` is a
-PyArrow-compatible table, normally selected from the `dataset` SQL relation.
-Keyword arguments replace fields of the collection, such
-as `id` or `description`; the rest is inherited. For a remote source, metadata
-is cached and only the payload files belonging to the selected samples are
-downloaded. Pass `overwrite=True` to replace an existing TACO output.
+`export()` writes the complete samples selected by a SQL query. The query may
+use `dataset`, `sample`, or any declared metadata level. A match at a lower
+level still copies the whole sample. Collection fields are inherited unless
+they are replaced. For a remote source, only payloads from matching samples
+are downloaded. Pass `overwrite=True` to replace an existing TACO output.
 
 ```python
 source = "https://data.source.coop/major-tom/core-dem/"
-dataset = taco.open_dataset(source)
-rows = dataset.sql('SELECT * FROM dataset ORDER BY "taco:sample_index" LIMIT 10')
 taco.export(
     source,
     "core-dem-sample.zip",
-    samples=rows,
-    id="core-dem-sample",
-    description="Ten samples from Core-DEM",
+    sql='SELECT * FROM sample ORDER BY id LIMIT 10',
 )
 ```
 

@@ -869,24 +869,24 @@ FOLDER containers may use `append=True`. ZIP containers may be partitioned. The 
 
 #### Export
 
-`taco.export()` writes selected samples of an existing dataset through the same writer. `samples` is a PyArrow-compatible table, normally selected from the `dataset` SQL relation. It MUST retain `taco:sample_index`. Every named sample MUST exist in the source or the export fails.
+`taco.export()` writes a subset of an existing dataset through the same writer. Its required `sql` argument may query `dataset`, `sample`, or any declared metadata level. Every relation carries `taco:sample_index` while this query runs, and the result MUST retain that column.
+
+The query selects samples, not individual files. If any returned row belongs to a sample, the export includes that sample's complete structure and metadata. Duplicate rows select the sample once. Values of `taco:sample_index` that do not belong to the source are ignored.
 
 The output keeps the source contract, identity, licenses, providers, tasks, and collection metadata unless the caller replaces collection fields. Selected samples keep their `id` and receive new indices from zero in source order. The writer recalculates `extent` and removes `taco:sources`.
 
-Without `samples`, the export copies every sample. This can convert a FOLDER to ZIP or merge a TACOCAT into one dataset. `overwrite=True` replaces an existing TACO output.
+For example, this query examines only the `after` level. Every matching sample is still exported with its `before`, `after`, and any other files required by the structure.
 
 ```
-source = "https://data.source.coop/major-tom/core-dem/"
-dataset = taco.open_dataset(source)
-samples = dataset.sql('SELECT * FROM dataset ORDER BY "taco:sample_index" LIMIT 10')
+source = "change-detection.zip"
 taco.export(
     source,
-    "core-dem-sample.zip",
-    samples=samples,
-    id="core-dem-sample",
-    description="Ten samples from Core-DEM",
+    "clear-after.zip",
+    sql='SELECT * FROM children__after WHERE cloud_cover < 10',
 )
 ```
+
+Collection fields such as `id`, `title`, and `description` are optional. Omitted fields keep their source values. `overwrite=True` replaces an existing TACO output.
 
 #### Example
 

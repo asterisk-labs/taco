@@ -70,7 +70,7 @@ def collection(contract: taco.Contract) -> taco.Collection:
 
 @pytest.fixture
 def make_sample(tmp_path: Path):
-    def factory(index: int, n_extra: int = 1) -> taco.Sample:
+    def factory(index: int, n_extra: int = 1, *, after_resolution: int = 20) -> taco.Sample:
         paths = ["before/B02.tif", "before/B03.tif", "after/B02.tif", "mask.tif"]
         paths.extend(f"extra{k}.png" for k in range(n_extra))
         assets = []
@@ -81,7 +81,7 @@ def make_sample(tmp_path: Path):
             if path.startswith("before/"):
                 metadata = taco.Metadata(file=AssetInfo(resolution=10))
             elif path.startswith("after/"):
-                metadata = taco.Metadata(file=AssetInfo(resolution=20))
+                metadata = taco.Metadata(file=AssetInfo(resolution=after_resolution))
             else:
                 metadata = taco.Metadata(node=Kind(kind="label" if path == "mask.tif" else "extra"))
             assets.append(taco.Asset(source, path=path, metadata=metadata))

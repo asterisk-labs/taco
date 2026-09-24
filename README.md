@@ -44,6 +44,14 @@ container formats.
 Release history for the core and all language packages is recorded in the
 [changelog](CHANGELOG.md).
 
+## AI agent skill
+
+Install the [TACO skill](https://github.com/asterisk-labs/taco/blob/main/.claude/skills/taco/SKILL.md) so coding agents know its contract, container layouts and reader/writer rules.
+
+```bash
+npx skills add asterisk-labs/taco
+```
+
 ## License
 
 MIT.

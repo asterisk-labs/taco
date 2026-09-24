@@ -11,19 +11,29 @@ from .source import Location, PathInput
 
 def load_collection(path: PathInput | Location) -> dict[str, object]:
     """Load ``COLLECTION.json`` from one dataset."""
-    data = json.loads(native.NativeDataset(path).collection)
+    return _decode_collection(native.NativeDataset(path).collection, path)
+
+
+def _decode_collection(text: str, path: PathInput | Location) -> dict[str, object]:
+    data = json.loads(text)
     if not isinstance(data, dict):
         raise ContainerError(f"COLLECTION.json is not a JSON object: {path}")
     return data
 
 
-def load_collections(paths: Sequence[Location]) -> list[dict[str, object]]:
-    return [load_collection(path) for path in paths]
+def load_collections(
+    paths: Sequence[Location], opened: Sequence[native.NativeDataset] | None = None
+) -> list[dict[str, object]]:
+    if opened is None:
+        return [load_collection(path) for path in paths]
+    if len(paths) != len(opened):
+        raise ValueError("paths and opened datasets must have the same length")
+    return [_decode_collection(dataset.collection, path) for path, dataset in zip(paths, opened, strict=True)]
 
 
-def merge_collections(paths: tuple[Location, ...]) -> Collection:
+def merge_collections(paths: tuple[Location, ...], opened: Sequence[native.NativeDataset] | None = None) -> Collection:
     """Merge compatible source collections and their extents."""
-    collections = tuple(Collection.from_dict(data) for data in load_collections(paths))
+    collections = tuple(Collection.from_dict(data) for data in load_collections(paths, opened))
     if len(collections) == 1:
         return collections[0]
     if any(collection.sources is not None for collection in collections):

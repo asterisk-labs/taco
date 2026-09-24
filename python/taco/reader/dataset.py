@@ -46,7 +46,8 @@ def _wide_columns(contract: Contract, leaf: Leaf) -> list[tuple[str, str]]:
 class Dataset:
     def __init__(self, source: Source) -> None:
         self.sources = normalize_sources(source)
-        self.collection = merge_collections(self.sources)
+        self._opened = tuple(native.NativeDataset(source) for source in self.sources)
+        self.collection = merge_collections(self.sources, self._opened)
 
     @property
     def contract(self) -> Contract:
@@ -89,17 +90,12 @@ class Dataset:
         return f"SELECT {projection} FROM dataset ORDER BY {_identifier(SAMPLE_INDEX)}"
 
     def _execute_sql(self, query: str) -> pa.Table:
-        # The native core supplies trusted Parquet scans. User SQL runs only
-        # against these logical relations, never as part of a file expression.
-        opened = [native.NativeDataset(source) for source in self.sources]
-        complete = native.sql(opened, idx=None, level=None, pivoted=True, files=None, location=True)
+        complete = native.sql(self._opened, idx=None, level=None, pivoted=True, files=None, location=True)
         relations = [("dataset", complete)]
-        # Slashes are not convenient relation names in SQL; nested metadata
-        # levels use the same double-underscore convention as wide file names.
         relations.extend(
             (
                 level.replace("/", "__"),
-                native.sql(opened, idx=None, level=level, pivoted=True, files=None, location=False),
+                native.sql(self._opened, idx=None, level=level, pivoted=True, files=None, location=False),
             )
             for level in self.contract.levels
         )

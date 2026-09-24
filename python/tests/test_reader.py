@@ -66,6 +66,22 @@ def test_dataset_api(archive: Path) -> None:
     assert dataset.sql('SELECT * FROM dataset WHERE "taco:sample_index" = 1 -- trailing comment').num_rows == 1
 
 
+def test_dataset_reuses_native_handle(archive: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    original = native.NativeDataset
+    opened: list[Path] = []
+
+    def tracked(source: Path) -> native.NativeDataset:
+        opened.append(source)
+        return original(source)
+
+    monkeypatch.setattr(native, "NativeDataset", tracked)
+    dataset = taco.open_dataset(archive)
+    dataset.sql("SELECT * FROM sample")
+    dataset.sql("SELECT * FROM sample")
+
+    assert opened == [archive.resolve()]
+
+
 def test_high_level_read_signatures() -> None:
     assert list(python_inspect.signature(taco.read).parameters) == ["source", "files"]
     assert list(python_inspect.signature(taco.Dataset.read).parameters) == ["self", "files"]
@@ -135,7 +151,8 @@ def test_reader_reports_core_errors(archive: Path, tmp_path: Path) -> None:
 
 
 def test_dataset_rejects_invalid_sources(monkeypatch: pytest.MonkeyPatch, collection: taco.Collection) -> None:
-    monkeypatch.setattr(dataset_module, "merge_collections", lambda paths: collection)
+    monkeypatch.setattr(dataset_module.native, "NativeDataset", lambda source: object())
+    monkeypatch.setattr(dataset_module, "merge_collections", lambda paths, opened: collection)
     dataset = taco.open_dataset("https://example.com/data.zip")
 
     assert dataset.sources == ("https://example.com/data.zip",)
@@ -149,7 +166,8 @@ def test_dataset_rejects_invalid_sources(monkeypatch: pytest.MonkeyPatch, collec
 
 def test_dataset_html_escapes_collection_text(monkeypatch: pytest.MonkeyPatch, collection: taco.Collection) -> None:
     dangerous = collection.replace(title="<dataset>", description="<script>alert(1)</script>")
-    monkeypatch.setattr(dataset_module, "merge_collections", lambda paths: dangerous)
+    monkeypatch.setattr(dataset_module.native, "NativeDataset", lambda source: object())
+    monkeypatch.setattr(dataset_module, "merge_collections", lambda paths, opened: dangerous)
 
     html = taco.open_dataset("dataset.zip")._repr_html_()
 

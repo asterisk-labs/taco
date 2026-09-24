@@ -10,6 +10,7 @@ struct Dataset
     sources::Vector{String}
     collection::Dict{String,Any}
     contract::Contract
+    _opened::Vector{NativeDataset}
 end
 
 
@@ -24,10 +25,11 @@ end
 
 function _open_dataset(source)
     sources = _normalize_sources(source)
-    parsed = _parse_collection.(_collection_documents(sources))
+    native = _open_native.(sources)
+    parsed = _parse_collection.(_collection_documents(native))
     collection = _merge_collections(first.(parsed), last.(parsed), sources)
     levels = last(first(parsed))
-    return Dataset(sources, collection, _build_contract(collection, levels))
+    return Dataset(sources, collection, _build_contract(collection, levels), native)
 end
 
 

@@ -10,9 +10,8 @@ function _dataset_sql(dataset::Dataset, query::AbstractString)::DataFrame
     isempty(statement) && throw(ArgumentError("taco: query must not be empty"))
     occursin('\0', statement) && throw(ArgumentError("taco: query must not contain NUL"))
 
-    datasets = [_open_native(source) for source in dataset.sources]
     native_sql(; level=nothing, pivoted=true, location=false) = _native_sql(
-        datasets;
+        dataset._opened;
         idx=nothing,
         level=level,
         pivoted=pivoted,
@@ -35,12 +34,13 @@ end
 function _read_table(
     sources;
     files::Union{Nothing,AbstractVector{<:AbstractString}} = nothing,
+    native::Union{Nothing,Vector{NativeDataset}} = nothing,
 )::DataFrame
     if files !== nothing && (isempty(files) || any(isempty, files))
         throw(ArgumentError("taco: `files` entries must be non-empty"))
     end
 
-    datasets = [_open_native(source) for source in sources]
+    datasets = isnothing(native) ? _open_native.(sources) : native
     sql = _native_sql(
         datasets;
         idx=nothing,

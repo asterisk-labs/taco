@@ -25,13 +25,15 @@
 #' @export
 open_dataset <- function(source) {
   sources <- .normalize_sources(source)
-  collections <- lapply(.collection_documents(sources), .parse_collection)
+  native <- lapply(sources, function(path) .Call(taco_r_open, path))
+  collections <- lapply(.collection_documents(native), .parse_collection)
   collection <- .merge_collections(collections, sources)
   base::structure(
     list(
       sources = sources,
       collection = collection,
-      contract = .build_contract(collection)
+      contract = .build_contract(collection),
+      `_opened` = native
     ),
     class = c("taco_dataset", "list")
   )

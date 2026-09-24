@@ -16,7 +16,7 @@ end
 
 
 read(dataset::Dataset; files=nothing) =
-    _read_table(dataset.sources; files=files isa AbstractString ? [String(files)] : files)
+    _read_table(dataset.sources; files=files isa AbstractString ? [String(files)] : files, native=dataset._opened)
 
 
 """Run a SQL query over `dataset` or a raw metadata level."""

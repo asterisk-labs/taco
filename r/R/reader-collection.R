@@ -1,7 +1,7 @@
-.collection_documents <- function(sources) {
+.collection_documents <- function(datasets) {
   vapply(
-    sources,
-    function(source) .Call(taco_r_dataset, .Call(taco_r_open, source))[["collection"]],
+    datasets,
+    function(dataset) .Call(taco_r_dataset, dataset)[["collection"]],
     character(1),
     USE.NAMES = FALSE
   )
@@ -95,4 +95,3 @@
   collection[["extent"]] <- .extent_union(lapply(collections, `[[`, "extent"))
   collection
 }
-

@@ -18,7 +18,7 @@ read <- function(source, files = NULL) {
 read.character <- function(source, files = NULL) {
   sources <- .normalize_sources(source)
   if (length(sources) > 1L) {
-    sources <- open_dataset(sources)[["sources"]]
+    return(read(open_dataset(sources), files = files))
   }
   .read_table(sources, files)
 }
@@ -27,5 +27,5 @@ read.character <- function(source, files = NULL) {
 #' @rdname read
 #' @export
 read.taco_dataset <- function(source, files = NULL) {
-  .read_table(source[["sources"]], files)
+  .read_table(source[["sources"]], files, source[["_opened"]])
 }

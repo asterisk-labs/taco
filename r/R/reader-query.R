@@ -12,11 +12,13 @@
 }
 
 
-.read_table <- function(source, files) {
+.read_table <- function(source, files, datasets = NULL) {
   .normalize_sources(source)
   .check_names(files, "files")
 
-  datasets <- lapply(source, function(path) .Call(taco_r_open, path))
+  if (is.null(datasets)) {
+    datasets <- lapply(source, function(path) .Call(taco_r_open, path))
+  }
   sql <- .Call(taco_r_sql, datasets, NULL, NULL, TRUE, files, TRUE)
   tibble::as_tibble(DBI::dbGetQuery(.open_reader(), sql))
 }

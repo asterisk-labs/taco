@@ -15,9 +15,8 @@
   if (!nzchar(query)) {
     .taco_stop("`query` must not be empty")
   }
-  datasets <- lapply(dataset$sources, function(path) .Call(taco_r_open, path))
   native_sql <- function(level = NULL, pivoted = TRUE, location = FALSE) {
-    .Call(taco_r_sql, datasets, NULL, level, pivoted, NULL, location)
+    .Call(taco_r_sql, dataset[["_opened"]], NULL, level, pivoted, NULL, location)
   }
 
   relations <- list(dataset = native_sql(location = TRUE))

@@ -11,8 +11,8 @@ _plain(value::JSON3.Array) = Any[_plain(item) for item in value]
 _plain(value) = value
 
 
-function _collection_documents(sources)
-    return [_native_collection(_open_native(source)) for source in sources]
+function _collection_documents(datasets::Vector{NativeDataset})
+    return _native_collection.(datasets)
 end
 
 

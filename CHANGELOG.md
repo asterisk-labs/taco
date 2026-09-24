@@ -4,6 +4,18 @@ All notable changes across the TACO core, language bindings, writer, and
 JavaScript reader are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.10.2 - 2026-09-23
+
+### Changed
+
+- Filtered `dataset` queries resolve file columns only for matching samples
+  instead of pivoting every file in the dataset.
+- Python exports rebuild samples in bounded batches and restrict TACOCAT
+  origin lookups to the selected samples.
+- R and Julia datasets reuse their native handles across reads and SQL
+  queries.
+- Remote directory datasets validate cached metadata files concurrently.
+
 ## 0.10.1 - 2026-09-23
 
 ### Changed

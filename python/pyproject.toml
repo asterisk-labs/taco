@@ -9,7 +9,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "taco-eo"
-version = "0.10.0"
+version = "0.10.1"
 description = "Python bindings to libtaco, the reference library for the TACO format."
 readme = "README.md"
 license = "MIT"

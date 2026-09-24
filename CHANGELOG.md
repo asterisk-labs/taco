@@ -4,6 +4,19 @@ All notable changes across the TACO core, language bindings, writer, and
 JavaScript reader are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 0.10.1 - 2026-09-23
+
+### Changed
+
+- `taco.export()` now requires a SQL query. The query may select rows from any
+  dataset relation, while the export always writes complete samples.
+- Python datasets reuse their native handles across SQL queries.
+
+### Fixed
+
+- Python exports resolve TACOCAT partitions correctly when the source is the
+  release root rather than the `.tacocat` directory.
+
 ## 0.10.0 - 2026-09-23
 
 ### Changed

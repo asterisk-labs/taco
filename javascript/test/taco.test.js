@@ -146,6 +146,15 @@ test("reads wide and long views with calculated TACO locations", async () => {
   assert.match(long[0]["taco:location"], /^\/vsisubfile\/225_64,\/vsicurl\/http:/);
 });
 
+test("wide columns keep the structure path of nested files", async () => {
+  const dataset = await openDataset(`${fixture.baseUrl}/nested.zip`);
+  const [row] = await dataset.read({ idx: 0 });
+  assert.match(row["before/B02.bin::location"], /^\/vsisubfile\//);
+  assert.match(row["after/B02.bin::location"], /^\/vsisubfile\//);
+  assert.match(row["change.bin::location"], /^\/vsisubfile\//);
+  assert.ok(!Object.keys(row).some((name) => name.includes("__")));
+});
+
 test("generated columns do not overwrite qualified metadata", async () => {
   const dataset = await openDataset(`${fixture.baseUrl}/collision`);
   const readLevel = dataset.readLevel.bind(dataset);

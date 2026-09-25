@@ -21,7 +21,7 @@
 
   relations <- list(dataset = native_sql(location = TRUE))
   for (level in dataset$contract$levels) {
-    relations[[gsub("/", "__", level, fixed = TRUE)]] <- native_sql(level = level)
+    relations[[level]] <- native_sql(level = level)
   }
   context <- paste(
     sprintf("%s AS (%s)", vapply(names(relations), .sql_identifier, character(1)), unlist(relations)),

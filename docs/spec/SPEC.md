@@ -207,7 +207,7 @@ TACO reserves three tokens so that paths, levels, and metadata fields can be map
 | --- | --- | --- |
 | `:` | Separates a namespace from a field name | Every user field MUST contain exactly one. It MUST NOT appear in folder names, file names, or level keys. |
 | `/` | Separates path and level segments | It MAY appear in complete structure paths and level keys. It MUST NOT appear inside a folder or file name. |
-| `__` | Replaces `/` in Parquet filenames and generated reader columns | It MUST NOT appear in folder names, file names, namespaces, or metadata field names. |
+| `__` | Replaces `/` in Parquet filenames | It MUST NOT appear in folder names, file names, namespaces, or metadata field names. |
 
 For example, the level `children/before` is stored in `children__before.parquet`.
 
@@ -908,7 +908,7 @@ source = "change-detection.zip"
 taco.export(
     source,
     "clear-after.zip",
-    sql='SELECT * FROM children__after WHERE cloud_cover < 10',
+    sql='SELECT * FROM "children/after" WHERE "quality:cloud_cover" < 10',
 )
 ```
 
@@ -1028,7 +1028,7 @@ read("cloudsen12.zip")
 
 # Two selected files
 read("change_detection.zip", files=["before/B02.tif", "after/B02.tif"])
-# taco:sample_index | id | ml:split | before__B02.tif::location | after__B02.tif::location
+# taco:sample_index | id | ml:split | before/B02.tif::location | after/B02.tif::location
 
 # Rumi assets carry their header
 read("multisensor.zip")
@@ -1036,9 +1036,9 @@ read("multisensor.zip")
 # 0            | lima-001 | /vsisubfile/...       | b"LOVE..."          | /vsisubfile/...     | b"LOVE..."
 ```
 
-A `/` in a structure path becomes `__` in a generated column name. The suffix is `::location` or `::header`. This mapping is reversible because `__` and `:` are forbidden inside path components. The double `::` distinguishes generated columns from metadata fields, which contain exactly one `:`.
+A generated column is named after its structure path, followed by `::location` or `::header`, so `before/B02.tif` becomes `before/B02.tif::location`. The double `::` distinguishes generated columns from metadata fields, which contain exactly one `:`.
 
-A variable sequence uses the path to its prefix. `before/img*[1,16].tif` becomes the `LIST(VARCHAR)` column `before__img::location`. A Rumi sequence also has a `LIST(BLOB)` column named `before__img::header`.
+A variable sequence uses the path to its prefix. `before/img*[1,16].tif` becomes the `LIST(VARCHAR)` column `before/img::location`. A Rumi sequence also has a `LIST(BLOB)` column named `before/img::header`.
 
 ```
 read("multitemporal_s2.zip")
@@ -1056,7 +1056,7 @@ The list is ordered by the numeric sequence index and contains between the decla
 Every reader MUST expose `Dataset.sql(query)`. It accepts one SQL query and exposes the following relations.
 
 - `dataset` has one row per sample. It contains the sample metadata and all generated file columns returned by `read()`.
-- Each metadata level has one raw relation. `/` becomes `__`, so the levels `sample`, `children`, and `children/before` are named `sample`, `children`, and `children__before`.
+- Each metadata level has one raw relation with the same name, so the levels `sample`, `children`, and `children/before` are the relations `sample`, `children`, and `"children/before"`. A name containing `/` is written with double quotes in SQL.
 
 Raw level relations keep their internal identity columns. Repeated field names remain unambiguous because SQL aliases identify the relation:
 
@@ -1073,7 +1073,7 @@ Partial reads use SQL.
 dataset = open_dataset("cloudsen12.zip")
 rows = dataset.sql('SELECT * FROM dataset WHERE "taco:sample_index" < 100')
 targets = dataset.sql('SELECT id, "target.tif::location" FROM dataset')
-before = dataset.sql("SELECT * FROM children__before")
+before = dataset.sql('SELECT * FROM "children/before"')
 ```
 
 `read()` and `sql()` MUST execute through the same DuckDB context. `read()` returns `dataset` ordered by `taco:sample_index`. When `files` is provided, it returns an ordered projection containing only the selected generated file columns.

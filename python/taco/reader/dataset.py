@@ -24,8 +24,8 @@ _HEADER_FIELD = "rumi:header"
 
 
 def _output_name(declaration: str, *, variable: bool) -> str:
-    name = declaration.partition("*")[0] if variable else declaration
-    return name.replace("/", "__")
+    # Generated columns keep the structure path, or the prefix of a variable sequence.
+    return declaration.partition("*")[0] if variable else declaration
 
 
 def _has_header(contract: Contract, leaf: Leaf) -> bool:
@@ -93,10 +93,7 @@ class Dataset:
         complete = native.sql(self._opened, idx=None, level=None, pivoted=True, files=None, location=True)
         relations = [("dataset", complete)]
         relations.extend(
-            (
-                level.replace("/", "__"),
-                native.sql(self._opened, idx=None, level=level, pivoted=True, files=None, location=False),
-            )
+            (level, native.sql(self._opened, idx=None, level=level, pivoted=True, files=None, location=False))
             for level in self.contract.levels
         )
         context = ",\n".join(f"{_identifier(name)} AS ({sql})" for name, sql in relations)

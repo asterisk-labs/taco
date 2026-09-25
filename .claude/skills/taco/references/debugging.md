@@ -20,7 +20,7 @@ Two families are **not** `TacoError`:
 - **DuckDB** exceptions from `Dataset.sql` and `export`:
 
   ```
-  CatalogException: Catalog Error: Table with name children__nope does not exist!
+  CatalogException: Catalog Error: Table with name children/nope does not exist!
   BinderException: Binder Error: Referenced column "nope:x" not found in FROM clause!
   ParserException: Parser Error: syntax error at or near ":"
   ```
@@ -95,7 +95,8 @@ fixture; do the same when a test touches a remote source.
 | Symptom | Cause |
 | --- | --- |
 | `ParserException: syntax error at or near ":"` | An unquoted metadata field. Write `"ml:split"` |
-| `CatalogException: Table with name children/before does not exist!` | Level relations use `__`: `children__before` |
+| `ParserException: syntax error at or near "/"` | An unquoted level relation. Write `"children/before"` |
+| `CatalogException: Table with name children__before does not exist!` | A query written for taco-eo 0.11.0 or earlier. Level relations keep their `/`: `"children/before"` |
 | A file column is missing | It was excluded by `files=`, or the leaf name is not the full declaration |
 | A sequence column is a list of nulls | No sample matched the pattern; check for leading zeros |
 | `taco:sample_index` changed between runs | A source list in a different order. Use `id` |

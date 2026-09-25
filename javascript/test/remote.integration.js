@@ -35,7 +35,7 @@ test("wide reads carry the Rumi header next to each location", { timeout: 120_00
   const nested = await openDataset(`${ROOT}/data/04-change-detection/folder`);
   const [first] = await nested.read({ idx: 0 });
   const pairs = Object.keys(first).filter((name) => name.endsWith("::header"));
-  assert.ok(pairs.some((name) => name.includes("__")), "nested headers use __ in their names");
+  assert.ok(pairs.some((name) => name.includes("/")), "nested headers keep their structure path");
   for (const name of pairs) {
     assert.ok(first[name] instanceof Uint8Array);
     assert.equal(typeof first[name.replace(/::header$/, "::location")], "string");

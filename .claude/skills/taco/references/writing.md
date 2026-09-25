@@ -161,7 +161,7 @@ Writes the complete samples selected by a query, through the normal writer.
 - `sql` is required and may query `dataset`, `sample` or any level relation. The
   result must retain `taco:sample_index`: `sql must return taco:sample_index; use
   SELECT * or include it explicitly`.
-- Selection is by sample. A row matching at `children__after` exports that sample's
+- Selection is by sample. A row matching at `"children/after"` exports that sample's
   whole structure. Duplicates select once; indices outside the source are ignored.
 - The contract, `id`, licenses, providers, tasks and collection metadata carry over.
   Keyword arguments replace collection fields; `contract` and `sources` may not be
@@ -173,7 +173,7 @@ Writes the complete samples selected by a query, through the normal writer.
 
 ```python
 taco.export("change-detection.zip", "clear.zip",
-            sql='SELECT * FROM children__after WHERE "quality:cloud_cover" < 10')
+            sql='SELECT * FROM "children/after" WHERE "quality:cloud_cover" < 10')
 
 taco.export("https://data.source.coop/major-tom/core-dem/", "sample.zip",
             sql="SELECT * FROM sample ORDER BY id LIMIT 10")

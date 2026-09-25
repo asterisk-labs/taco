@@ -161,7 +161,7 @@ def test_export_selects_complete_samples_from_child_rows(
     exported = taco.export(
         result.path,
         output,
-        sql='SELECT * FROM children__after WHERE "file:resolution" >= 22',
+        sql='SELECT * FROM "children/after" WHERE "file:resolution" >= 22',
     )
 
     assert exported.samples == 2

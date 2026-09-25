@@ -33,18 +33,16 @@ Column order is fixed:
 5. one generated column per structure leaf, in structure order.
 
 ```
-taco:sample_index | id | stac:geometry | ... | ml:split | before__B02.tif::location | extra::location
+taco:sample_index | id | stac:geometry | ... | ml:split | before/B02.tif::location | extra::location
 ```
 
-A generated name replaces `/` with `__` and appends `::location`. A leaf whose level
+A generated name is the structure path plus `::location`. A leaf whose level
 declares `rumi:header` is immediately followed by `{name}::header`. A variable
 sequence uses its **prefix** and occupies one list column: `extra*[1,3].png` becomes
 `extra::location` of type `list<string>`, ordered by the numeric index, with between
 `min` and `max` entries.
 
-The double `::` cannot collide with a metadata field, which contains exactly one `:`,
-and the mapping is reversible because `__` and `:` are forbidden inside path
-components.
+The double `::` cannot collide with a metadata field, which contains exactly one `:`.
 
 `files=` restricts which leaves get a generated column; the metadata columns are
 unchanged. A fixed file is named by its full contract path, a sequence by its whole
@@ -68,14 +66,14 @@ stripped by the core before projection.
 ```python
 dataset.sql('SELECT * FROM dataset WHERE "ml:split" = \'train\'')
 dataset.sql('SELECT id, "mask.tif::location" FROM dataset ORDER BY id')
-dataset.sql('SELECT * FROM children__before')
+dataset.sql('SELECT * FROM "children/before"')
 ```
 
 Relations available to a query:
 
 - `dataset`: one row per sample, exactly what `read()` returns.
-- one per contract level, with `/` written as `__`: `sample`, `children`,
-  `children__before`. These are **raw**: they keep `internal:current_id`,
+- one per contract level, named like the level: `sample`, `children`,
+  `"children/before"`. These are **raw**: they keep `internal:current_id`,
   `internal:parent_id`, `internal:relative_path`, and `internal:offset`/`internal:size`
   for a ZIP or TACOCAT, and they carry no location column.
 
@@ -90,10 +88,10 @@ JOIN children AS c ON c."internal:parent_id" = s."internal:current_id"
 
 Three things to know:
 
-- **Quote every user field.** Each contains a `:`, so `WHERE ml:split = 'train'` is a
-  `ParserException`.
+- **Quote every user field and every level with `/`.** `WHERE ml:split = 'train'`
+  and `FROM children/before` are both a `ParserException`.
 - **Errors come from DuckDB.** A wrong relation name raises `CatalogException: Table
-  with name children__missing does not exist!`, not a `TacoError`. Only container,
+  with name children/missing does not exist!`, not a `TacoError`. Only container,
   contract and sample problems raise `TacoError` subclasses.
 - **SQL results have no implicit order.** Add `ORDER BY` when order matters; only
   `read()` promises `taco:sample_index` order.

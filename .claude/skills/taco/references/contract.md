@@ -81,7 +81,7 @@ position with a digit-width automaton rather than sampling names, so it is exact
 | --- | --- |
 | `:` | Exactly one in every user field. Never in a folder name, file name or level key. |
 | `/` | Separates path and level segments. Never inside a component. |
-| `__` | Replaces `/` in Parquet filenames and generated columns. Never in a name, namespace or field. |
+| `__` | Replaces `/` in Parquet filenames. Never in a name, namespace or field. |
 
 A component may not contain `<>:"\|?*[]`, may not end with a space or a dot, and may
 not be `.` or `..`. `*`, `[` and `]` are freed only in the last component of a

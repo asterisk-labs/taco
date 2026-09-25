@@ -137,7 +137,7 @@ class _Source:
         relations = [
             ("dataset", native.sql([self.opened], idx=None, level=None, pivoted=True, files=None, location=True))
         ]
-        relations.extend((level.replace("/", "__"), self._selection_level(level)) for level in self.contract.levels)
+        relations.extend((level, self._selection_level(level)) for level in self.contract.levels)
         context = ",\n".join(f"{_sql_identifier(name)} AS ({statement})" for name, statement in relations)
         selection = f"WITH {context}\nSELECT * FROM (\n{query}\n) AS taco_export"
         columns = [row[0] for row in connection.execute(f"DESCRIBE {selection}").fetchall()]

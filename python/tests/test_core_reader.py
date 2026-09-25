@@ -190,8 +190,8 @@ def test_wide_rows_have_a_location_per_leaf(data: Path) -> None:
     assert table.num_rows == 3
     assert table.column("taco:sample_index").to_pylist() == [0, 1, 2]
     row = by_sample(table)[0]
-    assert row["before__B02.bin::location"].startswith("/vsisubfile/")
-    assert row["before__B02.bin::location"].endswith(str((data / "nested.zip").resolve()))
+    assert row["before/B02.bin::location"].startswith("/vsisubfile/")
+    assert row["before/B02.bin::location"].endswith(str((data / "nested.zip").resolve()))
     assert "change.bin::location" in taco.open_dataset(data / "nested.zip").sql("SELECT * FROM dataset").column_names
 
 
@@ -248,7 +248,7 @@ def test_dataset_and_raw_sql_relations(data: Path) -> None:
     path = data / "nested.zip"
     dataset = taco.open_dataset(path)
     assert taco.read(path, files=["change.bin"]).column_names[-1] == "change.bin::location"
-    assert "before__B02.bin::location" not in taco.read(path, files=["change.bin"]).column_names
+    assert "before/B02.bin::location" not in taco.read(path, files=["change.bin"]).column_names
     assert "change.bin::location" in dataset.sql("SELECT * FROM dataset").column_names
     assert dataset.sql('SELECT "taco:sample_index" FROM dataset WHERE "taco:sample_index" = 1').column(
         "taco:sample_index"
@@ -261,7 +261,7 @@ def test_dataset_and_raw_sql_relations(data: Path) -> None:
         .to_pylist()
     ) == [1, 2]
 
-    level = dataset.sql("SELECT * FROM children__before")
+    level = dataset.sql('SELECT * FROM "children/before"')
     assert level.num_rows == 6
     assert sorted(level.column("internal:relative_path").to_pylist())[0] == "0/before/B02.bin"
 
@@ -273,8 +273,8 @@ def test_variable_leaves_are_ordered_lists(data: Path) -> None:
     assert "img::location" in taco.open_dataset(path).sql("SELECT * FROM dataset").column_names
 
     nested = taco.read(data / "nested-variable.zip")
-    assert nested.column_names == ["taco:sample_index", "id", "before__img::location"]
-    assert len(nested.column("before__img::location")[0].as_py()) == 2
+    assert nested.column_names == ["taco:sample_index", "id", "before/img::location"]
+    assert len(nested.column("before/img::location")[0].as_py()) == 2
 
 
 def test_raw_relations_keep_redeclared_fields_separate(data: Path) -> None:
@@ -282,7 +282,7 @@ def test_raw_relations_keep_redeclared_fields_separate(data: Path) -> None:
     raw = dataset.sql(
         'SELECT folder."raster:resolution" AS folder_resolution, '
         'asset."raster:resolution" AS asset_resolution '
-        "FROM children AS folder JOIN children__before AS asset "
+        'FROM children AS folder JOIN "children/before" AS asset '
         'ON asset."internal:parent_id" = folder."internal:current_id"'
     )
     assert raw.to_pydict() == {"folder_resolution": [1, 1], "asset_resolution": [3, 3]}

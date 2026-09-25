@@ -1,4 +1,4 @@
-"""Regenerate the ZIP shared by the JavaScript, Julia, and R reader tests."""
+"""Regenerate the ZIPs shared by the JavaScript, Julia, and R reader tests."""
 
 from __future__ import annotations
 
@@ -12,6 +12,8 @@ import taco
 ROOT = Path(__file__).resolve().parents[1]
 R_FIXTURE = ROOT / "r/tests/testthat/data/taco.zip"
 JULIA_FIXTURE = ROOT / "julia/test/data/taco.zip"
+# The nested core fixture covers level relations and generated columns with "/".
+NESTED_FIXTURE = ROOT / "core/tests/data/taco_nested.zip"
 
 
 class ML(BaseModel):
@@ -63,6 +65,8 @@ def main() -> None:
         writer.run()
     JULIA_FIXTURE.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(R_FIXTURE, JULIA_FIXTURE)
+    for folder in (R_FIXTURE.parent, JULIA_FIXTURE.parent):
+        shutil.copyfile(NESTED_FIXTURE, folder / NESTED_FIXTURE.name)
 
 
 if __name__ == "__main__":

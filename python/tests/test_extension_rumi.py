@@ -260,13 +260,13 @@ def test_wide_reads_carry_rumi_headers_next_to_locations(tmp_path: Path, monkeyp
     core = engine.open_reader().execute(native_sql(output)).to_arrow_table()
     for table in (taco.read(output), core):
         row = table.to_pylist()[0]
-        assert row["scene__optical.rumi::location"].startswith("/vsisubfile/")
-        assert row["scene__optical.rumi::header"] == b"optical.rumi"
-        assert row["scene__img::header"] == [b"img0.rumi", b"img1.rumi"]
-        assert len(row["scene__img::location"]) == 2
+        assert row["scene/optical.rumi::location"].startswith("/vsisubfile/")
+        assert row["scene/optical.rumi::header"] == b"optical.rumi"
+        assert row["scene/img::header"] == [b"img0.rumi", b"img1.rumi"]
+        assert len(row["scene/img::location"]) == 2
         assert row["mask.bin::location"].startswith("/vsisubfile/")
         assert "mask.bin::header" not in row
 
     quiet = engine.open_reader().execute(native_sql(output, location=False)).to_arrow_table().to_pylist()[0]
-    assert quiet["scene__optical.rumi::header"] is None
-    assert "scene__optical.rumi::header" in taco.open_dataset(output).sql("SELECT * FROM dataset").column_names
+    assert quiet["scene/optical.rumi::header"] is None
+    assert "scene/optical.rumi::header" in taco.open_dataset(output).sql("SELECT * FROM dataset").column_names

@@ -91,7 +91,7 @@ def test_open_partitions(tmp_path: Path, collection: taco.Collection, make_sampl
     assert raw.num_rows == 3
     assert set(raw.column("source_file").to_pylist()) == {"a.zip", "b.zip"}
     for row in wide.to_pylist():
-        assert str(tmp_path / row["source_file"]) in row["before__B02.tif::location"]
+        assert str(tmp_path / row["source_file"]) in row["before/B02.tif::location"]
 
 
 def test_consolidate_preserves_schema_metadata(tmp_path: Path, collection: taco.Collection, make_sample) -> None:

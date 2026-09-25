@@ -70,6 +70,14 @@ describe("read a TACO dataset", {
     expect_false(any(c("cozip:location", "taco:location", "cozip:gdal_vsi") %in% names(result)))
   })
 
+  it("names nested files and levels after their paths", {
+    dataset <- taco::open_dataset(taco_nested_fixture())
+    wide <- taco::read(dataset)
+    expect_true(all(c("before/B02.bin::location", "after/B02.bin::location") %in% names(wide)))
+    expect_false(any(grepl("__", names(wide), fixed = TRUE)))
+    expect_identical(nrow(taco::sql(dataset, 'SELECT * FROM "children/before"')), 6L)
+  })
+
   it("inspects a dataset", {
     expect_identical(taco::inspect(taco_fixture(), "structure"), c("image.bin", "mask.bin"))
     expect_identical(taco::inspect(taco_fixture(), "levels"), c("sample", "children"))

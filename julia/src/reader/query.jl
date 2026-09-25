@@ -21,7 +21,7 @@ function _dataset_sql(dataset::Dataset, query::AbstractString)::DataFrame
 
     relations = Pair{String,String}["dataset" => native_sql(; location=true)]
     for level in dataset.contract.levels
-        push!(relations, replace(level, "/" => "__") => native_sql(; level=level))
+        push!(relations, level => native_sql(; level=level))
     end
     context = join(["$(_sql_identifier(name)) AS ($sql)" for (name, sql) in relations], ",\n")
     sql = "WITH $context\nSELECT * FROM (\n$statement\n) AS taco_query"

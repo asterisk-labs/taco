@@ -68,18 +68,8 @@ std::string leaf_level(const Leaf& leaf) {
     return slash == std::string::npos ? "children" : "children/" + path.substr(0, slash);
 }
 
-std::string output_name(const Leaf& leaf) {
-    auto name = leaf.variable ? leaf.prefix : leaf.declaration;
-    std::string out;
-    out.reserve(name.size());
-    for (const char c : name) {
-        if (c == '/')
-            out += "__";
-        else
-            out += c;
-    }
-    return out;
-}
+// Generated columns keep the structure path, or the prefix of a variable sequence.
+std::string output_name(const Leaf& leaf) { return leaf.variable ? leaf.prefix : leaf.declaration; }
 
 std::string index_filter(const std::string& selection, const std::string& column) {
     if (selection.empty())

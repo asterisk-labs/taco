@@ -2,10 +2,12 @@ import http from "node:http";
 import { readFile } from "node:fs/promises";
 
 const fixturePath = new URL("../../r/tests/testthat/data/taco.zip", import.meta.url);
+const nestedPath = new URL("../../core/tests/data/taco_nested.zip", import.meta.url);
 
 /** Start a local HTTP server with ZIP and virtual FOLDER views of the fixture. */
 export async function fixtureServer() {
   const archive = new Uint8Array(await readFile(fixturePath));
+  const nested = new Uint8Array(await readFile(nestedPath));
   const catalogPath = new URL("../../core/tests/data/taco_cat/.tacocat/", import.meta.url);
   const catalog = new Map(await Promise.all(
     ["COLLECTION.json", "sample.parquet", "children.parquet"].map(async (name) => [
@@ -35,6 +37,7 @@ export async function fixtureServer() {
     if (path === "/dataset.zip") return serve(response, archive, request.headers.range);
     if (path === "/dataset") return serve(response, archive, request.headers.range);
     if (path === "/full.zip") return serve(response, archive, undefined);
+    if (path === "/nested.zip") return serve(response, nested, request.headers.range);
     if (path === "/flat.zip") {
       const bytes = archive.slice();
       bytes[57] = 1;

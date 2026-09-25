@@ -4,6 +4,16 @@ All notable changes across the TACO core, language bindings, writer, and
 JavaScript reader are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Changed
+
+- Generated columns and level relations keep the structure path:
+  `before/B02.tif::location` and `"children/before"` replace
+  `before__B02.tif::location` and `children__before`. A relation with `/` needs
+  double quotes in SQL. Parquet filenames keep `__`, so existing datasets read
+  unchanged.
+
 ## 0.11.0 - 2026-09-25
 
 ### Changed

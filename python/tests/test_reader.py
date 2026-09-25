@@ -59,7 +59,7 @@ def test_dataset_api(archive: Path) -> None:
     assert selected.column("mask.tif::location")[0].as_py().startswith("/vsisubfile/")
     assert "mask.tif::location" in dataset.sql("SELECT * FROM dataset").column_names
 
-    level = dataset.sql("SELECT * FROM children__before")
+    level = dataset.sql('SELECT * FROM "children/before"')
     assert level.num_rows == 8
     assert "internal:current_id" in level.column_names
     assert "taco:location" not in level.column_names
@@ -211,17 +211,17 @@ def test_file_selection_accepts_one_name(archive: Path) -> None:
 def test_sql_relations_and_nested_wide_names(archive: Path) -> None:
     dataset = taco.open_dataset(archive)
 
-    assert "before__B02.tif::location" in dataset.read().column_names
-    assert not any(name.startswith("before/") for name in dataset.read().column_names)
+    assert "before/B02.tif::location" in dataset.read().column_names
+    assert not any("__" in name for name in dataset.read().column_names)
     assert dataset.sql("SELECT count(*) AS n FROM dataset").column("n").to_pylist() == [4]
     files = dataset.sql(
-        'SELECT "taco:sample_index", "before__B02.tif::location" FROM dataset ORDER BY "taco:sample_index"'
+        'SELECT "taco:sample_index", "before/B02.tif::location" FROM dataset ORDER BY "taco:sample_index"'
     )
     assert files.num_rows == 4
-    assert all(value.startswith("/vsisubfile/") for value in files.column("before__B02.tif::location").to_pylist())
-    assert dataset.sql("SELECT count(*) AS n FROM children__before").column("n").to_pylist() == [8]
+    assert all(value.startswith("/vsisubfile/") for value in files.column("before/B02.tif::location").to_pylist())
+    assert dataset.sql('SELECT count(*) AS n FROM "children/before"').column("n").to_pylist() == [8]
 
-    for removed in ("data", "files"):
+    for removed in ("data", "files", "children__before"):
         with pytest.raises(duckdb.CatalogException, match=f"{removed}.*does not exist"):
             dataset.sql(f"SELECT * FROM {removed}")
 

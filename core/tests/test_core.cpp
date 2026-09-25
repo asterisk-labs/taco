@@ -298,8 +298,8 @@ void test_sql() {
     CHECK(contains(wide, "AS \"taco:sample_index\""));
     CHECK(contains(wide, "c != 'taco:sample_index'"));
     CHECK(contains(wide, "\"id\" AS id"));
-    CHECK(contains(wide, "\"before__B02.bin::location\""));
-    CHECK(!contains(wide, "AS \"before/B02.bin"));
+    CHECK(contains(wide, "\"before/B02.bin::location\""));
+    CHECK(!contains(wide, "before__B02.bin"));
     CHECK(!contains(wide, "::header"));
     CHECK(contains(wide, "LEFT JOIN LATERAL"));
     CHECK(contains(wide, "l1.\"internal:parent_id\" = l0.\"internal:current_id\""));
@@ -312,12 +312,12 @@ void test_sql() {
             fields.push_back("rumi:header");
     }
     const auto rumi_wide = taco::build_sql(rumi, taco::ReadOptions{});
-    CHECK(contains(rumi_wide, "AS \"before__B02.bin::header\""));
-    CHECK(contains(rumi_wide, "AS \"before__B02.bin::location\""));
+    CHECK(contains(rumi_wide, "AS \"before/B02.bin::header\""));
+    CHECK(contains(rumi_wide, "AS \"before/B02.bin::location\""));
     CHECK(!contains(rumi_wide, "AS \"change.bin::header\""));
     taco::ReadOptions rumi_quiet;
     rumi_quiet.location = false;
-    CHECK(contains(taco::build_sql(rumi, rumi_quiet), "NULL::BLOB AS \"before__B02.bin::header\""));
+    CHECK(contains(taco::build_sql(rumi, rumi_quiet), "NULL::BLOB AS \"before/B02.bin::header\""));
 
     taco::ReadOptions long_quiet;
     long_quiet.pivot = false;

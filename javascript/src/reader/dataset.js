@@ -285,19 +285,19 @@ export class Dataset {
   }
 
   /**
-   * Wide column names of one leaf. Metadata fields contain exactly one ':', so
-   * the double separator cannot collide with user metadata. Rumi assets are
-   * read statelessly with their header, so it travels next to the location.
+   * Wide column names of one leaf, named after its structure path. Metadata
+   * fields contain exactly one ':', so the double separator cannot collide
+   * with user metadata. Rumi assets are read statelessly with their header, so
+   * it travels next to the location.
    *
    * @param {TacoLeaf} leaf
    * @returns {WideColumns}
    */
   #wideColumns(leaf) {
-    const name = leaf.key.replaceAll("/", "__");
     const slash = leaf.key.lastIndexOf("/");
     const level = slash < 0 ? "children" : `children/${leaf.key.slice(0, slash)}`;
     const fields = this.contract.metadata[level] ?? {};
-    return { location: `${name}::location`, header: HEADER_FIELD in fields ? `${name}::header` : null };
+    return { location: `${leaf.key}::location`, header: HEADER_FIELD in fields ? `${leaf.key}::header` : null };
   }
 
   /**

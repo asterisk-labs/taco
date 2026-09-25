@@ -137,12 +137,13 @@ and only ZIP metadata carries the byte offsets that make random access possible.
   `img0.png` and `img01.png` reports the matched indices as `got [0]`, because the
   leading-zero name does not match the sequence. Its rows land in one LIST column
   named after the prefix.
-- **Generated columns carry `::`.** `/` becomes `__` and the suffix is `::location`, or
-  `::header` when the level declares `rumi:header`. User fields contain exactly one
+- **Generated columns carry `::`.** The name is the structure path plus `::location`,
+  or `::header` when the level declares `rumi:header`. User fields contain exactly one
   `:`, so the double colon cannot collide. `before/B02.tif` reads as
-  `before__B02.tif::location`.
+  `before/B02.tif::location`.
 - **Every user field needs double quotes in SQL.** `WHERE ml:split = 'train'` is a
-  DuckDB parser error; write `WHERE "ml:split" = 'train'`.
+  DuckDB parser error; write `WHERE "ml:split" = 'train'`. So does a level relation
+  with `/`: `FROM "children/before"`.
 - **`Dataset.sql` raises DuckDB exceptions, not `TacoError`.** A wrong relation is
   `CatalogException`, bad syntax is `ParserException`. Only opening, contract and
   sample problems raise `TacoError` subclasses.

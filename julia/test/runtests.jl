@@ -6,6 +6,7 @@ using Taco
 
 
 const FIXTURE = joinpath(@__DIR__, "data", "taco.zip")
+const NESTED_FIXTURE = joinpath(@__DIR__, "data", "taco_nested.zip")
 
 
 @testset "taco" begin
@@ -66,6 +67,12 @@ const FIXTURE = joinpath(@__DIR__, "data", "taco.zip")
             ["cozip:location", "taco:location", "cozip:gdal_vsi"],
             names(level),
         ))
+
+        nested = Taco.open_dataset(NESTED_FIXTURE)
+        nested_wide = Taco.read(nested)
+        @test issubset(["before/B02.bin::location", "after/B02.bin::location"], names(nested_wide))
+        @test !any(name -> occursin("__", name), names(nested_wide))
+        @test size(Taco.sql(nested, "SELECT * FROM \"children/before\""), 1) == 6
 
         @test Taco.inspect(FIXTURE, "structure") == ["image.bin", "mask.bin"]
         @test Taco.inspect(FIXTURE, "levels") == ["sample", "children"]

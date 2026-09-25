@@ -33,7 +33,7 @@ Column order is fixed:
 5. one generated column per structure leaf, in structure order.
 
 ```
-taco:sample_index | id | stac:crs | ... | ml:split | before__B02.tif::location | extra::location
+taco:sample_index | id | stac:geometry | ... | ml:split | before__B02.tif::location | extra::location
 ```
 
 A generated name replaces `/` with `__` and appends `::location`. A leaf whose level
@@ -172,7 +172,7 @@ value shadows its folder's, which shadows the sample's.
 ```python
 from taco.reader.inspect import native_sql
 sql = native_sql("ds.zip", layout="long", idx=0)
-# taco:sample_index | id | path | taco:location | band:name | ml:split | stac:crs | ...
+# taco:sample_index | id | path | taco:location | band:name | ml:split | stac:geometry | ...
 # 0 | s0 | mask.tif      | /vsisubfile/... | NULL | train | EPSG:4326
 # 0 | s0 | before/B02.tif| /vsisubfile/... | B02  | train | EPSG:4326
 ```

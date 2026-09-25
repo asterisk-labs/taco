@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import struct
 import sys
 from collections.abc import Mapping, Sequence
@@ -24,13 +25,12 @@ def point(x: float, y: float) -> bytes:
 
 def test_sample_metadata_facade_keeps_public_imports() -> None:
     assert taco.metadata.sample.Spatial is taco.metadata.spatiotemporal.Spatial
-    assert taco.metadata.sample.ISpatial is taco.metadata.spatiotemporal.ISpatial
     assert taco.metadata.sample.Temporal is taco.metadata.spatiotemporal.Temporal
     assert taco.metadata.sample.STAC is taco.metadata.spatiotemporal.STAC
-    assert taco.metadata.sample.ISTAC is taco.metadata.spatiotemporal.ISTAC
     assert taco.metadata.sample.MajorTOM is taco.metadata.derived.MajorTOM
     assert taco.metadata.sample.Split is taco.metadata.split.Split
     assert taco.extensions.MajorTOM is taco.metadata.derived.MajorTOM
+    assert not hasattr(taco.extensions, "Temporal")
 
 
 def test_builtin_models() -> None:
@@ -49,162 +49,107 @@ def test_scaling_validation() -> None:
         taco.metadata.asset.Scaling(padding=[1, 2])
 
 
-def test_stac_time_order() -> None:
-    now = datetime.now(timezone.utc)
-    with pytest.raises(ValueError, match="time_start"):
-        taco.metadata.sample.STAC(
-            crs="EPSG:4326",
-            tensor_shape=(3, 256, 256),
-            geotransform=(-0.5, 1 / 256, 0, 0.5, 0, -1 / 256),
-            centroid=point(0, 0),
-            time_start=now,
-            time_end=datetime(2020, 1, 1, tzinfo=timezone.utc),
-        )
+GRID = {"proj_code": "EPSG:4326", "proj_shape": (256, 256), "proj_transform": (1 / 256, 0, -0.5, 0, -1 / 256, 0.5)}
 
 
-def test_stac_and_istac_have_distinct_v2_profiles() -> None:
-    now = datetime(2024, 1, 1, tzinfo=timezone.utc)
-    end = datetime(2024, 1, 3, tzinfo=timezone.utc)
-    stac = taco.metadata.sample.STAC(
-        crs="EPSG:4326",
-        tensor_shape=(13, 256, 256),
-        geotransform=(-76.1, 0.2 / 256, 0, -11.9, 0, -0.2 / 256),
-        time_start=now,
-        centroid=point(-76, -12),
-        time_end=end,
-    )
-    istac = taco.metadata.sample.ISTAC(
-        crs="EPSG:4326",
-        geometry=point(-76, -12),
-        time_start=now,
-        time_end=end,
-        centroid=point(-76, -12),
-    )
-
-    assert tuple(type(stac).model_fields) == (
-        "crs",
-        "tensor_shape",
-        "geotransform",
-        "time_start",
-        "centroid",
-        "time_end",
-        "time_middle",
-    )
-    assert tuple(type(istac).model_fields) == (
-        "crs",
-        "geometry",
-        "time_start",
-        "time_end",
-        "time_middle",
-        "centroid",
-    )
-    assert stac.time_middle is None
-    assert istac.time_middle is None
-    assert not issubclass(taco.metadata.sample.ISTAC, taco.metadata.sample.STAC)
+def test_stac_time_rules() -> None:
+    day = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    later = datetime(2024, 1, 3, tzinfo=timezone.utc)
+    taco.metadata.sample.STAC(**GRID, datetime=day)
+    taco.metadata.sample.STAC(**GRID, start_datetime=day, end_datetime=later)
+    taco.metadata.sample.STAC(**GRID, datetime=day, start_datetime=day, end_datetime=later)
+    taco.metadata.sample.STAC(**GRID, start_datetime=day, end_datetime=day)
+    with pytest.raises(ValueError, match="datetime is required"):
+        taco.metadata.sample.STAC(**GRID)
+    with pytest.raises(ValueError, match="given together"):
+        taco.metadata.sample.STAC(**GRID, start_datetime=day)
+    with pytest.raises(ValueError, match="must not be after"):
+        taco.metadata.sample.STAC(**GRID, start_datetime=later, end_datetime=day)
 
 
-def test_spatial_and_temporal_profiles_have_distinct_namespaces() -> None:
+def test_profile_fields_follow_stac() -> None:
+    location = ("geometry", "bbox", "centroid")
+    grid = ("proj_code", "proj_shape", "proj_transform")
+    times = ("datetime", "start_datetime", "end_datetime")
+    assert tuple(taco.metadata.sample.STAC.model_fields) == (*location, *times, *grid)
+    assert tuple(taco.metadata.sample.Spatial.model_fields) == (*location, *grid)
+    assert tuple(taco.metadata.sample.Temporal.model_fields) == times
     assert taco.metadata.sample.Spatial.__taco_namespace__ == "spatial"
-    assert taco.metadata.sample.ISpatial.__taco_namespace__ == "ispatial"
     assert taco.metadata.sample.Temporal.__taco_namespace__ == "temporal"
-    assert tuple(taco.metadata.sample.Spatial.model_fields) == ("crs", "tensor_shape", "geotransform", "centroid")
-    assert tuple(taco.metadata.sample.ISpatial.model_fields) == ("crs", "geometry", "centroid")
-    assert tuple(taco.metadata.sample.Temporal.model_fields) == ("time_start", "time_end", "time_middle")
+    assert taco.metadata.sample.STAC.__taco_namespace__ == "stac"
 
 
-def test_stac_grid_validation() -> None:
-    now = datetime(2024, 1, 1, tzinfo=timezone.utc)
-    common = {"crs": "EPSG:4326", "time_start": now, "centroid": point(0, 0)}
-    with pytest.raises(ValueError, match="at least 2"):
-        taco.metadata.sample.STAC(tensor_shape=(256,), geotransform=(0, 1, 0, 0, 0, -1), **common)
+def test_stac_location_rules() -> None:
+    day = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    with pytest.raises(ValueError, match="geometry is required"):
+        taco.metadata.sample.STAC(datetime=day)
+    with pytest.raises(ValueError, match="given together"):
+        taco.metadata.sample.STAC(proj_code="EPSG:4326", proj_shape=(2, 2), datetime=day)
+    with pytest.raises(ValueError, match="AUTHORITY:CODE"):
+        taco.metadata.sample.STAC(**{**GRID, "proj_code": "4326"}, datetime=day)
     with pytest.raises(ValueError, match="positive"):
-        taco.metadata.sample.STAC(tensor_shape=(0, 256), geotransform=(0, 1, 0, 0, 0, -1), **common)
-    with pytest.raises(ValueError, match="Field required"):
-        taco.metadata.sample.STAC(tensor_shape=(256, 256), geotransform=(0, 1, 0), **common)
+        taco.metadata.sample.STAC(**{**GRID, "proj_shape": (0, 256)}, datetime=day)
+    with pytest.raises(ValueError, match="at most 2"):
+        taco.metadata.sample.STAC(**{**GRID, "proj_shape": (3, 256, 256)}, datetime=day)
+    with pytest.raises(ValueError, match="collapse"):
+        taco.metadata.sample.STAC(**{**GRID, "proj_transform": (1, 2, 0, 2, 4, 0)}, datetime=day)
+    with pytest.raises(ValueError, match="not valid WKB"):
+        taco.metadata.sample.STAC(geometry=b"bad", datetime=day)
+    with pytest.raises(ValueError, match="EPSG:4326 bounds"):
+        taco.metadata.sample.STAC(geometry=point(200, 0), datetime=day)
+    with pytest.raises(ValueError, match="requires geometry"):
+        taco.metadata.sample.STAC(**GRID, bbox=(0, 0, 1, 1), datetime=day)
+    with pytest.raises(ValueError, match="does not match"):
+        taco.metadata.sample.STAC(geometry=point(1, 2), bbox=(0, 0, 1, 1), datetime=day)
+    taco.metadata.sample.STAC(geometry=point(1, 2), bbox=(1, 2, 1, 2), datetime=day)
 
 
 def test_spatial_models_require_canonical_namespaces() -> None:
     with pytest.raises(ContractError, match="must use metadata namespace 'stac'"):
         taco.Level("sample", location=taco.metadata.sample.STAC)
-    with pytest.raises(ContractError, match="must use metadata namespace 'istac'"):
-        taco.Level("sample", stac=taco.metadata.sample.ISTAC)
+    with pytest.raises(ContractError, match="must use metadata namespace 'spatial'"):
+        taco.Level("sample", stac=taco.metadata.sample.Spatial)
 
 
-def test_contract_rejects_stac_and_istac_on_same_level() -> None:
-    with pytest.raises(ContractError, match="either STAC or ISTAC"):
+def test_contract_checks_profile_columns() -> None:
+    with pytest.raises(ContractError, match="must choose one metadata profile, got SPATIAL, TEMPORAL"):
         taco.Contract(
             structure=["data.bin"],
-            metadata=[
-                taco.Level("sample", stac=taco.metadata.sample.STAC, istac=taco.metadata.sample.ISTAC)
-            ],
+            metadata=[taco.Level("sample", spatial=taco.extensions.Spatial(), temporal=taco.metadata.sample.Temporal)],
         )
-
-    with pytest.raises(ContractError, match="puts geometry in STAC"):
-        taco.Contract(
-            structure=["data.bin"],
-            metadata={
-                "sample": {
-                    "stac:geometry": "binary",
-                    "stac:centroid": "binary",
-                }
-            },
-        )
-
-    with pytest.raises(ContractError, match="puts affine-grid fields in ISTAC"):
-        taco.Contract(
-            structure=["data.bin"],
-            metadata={
-                "sample": {
-                    "istac:geometry": "binary",
-                    "istac:tensor_shape": "list<int64>",
-                }
-            },
-        )
-
     with pytest.raises(ContractError, match=r"STAC metadata.*missing fields"):
-        taco.Contract(structure=["data.bin"], metadata={"sample": {"stac:centroid": "binary"}})
-
-    serialized = taco.Contract(
-        structure=["data.bin"],
-        metadata=[taco.Level("sample", stac=taco.extensions.STAC())],
-    ).to_dict()
-    serialized["taco:metadata"]["sample"]["stac:centroid"]["type"] = "string"
-    with pytest.raises(ContractError, match="stac:centroid must have type binary"):
-        taco.Contract.from_dict(serialized)
-
-    serialized = taco.Contract(
-        structure=["data.bin"],
-        metadata=[taco.Level("sample", stac=taco.extensions.STAC())],
-    ).to_dict()
-    del serialized["taco:metadata"]["sample"]["stac:time_middle"]
-    with pytest.raises(ContractError, match=r"STAC metadata.*missing fields"):
-        taco.Contract.from_dict(serialized)
-
-
-def test_contract_rejects_mixed_profiles_and_incomplete_new_profiles() -> None:
-    with pytest.raises(ContractError, match="must choose one metadata profile"):
-        taco.Contract(
-            structure=["data.bin"],
-            metadata=[
-                taco.Level("sample", spatial=taco.extensions.Spatial(), temporal=taco.extensions.Temporal())
-            ],
-        )
+        taco.Contract(structure=["data.bin"], metadata={"sample": {"stac:geometry": "binary"}})
     with pytest.raises(ContractError, match=r"SPATIAL metadata.*missing fields"):
-        taco.Contract(structure=["data.bin"], metadata={"sample": {"spatial:centroid": "binary"}})
+        taco.Contract(structure=["data.bin"], metadata={"sample": {"spatial:geometry": "binary"}})
     with pytest.raises(ContractError, match=r"TEMPORAL metadata.*missing fields"):
         taco.Contract(
             structure=["data.bin"],
-            metadata={"sample": {"temporal:time_middle": "timestamp[us, UTC]"}},
+            metadata={"sample": {"temporal:datetime": {"type": "timestamp[us, UTC]", "nullable": True}}},
         )
+
+    serialized = taco.Contract(
+        structure=["data.bin"],
+        metadata=[taco.Level("sample", stac=taco.extensions.STAC())],
+    ).to_dict()
+    assert taco.Contract.from_dict(serialized).to_dict() == serialized
+    changed = copy.deepcopy(serialized)
+    changed["taco:metadata"]["sample"]["stac:bbox"]["type"] = "fixed_size_list<double, 4>"
+    with pytest.raises(ContractError, match="stac:bbox must have type list<double>"):
+        taco.Contract.from_dict(changed)
+    changed = copy.deepcopy(serialized)
+    del changed["taco:metadata"]["sample"]["stac:end_datetime"]
+    with pytest.raises(ContractError, match=r"STAC metadata.*missing fields \['end_datetime'\]"):
+        taco.Contract.from_dict(changed)
 
 
 def test_derived_centroid_dependency_is_configurable() -> None:
     majortom = taco.extensions.MajorTOM(centroid="spatial:centroid")
-    geoenrich = taco.extensions.GeoEnrich(["elevation"], backend="earthengine", centroid="ispatial:centroid")
+    geoenrich = taco.extensions.GeoEnrich(["elevation"], backend="earthengine", centroid="spatial:centroid")
     assert majortom.requires == ("spatial:centroid",)
     assert majortom.configuration()["centroid"] == "spatial:centroid"
-    assert geoenrich.requires == ("ispatial:centroid",)
-    assert geoenrich.configuration()["centroid"] == "ispatial:centroid"
+    assert majortom.collection_metadata()["centroid"] == "spatial:centroid"
+    assert geoenrich.requires == ("spatial:centroid",)
+    assert geoenrich.configuration()["centroid"] == "spatial:centroid"
     with pytest.raises(ValueError, match="ending in ':centroid'"):
         taco.extensions.MajorTOM(centroid="spatial:geometry")
 

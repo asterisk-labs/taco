@@ -281,52 +281,64 @@ On disk, a namespace only qualifies a column name. It does not create a nested s
 
 #### Spatial and temporal profiles
 
-TACO defines five metadata profiles. `Spatial` describes a regular grid, `ISpatial` an irregular footprint, and `Temporal` a time interval. `STAC` combines `Spatial` and `Temporal`. `ISTAC` combines `ISpatial` and `Temporal`.
+TACO defines three metadata profiles built from the fields of a STAC Item and its projection extension. `Temporal` records when a sample was observed, `Spatial` where it is, and `STAC` both.
 
-A metadata level MUST choose at most one profile. A profile is a group of tabular fields, not a serialized STAC Item.
+A metadata level MUST choose at most one profile. A profile is a group of tabular fields, not a serialized STAC Item. Its fields keep their STAC names, except that the `proj:` prefix becomes `proj_` so that every column has a single namespace. For example, STAC `proj:code` is stored as `stac:proj_code`.
 
-| Profile | Producer inputs | Writer outputs | Spatial representation |
-| --- | --- | --- | --- |
-| `spatial` | `crs`, `tensor_shape`, `geotransform`; optional `centroid` override | `centroid` | Regular affine grid; no footprint geometry is stored |
-| `ispatial` | `crs`, `geometry`; optional `centroid` override | `centroid` | Irregular WKB footprint in the declared CRS |
-| `temporal` | `time_start`; optional `time_end` | `time_middle` | None |
-| `stac` | `crs`, `tensor_shape`, `geotransform`, `time_start`; optional `time_end` and `centroid` override | `centroid`, `time_middle` | Regular affine grid; no footprint geometry is stored |
-| `istac` | `crs`, `geometry`, `time_start`; optional `time_end` and `centroid` override | `centroid`, `time_middle` | Irregular WKB footprint in the declared CRS |
+| Profile | Producer inputs | Writer outputs |
+| --- | --- | --- |
+| `temporal` | `datetime`, or `start_datetime` and `end_datetime` | None |
+| `spatial` | `geometry`, or `proj_code`, `proj_shape`, and `proj_transform` | `geometry`, `bbox`, `centroid` |
+| `stac` | The inputs of both | `geometry`, `bbox`, `centroid` |
 
 Every profile MUST use the following canonical field declarations. A field is present in each profile listed under Applies to. When the complete profile group is optional, every stored column in that group is nullable. Its fields and types remain canonical.
 
-| Field | Applies to | Type | Nullable | Meaning |
-| --- | --- | --- | --- | --- |
-| `crs` | `spatial`, `ispatial`, `stac`, `istac` | `string` | No | Non-empty CRS accepted by the writer |
-| `tensor_shape` | `spatial`, `stac` | `list<int64>` | No | Tensor dimensions ending in height and width |
-| `geotransform` | `spatial`, `stac` | `list<double>` | No | Six finite GDAL affine coefficients |
-| `geometry` | `ispatial`, `istac` | `binary` | No | Valid, non-empty WKB geometry in `crs` |
-| `time_start` | `temporal`, `stac`, `istac` | `timestamp[us, UTC]` | No | Start of the observation |
-| `time_end` | `temporal`, `stac`, `istac` | `timestamp[us, UTC]` | Yes | End of the observation |
-| `centroid` | `spatial`, `ispatial`, `stac`, `istac` | `binary` | No | WKB Point in EPSG:4326 |
-| `time_middle` | `temporal`, `stac`, `istac` | `timestamp[us, UTC]` | Yes | Midpoint of the observation |
+| Field | Applies to | Type | Nullable | STAC field | Meaning |
+| --- | --- | --- | --- | --- | --- |
+| `geometry` | `spatial`, `stac` | `binary` | No | `geometry` | Footprint in EPSG:4326 as WKB |
+| `bbox` | `spatial`, `stac` | `list<double>` | No | `bbox` | `[west, south, east, north]` of the footprint |
+| `centroid` | `spatial`, `stac` | `binary` | No | None | Center of the sample as a WKB Point in EPSG:4326 |
+| `datetime` | `temporal`, `stac` | `timestamp[us, UTC]` | Yes | `datetime` | Acquisition time |
+| `start_datetime` | `temporal`, `stac` | `timestamp[us, UTC]` | Yes | `start_datetime` | First time covered by the observation |
+| `end_datetime` | `temporal`, `stac` | `timestamp[us, UTC]` | Yes | `end_datetime` | Last time covered by the observation |
+| `proj_code` | `spatial`, `stac` | `string` | Yes | `proj:code` | CRS of the grid |
+| `proj_shape` | `spatial`, `stac` | `list<int64>` | Yes | `proj:shape` | Grid height and width in pixels |
+| `proj_transform` | `spatial`, `stac` | `list<double>` | Yes | `proj:transform` | Affine transform of the grid |
 
 For example, a valid Temporal profile has exactly these three canonical columns:
 
 ```
 {
-  "temporal:time_start": {"type": "timestamp[us, UTC]", "nullable": false, "description": "Acquisition start"},
-  "temporal:time_end": {"type": "timestamp[us, UTC]", "nullable": true, "description": "Acquisition end"},
-  "temporal:time_middle": {"type": "timestamp[us, UTC]", "nullable": true, "description": "Acquisition midpoint"}
+  "temporal:datetime": {"type": "timestamp[us, UTC]", "nullable": true, "description": "Acquisition time; null when only a range is known"},
+  "temporal:start_datetime": {"type": "timestamp[us, UTC]", "nullable": true, "description": "First time covered by the observation, inclusive"},
+  "temporal:end_datetime": {"type": "timestamp[us, UTC]", "nullable": true, "description": "Last time covered by the observation, inclusive"}
 }
 ```
 
-Using `timestamp[ms]` or omitting `time_middle` does not conform to the Temporal profile. `time_start` is non-nullable unless the complete profile group is optional.
+Using `timestamp[ms]` or omitting `end_datetime` does not conform to the Temporal profile.
 
-For Spatial and STAC, `tensor_shape` contains at least two positive dimensions. Its final two values are height and width. `geotransform` contains the six GDAL affine coefficients. Unless the producer supplies an override, the writer calculates `centroid` from the complete affine transform and reprojects it to EPSG:4326.
+**Time.** Every row MUST have a `datetime`, or both a `start_datetime` and an `end_datetime`. `start_datetime` and `end_datetime` MUST be given together, MUST NOT be reversed, and bound an inclusive range. A row MAY also carry a `datetime` inside its range. An observation without a single acquisition instant, such as a DEM or an annual composite, uses a range.
 
-For ISpatial and ISTAC, the writer calculates `centroid` from `geometry` in its declared CRS unless the producer supplies an override.
+**Footprint.** `geometry` MUST be a non-empty, valid, two-dimensional WKB geometry with longitude and latitude coordinates in EPSG:4326. It MUST NOT be a GeometryCollection. A footprint that crosses the antimeridian MUST be split into parts at 180 degrees, as RFC 7946 requires. Therefore no edge may span more than 180 degrees of longitude, except an edge whose two ends lie on the antimeridian or an edge along a pole.
 
-For Temporal, STAC, and ISTAC, the writer calculates `time_middle` when `time_end` is present and the producer does not supply a midpoint.
+**Bounding box.** `bbox` holds `[west, south, east, north]`. `south` and `north` are the latitude bounds of `geometry`. `west` and `east` bound the narrowest longitude interval that covers every part of `geometry`. When that interval crosses the antimeridian, `west` is greater than `east`. When two intervals are equally narrow, the one that does not cross is used.
 
-The built-in Python extensions MUST use their canonical namespaces. Examples include `spatial=taco.extensions.Spatial()` and `stac=taco.extensions.STAC()`.
+**Grid.** `proj_code`, `proj_shape`, and `proj_transform` MUST be given together or not at all. `proj_code` has the form `AUTHORITY:CODE`, such as `EPSG:32718`. `proj_shape` holds the positive height and width of the grid in pixels, in that order. `proj_transform` holds six finite coefficients `[a, b, c, d, e, f]` with a non-zero `a*e - b*d`. They map the corner of a pixel to CRS coordinates:
 
-Inputs use the matching model from `taco.metadata.sample` or `taco.metadata.folder`. Spatial and STAC describe affine image chunks. ISpatial and ISTAC describe swaths, vectors, and other data without a recoverable regular grid.
+```
+x = a * column + b * row + c
+y = d * column + e * row + f
+```
+
+This is the order of STAC `proj:transform` and of rasterio, not the order of the GDAL geotransform. A grid in `EPSG:4326` uses longitude as `x`.
+
+**Writer outputs.** A row MUST supply `geometry`, a complete grid, or both. When a row supplies only a grid, the writer approximates its edges with 16 segments per side reprojected to EPSG:4326. The sampled boundary is retained because straight edges in the source CRS can curve after reprojection. A grid across the antimeridian is split at 180 degrees. A grid around a pole retains its sampled boundary and closes through the enclosed pole. This is a fixed-resolution approximation; a producer needing a more precise footprint supplies `geometry`. When a row supplies `geometry`, the writer keeps it; it MAY differ from the grid, for example to trace the valid data. The writer computes `bbox` from `geometry`. A `bbox` supplied by the producer MUST equal the computed value.
+
+**Centroid.** `centroid` is the point that stands for the sample, for example to assign a grid cell. When the row has a grid, the writer takes the center of the grid, at `column = width / 2` and `row = height / 2`, in its CRS and reprojects that single point, so `centroid` does not depend on how `geometry` approximates the grid. Without a grid, it is the centroid of `geometry`, with the parts of a footprint split at the antimeridian joined across it first. A producer MAY supply `centroid` instead. It is not a STAC field, so an exported STAC Item omits it.
+
+The built-in extensions `spatial=taco.extensions.Spatial()` and `stac=taco.extensions.STAC()` compute the outputs and MUST use their canonical namespaces. Temporal computes nothing, so it is declared as a model, as in `temporal=taco.metadata.sample.Temporal`. A level MAY bind the Spatial or STAC model without its extension; the producer then supplies `geometry` and `bbox`.
+
+Inputs use the matching model from `taco.metadata.sample` or `taco.metadata.folder`.
 
 #### Writer-time extensions
 
@@ -372,13 +384,15 @@ Cube statistics combine the time and spatial axes for each band. Non-finite valu
 {
   "taco:metadata": {
     "sample": {
-      "stac:crs": {"type": "string", "nullable": false, "description": "Coordinate reference system"},
-      "stac:tensor_shape": {"type": "list<int64>", "nullable": false, "description": "Tensor dimensions ending in height and width"},
-      "stac:geotransform": {"type": "list<double>", "nullable": false, "description": "Six-value GDAL affine transform"},
-      "stac:time_start": {"type": "timestamp[us, UTC]", "nullable": false, "description": "Acquisition timestamp"},
+      "stac:geometry": {"type": "binary", "nullable": false, "description": "Footprint in EPSG:4326 as WKB"},
+      "stac:bbox": {"type": "list<double>", "nullable": false, "description": "Footprint bounds [west, south, east, north]"},
       "stac:centroid": {"type": "binary", "nullable": false, "description": "Center point in EPSG:4326 (WKB)"},
-      "stac:time_end": {"type": "timestamp[us, UTC]", "nullable": true, "description": "Acquisition end"},
-      "stac:time_middle": {"type": "timestamp[us, UTC]", "nullable": true, "description": "Acquisition midpoint"},
+      "stac:datetime": {"type": "timestamp[us, UTC]", "nullable": true, "description": "Acquisition time"},
+      "stac:start_datetime": {"type": "timestamp[us, UTC]", "nullable": true, "description": "Acquisition start, inclusive"},
+      "stac:end_datetime": {"type": "timestamp[us, UTC]", "nullable": true, "description": "Acquisition end, inclusive"},
+      "stac:proj_code": {"type": "string", "nullable": true, "description": "CRS of the grid"},
+      "stac:proj_shape": {"type": "list<int64>", "nullable": true, "description": "Grid size as [height, width]"},
+      "stac:proj_transform": {"type": "list<double>", "nullable": true, "description": "Affine transform of the grid"},
       "quality:cloud_cover": {"type": "double", "nullable": true, "description": "Cloud cover percentage (0-100)"},
       "ml:split": {"type": "string", "nullable": false, "description": "Dataset split (train, val, test)"}
     },
@@ -395,18 +409,20 @@ Cube statistics combine the time and spatial axes for each band. Non-finite valu
 {
   "taco:metadata": {
     "sample": {
-      "stac:crs": {"type": "string", "nullable": false, "description": "Coordinate reference system"},
-      "stac:tensor_shape": {"type": "list<int64>", "nullable": false, "description": "Tensor dimensions ending in height and width"},
-      "stac:geotransform": {"type": "list<double>", "nullable": false, "description": "Six-value GDAL affine transform"},
+      "stac:geometry": {"type": "binary", "nullable": false, "description": "Sample footprint (WKB)"},
+      "stac:bbox": {"type": "list<double>", "nullable": false, "description": "Sample footprint bounds"},
       "stac:centroid": {"type": "binary", "nullable": false, "description": "Sample center point (WKB)"},
-      "stac:time_start": {"type": "timestamp[us, UTC]", "nullable": false, "description": "Sample acquisition timestamp"},
-      "stac:time_end": {"type": "timestamp[us, UTC]", "nullable": true, "description": "Sample acquisition end"},
-      "stac:time_middle": {"type": "timestamp[us, UTC]", "nullable": true, "description": "Sample acquisition midpoint"},
+      "stac:datetime": {"type": "timestamp[us, UTC]", "nullable": true, "description": "Sample acquisition time"},
+      "stac:start_datetime": {"type": "timestamp[us, UTC]", "nullable": true, "description": "First acquisition of the pair"},
+      "stac:end_datetime": {"type": "timestamp[us, UTC]", "nullable": true, "description": "Last acquisition of the pair"},
+      "stac:proj_code": {"type": "string", "nullable": true, "description": "CRS of the grid"},
+      "stac:proj_shape": {"type": "list<int64>", "nullable": true, "description": "Grid size as [height, width]"},
+      "stac:proj_transform": {"type": "list<double>", "nullable": true, "description": "Affine transform of the grid"},
       "ml:split": {"type": "string", "nullable": false, "description": "Dataset split"},
       "change:ratio": {"type": "double", "nullable": false, "description": "Percentage of changed pixels"}
     },
     "children": {
-      "acquisition:time_start": {"type": "timestamp[us, UTC]", "nullable": true, "description": "Acquisition timestamp"},
+      "acquisition:time": {"type": "timestamp[us, UTC]", "nullable": true, "description": "Acquisition timestamp"},
       "quality:cloud_cover": {"type": "double", "nullable": true, "description": "Cloud cover percentage"},
       "eo:sensor": {"type": "string", "nullable": true, "description": "Sensor name"}
     },
@@ -446,9 +462,9 @@ An extent contains `spatial` and MAY contain `temporal`. `spatial` is `[west, so
 
 The writer produces `extent` from the shallowest metadata level that contains a spatial profile. If no level contains one, the writer MUST omit `extent`.
 
-The spatial interval covers the EPSG:4326 `centroid` values at that level. It is an index of sample centers, not the union of their footprints.
+The spatial interval covers the `bbox` values at that level. `south` and `north` are their extreme latitudes. `west` and `east` bound the narrowest longitude interval that covers every box, under the rule for `bbox` in Section 5.4.
 
-For STAC and ISTAC, the temporal interval starts at the earliest `time_start` and ends at the latest `time_end`. When `time_end` is absent, the writer uses `time_start` for that row.
+For STAC, the temporal interval starts at the earliest `start_datetime` or `datetime` and ends at the latest `end_datetime` or `datetime`.
 
 Each ZIP partition MUST summarize only its own rows. TACOCAT stores each partition extent in `taco:sources` and uses their union as its collection extent. A FOLDER append MUST summarize both the existing and appended rows.
 
@@ -697,6 +713,8 @@ Complete validation MUST check the following conditions.
 
 8. TACOCAT source paths, sample counts, global identifiers, parent references, extents, and `internal:source_file` values match `taco:sources` and the referenced ZIP partitions.
 
+9. Every row of a Spatial, Temporal, or STAC profile follows the rules for time, footprint, bounding box, and grid in Section 5.4. A row where an optional profile group is absent as a whole is exempt.
+
 For example, this contract declaration requires an `int64` Parquet column.
 
 ```
@@ -775,9 +793,9 @@ contract = taco.Contract(
 )
 ```
 
-The keyword passed to `Level` becomes the namespace. A Pydantic model defines fields, types, nullability, and descriptions. An extension also declares its required and produced fields. The writer stores qualified columns such as `spatial:geotransform`, `spatial:centroid`, and `majortom:code`.
+The keyword passed to `Level` becomes the namespace. A Pydantic model defines fields, types, nullability, and descriptions. An extension also declares its required and produced fields. The writer stores qualified columns such as `stac:geometry`, `stac:bbox`, and `majortom:code`.
 
-Spatial, ISpatial, Temporal, STAC, and ISTAC MUST use their canonical namespaces.
+Spatial, Temporal, and STAC MUST use their canonical namespaces.
 
 A model assigned directly to a level is required on every row. `Model | None` allows the complete group to be absent on some rows and makes its stored columns nullable. Within a model, `value: T | None` makes one field nullable. `Field(description=...)` supplies its description. Exact Arrow types may use `Annotated`.
 
@@ -810,7 +828,7 @@ A collection group is validated once. It is never copied into every sample row. 
 
 #### Collection summaries
 
-Spatial and ISpatial produce the spatial part of `extent` from their centroids. STAC and ISTAC additionally produce its temporal part. Temporal has no spatial coverage and therefore does not synthesize a collection `extent`.
+Spatial produces the spatial part of `extent` from the bounding boxes. STAC additionally produces its temporal part. Temporal has no spatial coverage and therefore does not synthesize a collection `extent`.
 
 Summaries run independently for every output partition. They consume metadata in batches and retain only the values needed for the summary. They do not keep the complete metadata table in memory.
 
@@ -848,7 +866,7 @@ sample = taco.Sample(
 
 An extension declares the columns it requires and produces. It may also declare a Pydantic model for values supplied by the producer. The contract is invalid when a required column is missing.
 
-For example, Spatial receives affine-grid values and produces `spatial:centroid`. `MajorTOM(centroid="spatial:centroid")` may require that column and produce `majortom:code`.
+For example, Spatial receives a grid and produces `spatial:geometry`, `spatial:bbox`, and `spatial:centroid`. `MajorTOM(centroid="spatial:centroid")` may require that column and produce `majortom:code`, the MajorTOM cell that contains the centroid.
 
 The writer computes extension outputs from batches of validated metadata during `run()`. Each context also contains the local asset associated with every row, allowing format extensions to inspect payloads without asking producers to duplicate file metadata.
 
@@ -932,10 +950,10 @@ sample = taco.Sample(
     id="lima-0001",
     metadata=taco.Metadata(
         stac=taco.metadata.sample.STAC(
-            crs="EPSG:4326",
-            tensor_shape=(13, 256, 256),
-            geotransform=(-76.55, 0.1 / 256, 0, -9.15, 0, -0.1 / 256),
-            time_start=datetime(2025, 1, 1, tzinfo=timezone.utc),
+            proj_code="EPSG:4326",
+            proj_shape=(256, 256),
+            proj_transform=(0.1 / 256, 0, -76.55, 0, -0.1 / 256, -9.15),
+            datetime=datetime(2025, 1, 1, tzinfo=timezone.utc),
         ),
         ml=ML(split="train"),
     ),
@@ -1184,7 +1202,7 @@ v2 extensions combined schema definitions with metadata computation through base
 
 v3 uses namespaced Pydantic models for passive metadata and a generic `Extension` abstraction for writer-time operations. The namespace determines the stored field prefix. Extensions combine optional validated inputs, declared outputs, local asset access, and explicit dependencies.
 
-`taco` includes STAC and ISTAC extensions that restore the automatic centroid behavior of v2, a Rumi extension for canonical headers and per-band statistics, and composable operations such as MajorTOM. The writer resolves their dependency graph during `run()`. Datasets can define additional models or extension subclasses without modifying the writer core.
+`taco` includes Spatial and STAC extensions that compute each footprint and bounding box from a grid, a Rumi extension for canonical headers and per-band statistics, and composable operations such as MajorTOM. The writer resolves their dependency graph during `run()`. Datasets can define additional models or extension subclasses without modifying the writer core.
 
 ### A.6. TACOCAT and TACOLLECTION
 

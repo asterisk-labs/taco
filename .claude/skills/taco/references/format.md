@@ -169,9 +169,10 @@ the dataset crosses the antimeridian. `extent.temporal` is null or
 `[start, end]` as ISO 8601 UTC.
 
 The writer produces `extent` from the shallowest level carrying a spatial profile, and
-omits it when no level has one. It summarizes **sample centroids**, so it is an index
-of sample centers, not the union of their footprints. Each ZIP partition summarizes
-only its own rows; a FOLDER append summarizes old and new rows together.
+omits it when no level has one. It covers the **sample bounding boxes**: latitudes are
+their extremes, and longitudes the narrowest interval covering every box. Each ZIP
+partition summarizes only its own rows; a FOLDER append summarizes old and new rows
+together.
 
 ## Why Parquet
 

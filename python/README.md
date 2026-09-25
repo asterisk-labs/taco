@@ -66,10 +66,11 @@ Engine installation.
 Every example is self-contained, uses synthetic data, and writes its output in
 the current directory.
 
-Spatial and temporal metadata use separate profiles: `Spatial` for regular
-spatial grids, `ISpatial` for irregular footprints, and `Temporal` for time
-alone. `STAC` combines regular spatial + temporal metadata; `ISTAC` combines
-irregular spatial + temporal metadata.
+Spatial and temporal metadata follow the fields of a STAC Item. `Temporal`
+stores `datetime` or a `start_datetime`/`end_datetime` range, `Spatial` stores
+the footprint and its `bbox`, and `STAC` stores both. Give a sample its grid
+(`proj_code`, `proj_shape`, `proj_transform`) and the writer computes the
+footprint, or give the footprint itself when no single grid describes it.
 
 | Example | What it demonstrates |
 | --- | --- |
@@ -79,6 +80,6 @@ irregular spatial + temporal metadata.
 | [`sequence.py`](examples/sequence.py) | Variable-length asset sequences |
 | [`time_series.py`](examples/time_series.py) | Per-observation time and cloud metadata |
 | [`geospatial.py`](examples/geospatial.py) | Compact STAC metadata and derived MajorTOM cells |
-| [`stac_segmentation.py`](examples/stac_segmentation.py) | STAC extensions for regular raster chips, labels, bands, and scaling |
-| [`oceantaco_istac.py`](examples/oceantaco_istac.py) | OceanTACO-inspired ISTAC metadata for irregular SWOT swaths and Argo collocations |
+| [`stac_segmentation.py`](examples/stac_segmentation.py) | STAC footprints computed from UTM grids, with labels, bands, and scaling |
+| [`oceantaco.py`](examples/oceantaco.py) | OceanTACO-inspired STAC footprints for irregular SWOT swaths and Argo collocations |
 | [`partitioned.py`](examples/partitioned.py) | ZIP partitions and their TACOCAT catalog |

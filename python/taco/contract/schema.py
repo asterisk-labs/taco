@@ -17,27 +17,25 @@ from .naming import validate_field_name
 
 _NAMESPACE = re.compile(r"^[a-z][a-z0-9_]*$")
 _RESERVED_NAMESPACES = frozenset({"cozip", "internal", "taco"})
-_PROFILE_NULLABILITY = {
-    "spatial": {"crs": False, "tensor_shape": False, "geotransform": False, "centroid": False},
-    "ispatial": {"crs": False, "geometry": False, "centroid": False},
-    "temporal": {"time_start": False, "time_end": True, "time_middle": True},
-    "stac": {
-        "crs": False,
-        "tensor_shape": False,
-        "geotransform": False,
-        "time_start": False,
-        "centroid": False,
-        "time_end": True,
-        "time_middle": True,
-    },
-    "istac": {
-        "crs": False,
-        "geometry": False,
-        "time_start": False,
-        "time_end": True,
-        "time_middle": True,
-        "centroid": False,
-    },
+_TIMESTAMP = "timestamp[us, UTC]"
+_LOCATION_FIELDS = {
+    "geometry": ("binary", False),
+    "bbox": ("list<double>", False),
+    "centroid": ("binary", False),
+    "proj_code": ("string", True),
+    "proj_shape": ("list<int64>", True),
+    "proj_transform": ("list<double>", True),
+}
+_TIME_FIELDS = {
+    "datetime": (_TIMESTAMP, True),
+    "start_datetime": (_TIMESTAMP, True),
+    "end_datetime": (_TIMESTAMP, True),
+}
+# Canonical type and nullability of every field in the spatial and temporal profiles.
+PROFILE_FIELDS: dict[str, dict[str, tuple[str, bool]]] = {
+    "spatial": _LOCATION_FIELDS,
+    "temporal": _TIME_FIELDS,
+    "stac": {**_LOCATION_FIELDS, **_TIME_FIELDS},
 }
 
 
@@ -194,9 +192,12 @@ def _model_binding(namespace: str, value: Any) -> Group:
         )
     input_fields = _model_fields(namespace, annotation, optional)
     fields = input_fields
-    canonical = _PROFILE_NULLABILITY.get(namespace)
+    canonical = PROFILE_FIELDS.get(namespace)
     if canonical is not None and not optional:
-        fields = tuple((name, field.with_nullable(canonical[name])) for name, field in input_fields)
+        fields = tuple(
+            (name, field.with_nullable(canonical[name][1]) if name in canonical else field)
+            for name, field in input_fields
+        )
     return Group(
         namespace,
         annotation,
@@ -330,6 +331,7 @@ class CollectionMetadata:
 
 
 __all__ = [
+    "PROFILE_FIELDS",
     "CollectionMetadata",
     "DerivedMetadata",
     "Extension",

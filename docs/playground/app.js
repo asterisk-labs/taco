@@ -5,7 +5,9 @@ import { extendRandomRowIndexes, randomRowIndexes } from "./sampling.js?v=2";
 const FIXTURE_ROOT = "https://huggingface.co/datasets/asterisk-labs/taco-api-fixtures/resolve/main";
 const MANIFEST_URL = `${FIXTURE_ROOT}/manifest.json`;
 const CENTROID_PROFILES = new Set(["spatial", "ispacial", "ispatial", "stac", "stac-interval", "shared-stac", "istac"]);
-const CENTROID_FIELDS = ["spatial:centroid", "ispatial:centroid", "stac:centroid", "istac:centroid"];
+const CENTROID_FIELDS = ["stac:centroid", "spatial:centroid"];
+// Columns that locate a sample; they are not shown as metadata or offered for coloring.
+const LOCATION_FIELDS = new Set([...CENTROID_FIELDS, "stac:geometry", "spatial:geometry", "stac:bbox", "spatial:bbox"]);
 const PLOT_COLORS = ["#0f766e", "#2563eb", "#7c3aed", "#d97706", "#dc2626", "#0891b2", "#65a30d", "#c026d3"];
 const DESKTOP_POINT_LIMIT = 100_000;
 const DESKTOP_POINT_STEP = 50_000;
@@ -634,7 +636,7 @@ function pointFeatureCollection() {
 
 function populatePlotFields(sampleFields) {
   state.sampleFields = sampleFields;
-  const fields = Object.keys(sampleFields).filter((name) => !CENTROID_FIELDS.includes(name));
+  const fields = Object.keys(sampleFields).filter((name) => !LOCATION_FIELDS.has(name));
   element.plotField.replaceChildren();
   const uniform = document.createElement("option");
   uniform.value = "";
@@ -1178,7 +1180,7 @@ function appendMetadataRecord(record) {
   heading.textContent = record.title;
   const list = document.createElement("dl");
   for (const [name, value] of orderedMetadataEntries(record.values)) {
-    if (CENTROID_FIELDS.includes(name)) continue;
+    if (LOCATION_FIELDS.has(name)) continue;
     const wrapper = document.createElement("div");
     wrapper.className = "metadata-row";
     const term = document.createElement("dt");
@@ -1427,16 +1429,17 @@ function showPreviewOnMap(canvas, corners) {
 
 async function sampleFootprint(header) {
   const values = state.metadataPages[0]?.records?.[0]?.values ?? {};
-  const prefix = ["stac", "spatial"].find((name) => values[`${name}:crs`] && values[`${name}:geotransform`]);
+  const prefix = ["stac", "spatial"].find((name) => values[`${name}:proj_code`] && values[`${name}:proj_transform`]);
   if (!prefix) return null;
-  const epsg = Number(String(values[`${prefix}:crs`]).match(/EPSG:(\d+)/i)?.[1]);
-  const transform = Array.from(values[`${prefix}:geotransform`], Number);
+  const epsg = Number(String(values[`${prefix}:proj_code`]).match(/^EPSG:(\d+)$/i)?.[1]);
+  const transform = Array.from(values[`${prefix}:proj_transform`], Number);
   if (!epsg || transform.length !== 6) return null;
   const toLonLat = await lonLatProjection(epsg);
   if (!toLonLat) return null;
-  const [x0, dx, rx, y0, ry, dy] = transform;
+  // STAC proj:transform order: x = a*column + b*row + c, y = d*column + e*row + f.
+  const [a, b, c, d, e, f] = transform;
   return [[0, 0], [header.width, 0], [header.width, header.height], [0, header.height]]
-    .map(([column, row]) => toLonLat([x0 + column * dx + row * rx, y0 + column * ry + row * dy]));
+    .map(([column, row]) => toLonLat([a * column + b * row + c, d * column + e * row + f]));
 }
 
 async function lonLatProjection(epsg) {

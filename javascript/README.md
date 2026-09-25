@@ -88,11 +88,11 @@ const rows = await read(url, { layout: "wide", idx: [0, 10] });
 
 ```js
 const rows = await dataset.readLevel("children/before", {
-  columns: ["internal:parent_id", "stac:time_start"],
+  columns: ["internal:parent_id", "stac:datetime"],
   rowStart: 0,
   rowEnd: 100,
   filter: {
-    "stac:time_start": { $gte: new Date("2024-01-01T00:00:00Z") },
+    "stac:datetime": { $gte: new Date("2024-01-01T00:00:00Z") },
   },
 });
 ```

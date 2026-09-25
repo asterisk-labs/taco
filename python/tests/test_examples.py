@@ -14,7 +14,7 @@ EXAMPLES = (
     "time_series.py",
     "geospatial.py",
     "stac_segmentation.py",
-    "oceantaco_istac.py",
+    "oceantaco.py",
     "partitioned.py",
 )
 

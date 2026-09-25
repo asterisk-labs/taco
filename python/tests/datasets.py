@@ -10,6 +10,7 @@ import pyarrow as pa
 from pydantic import BaseModel
 
 import taco
+from taco.metadata.spatiotemporal import point_wkb
 
 
 class SampleInfo(BaseModel):
@@ -74,10 +75,6 @@ class DatasetCase:
         )
 
 
-def point(x: float, y: float) -> bytes:
-    return struct.pack("<BIdd", 1, 1, x, y)
-
-
 def polygon(west: float, south: float, east: float, north: float) -> bytes:
     ring = [(west, south), (east, south), (east, north), (west, north), (west, south)]
     return struct.pack("<BIII", 1, 3, 1, len(ring)) + b"".join(struct.pack("<dd", x, y) for x, y in ring)
@@ -85,22 +82,25 @@ def polygon(west: float, south: float, east: float, north: float) -> bytes:
 
 def stac(
     index: int,
-    model: type[taco.metadata.sample.STAC] | type[taco.metadata.sample.ISTAC] = taco.metadata.sample.STAC,
+    model: type[taco.metadata.sample.STAC] = taco.metadata.sample.STAC,
+    *,
+    footprint: bool = False,
+    with_bbox: bool = True,
     **values: object,
-) -> taco.metadata.sample.STAC | taco.metadata.sample.ISTAC:
+) -> taco.metadata.sample.STAC:
+    """A STAC group from a grid, or from a footprint and, when no extension computes them, its bbox and centroid."""
     x = -76.0 + index
-    common = dict(
-        crs="EPSG:4326",
-        centroid=point(x, -12.0),
-        time_start=datetime(2024, 1, index + 1, tzinfo=timezone.utc),
-        **values,
-    )
-    if issubclass(model, taco.metadata.sample.ISTAC):
-        return model(geometry=polygon(x - 0.1, -12.1, x + 0.1, -11.9), **common)
+    moment = datetime(2024, 1, index + 1, tzinfo=timezone.utc)
+    if footprint:
+        bounds = (x - 0.125, -12.125, x + 0.125, -11.875)
+        derived = {"bbox": bounds, "centroid": point_wkb(x, -12.0)} if with_bbox else {}
+        return model(geometry=polygon(*bounds), datetime=moment, **derived, **values)
     return model(
-        tensor_shape=(13, 256, 256),
-        geotransform=(x - 0.1, 0.2 / 256, 0, -11.9, 0, -0.2 / 256),
-        **common,
+        proj_code="EPSG:4326",
+        proj_shape=(256, 256),
+        proj_transform=(0.25 / 256, 0, x - 0.125, 0, -0.25 / 256, -11.875),
+        datetime=moment,
+        **values,
     )
 
 
@@ -112,15 +112,13 @@ def spatial_profile(
     x = -76.0 + index
     if profile == "spatial":
         return model(
-            crs="EPSG:4326",
-            tensor_shape=(1, 16, 16),
-            geotransform=(x - 0.1, 0.2 / 16, 0, -11.9, 0, -0.2 / 16),
+            proj_code="EPSG:4326",
+            proj_shape=(16, 16),
+            proj_transform=(0.25 / 16, 0, x - 0.125, 0, -0.25 / 16, -11.875),
         )
-    if profile == "ispatial":
-        return model(crs="EPSG:4326", geometry=polygon(x - 0.1, -12.1, x + 0.1, -11.9))
     return model(
-        time_start=datetime(2024, 1, index + 1, tzinfo=timezone.utc),
-        time_end=datetime(2024, 1, index + 2, tzinfo=timezone.utc),
+        start_datetime=datetime(2024, 1, index + 1, tzinfo=timezone.utc),
+        end_datetime=datetime(2024, 1, index + 2, tzinfo=timezone.utc),
     )
 
 
@@ -218,8 +216,14 @@ def nested_folders() -> DatasetCase:
                 id=f"s{index}",
                 metadata=taco.Metadata(core=SampleInfo(name=f"change-{index}")),
                 folders=[
-                    taco.Folder("before", metadata=taco.Metadata(stac=stac(index, taco.metadata.folder.STAC))),
-                    taco.Folder("after", metadata=taco.Metadata(stac=stac(index + 1, taco.metadata.folder.STAC))),
+                    taco.Folder(
+                        "before",
+                        metadata=taco.Metadata(stac=stac(index, taco.metadata.folder.STAC, footprint=True)),
+                    ),
+                    taco.Folder(
+                        "after",
+                        metadata=taco.Metadata(stac=stac(index + 1, taco.metadata.folder.STAC, footprint=True)),
+                    ),
                 ],
                 assets=assets,
             )
@@ -343,33 +347,25 @@ def deep_hierarchy() -> DatasetCase:
     contract = taco.Contract(
         structure=paths,
         metadata=[
-            taco.Level("sample", istac=taco.extensions.ISTAC()),
-            taco.Level("children", istac=taco.metadata.folder.ISTAC),
-            taco.Level("children/inputs", istac=taco.metadata.folder.ISTAC),
-            taco.Level("children/targets", istac=taco.metadata.folder.ISTAC),
+            taco.Level("sample", stac=taco.extensions.STAC()),
+            taco.Level("children", stac=taco.metadata.folder.STAC),
+            taco.Level("children/inputs", stac=taco.metadata.folder.STAC),
+            taco.Level("children/targets", stac=taco.metadata.folder.STAC),
         ],
     )
     samples = []
     for index in range(2):
+        folder = taco.Metadata(stac=stac(index, taco.metadata.folder.STAC, footprint=True))
         samples.append(
             taco.Sample(
                 id=f"s{index}",
-                metadata=taco.Metadata(istac=stac(index, taco.metadata.sample.ISTAC)),
+                metadata=taco.Metadata(stac=stac(index, footprint=True, with_bbox=False)),
                 folders=[
-                    taco.Folder("inputs", metadata=taco.Metadata(istac=stac(index, taco.metadata.folder.ISTAC))),
-                    taco.Folder("targets", metadata=taco.Metadata(istac=stac(index, taco.metadata.folder.ISTAC))),
-                    taco.Folder(
-                        "inputs/optical",
-                        metadata=taco.Metadata(istac=stac(index, taco.metadata.folder.ISTAC)),
-                    ),
-                    taco.Folder(
-                        "inputs/radar",
-                        metadata=taco.Metadata(istac=stac(index, taco.metadata.folder.ISTAC)),
-                    ),
-                    taco.Folder(
-                        "targets/segmentation",
-                        metadata=taco.Metadata(istac=stac(index, taco.metadata.folder.ISTAC)),
-                    ),
+                    taco.Folder("inputs", metadata=folder),
+                    taco.Folder("targets", metadata=folder),
+                    taco.Folder("inputs/optical", metadata=folder),
+                    taco.Folder("inputs/radar", metadata=folder),
+                    taco.Folder("targets/segmentation", metadata=folder),
                 ],
                 assets=[asset("deep", index, path) for path in paths],
             )
@@ -491,27 +487,26 @@ def derived_metadata() -> DatasetCase:
 
 
 def independent_profile(profile: str) -> DatasetCase:
-    sample_extension = {
-        "spatial": taco.extensions.Spatial,
-        "ispatial": taco.extensions.ISpatial,
-        "temporal": taco.extensions.Temporal,
-    }[profile]
-    folder_model = {
-        "spatial": taco.metadata.folder.Spatial,
-        "ispatial": taco.metadata.folder.ISpatial,
-        "temporal": taco.metadata.folder.Temporal,
-    }[profile]
+    # Spatial computes its footprint, so it is an extension; Temporal only stores values.
+    sample_model: type[BaseModel]
+    if profile == "spatial":
+        sample_model, folder_model = taco.metadata.sample.Spatial, taco.metadata.folder.Spatial
+        sample_group: object = taco.extensions.Spatial()
+        folder_group: object = taco.extensions.Spatial(model=folder_model)
+    else:
+        sample_model, folder_model = taco.metadata.sample.Temporal, taco.metadata.folder.Temporal
+        sample_group, folder_group = sample_model, folder_model
     contract = taco.Contract(
         structure=["scene/data.bin"],
         metadata=[
-            taco.Level("sample", **{profile: sample_extension()}),
-            taco.Level("children", **{profile: sample_extension(model=folder_model)}),
+            taco.Level("sample", **{profile: sample_group}),
+            taco.Level("children", **{profile: folder_group}),
         ],
     )
     samples = tuple(
         taco.Sample(
             id=f"s{index}",
-            metadata=taco.Metadata(**{profile: spatial_profile(profile, index, sample_extension().input_model)}),
+            metadata=taco.Metadata(**{profile: spatial_profile(profile, index, sample_model)}),
             folders=[
                 taco.Folder(
                     "scene",
@@ -542,7 +537,6 @@ CASES = (
     rich_metadata(),
     derived_metadata(),
     independent_profile("spatial"),
-    independent_profile("ispatial"),
     independent_profile("temporal"),
 )
 

@@ -102,7 +102,7 @@ be `id`:
 
 ```
 partition_by cannot be 'id'; it is unique, so every sample would be its own partition
-partition_by field 'ml:splt' is not sample metadata; available: ['stac:crs', ..., 'ml:split']
+partition_by field 'ml:splt' is not sample metadata; available: ['stac:geometry', ..., 'ml:split']
 partition values 'a/b' and 'a_b' collide on file name 'a_b'
 use either partition_size or partition_by, not both
 ```

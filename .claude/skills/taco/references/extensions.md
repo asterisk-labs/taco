@@ -23,16 +23,16 @@ rejects it before that branch can run.
 
 | Extension | Requires | Produces | Scopes |
 | --- | --- | --- | --- |
-| `Spatial(model=...)` | `spatial:crs`, `tensor_shape`, `geotransform` | `spatial:centroid` | sample, folder |
-| `ISpatial(check_antimeridian=False, model=...)` | `ispatial:crs`, `geometry` | `ispatial:centroid` | sample, folder |
-| `Temporal(model=...)` | `temporal:time_start`, `time_end` | `temporal:time_middle` | sample, folder |
-| `STAC(model=...)` | the four `stac:` inputs plus `time_end` | `stac:centroid`, `stac:time_middle` | sample, folder |
-| `ISTAC(check_antimeridian=False, model=...)` | the `istac:` inputs | `istac:centroid`, `istac:time_middle` | sample, folder |
+| `Spatial(model=...)` | `spatial:proj_code`, `proj_shape`, `proj_transform` | `spatial:geometry`, `bbox`, `centroid` | sample, folder |
+| `STAC(model=...)` | `stac:proj_code`, `proj_shape`, `proj_transform` | `stac:geometry`, `bbox`, `centroid` | sample, folder |
 | `Rumi(header=True, stats=False, nodata=None)` | nothing | `rumi:header` and/or `rumi:stats`, at least one | sample, asset |
 | `MajorTOM(dist_km=100, extra=(), latitude_range=(-85, 85), longitude_range=(-180, 180), sep="_", centroid="stac:centroid")` | the centroid field | `majortom:code` plus one per extra grid | sample |
 | `GeoEnrich(variables=None, backend="majortom-index", scale_m=5120, batch_size=250, max_concurrency=8, centroid="stac:centroid", code="majortom:code", index_url=...)` | the 10 km MajorTOM code by default; the centroid field for `earthengine` | one column per variable | sample |
 
-The five profile extensions also carry the producer's input model, so
+There is no `Temporal` extension: that profile computes nothing, so it is declared as
+a model, `temporal=taco.metadata.sample.Temporal`.
+
+The two profile extensions also carry the producer's input model, so
 `taco.Level("sample", stac=taco.extensions.STAC())` declares the inputs and the
 outputs at once. Pass `model=` a subclass to add fields:
 
@@ -47,14 +47,21 @@ The subclass must inherit the matching `taco.metadata.sample.*` model, and the
 namespace must be the canonical one: `STAC must use metadata namespace 'stac', got
 'st'`.
 
-### Centroids
+### Footprints
 
-`raster_centroid` evaluates the affine transform at the grid center and reprojects to
-EPSG:4326. `geometry_centroid` loads the WKB with shapely and takes its centroid;
-with `check_antimeridian=True` on a geographic CRS it runs `antimeridian.fix_shape`
-first, which needs the `taco-eo[antimeridian]` extra. A projected CRS needs `pyproj`:
-`projected spatial metadata requires 'pyproj'`. Supplying `centroid` yourself skips
-the computation for that row.
+For a row without `geometry`, `grid_footprint(code, shape, transform)` walks 16
+points along each grid edge in pixel space, reprojects them with pyproj (skipped for
+`EPSG:4326` and `OGC:CRS84`), unwraps the longitudes and keeps the sampled ring: a
+Polygon, a MultiPolygon split at 180 degrees, or a ring closed through the pole when
+the edges wind around it. It re-checks its own output with `load_footprint`.
+Transformers are cached per thread. An unknown code fails with `proj_code 'EPSG:99999'
+is not a known CRS`. `footprint_bbox` then derives `bbox`, and `centroid` is
+`grid_center` (the grid center reprojected alone) or, without a grid,
+`footprint_center(geometry)`. A `geometry`, `bbox` or `centroid` supplied by the
+producer is kept (the model already checked that the bbox matches), so that part of the
+computation is skipped for the row. All of this lives in
+`metadata/spatiotemporal.py`; the extensions in `extensions/spatiotemporal.py` only
+apply it per row.
 
 ### Rumi
 
@@ -87,9 +94,9 @@ field containing those identifiers.
 
 Set `backend="earthengine"` explicitly to sample every centroid. That backend needs
 `earthengine-api`: `GeoEnrich requires earthengine-api; install taco-eo[geoenrich]`.
-For this backend, both extensions default to `centroid="stac:centroid"`; point them
-at `spatial:centroid` or `istac:centroid` when the level uses another profile. The
-value must match `[a-z][a-z0-9_]*:centroid`.
+Both extensions default to `centroid="stac:centroid"`; point them at
+`spatial:centroid` when the level uses the Spatial profile. The value must match
+`[a-z][a-z0-9_]*:centroid`.
 
 `GeoEnrich` sets `__taco_complete_level__`, so its level is buffered whole rather
 than flushed per batch. The index backend and source URL are recorded in collection
@@ -109,18 +116,18 @@ from taco import Extension, ExtensionContext
 
 @dataclass(frozen=True)
 class Area(Extension):
-    """Area of each sample footprint, in square degrees."""
+    """Area of each sample grid, in square CRS units."""
 
     __taco_scopes__: ClassVar[frozenset[str]] = frozenset({"sample"})
 
     @property
     def requires(self) -> tuple[str, ...]:
-        return ("stac:tensor_shape", "stac:geotransform")
+        return ("stac:proj_shape", "stac:proj_transform")
 
     @property
     def fields(self) -> pa.Schema:                     # unqualified; the namespace is added
-        return pa.schema([pa.field("deg2", pa.float64(), nullable=False,
-                                   metadata={b"description": b"Footprint area in square degrees"})])
+        return pa.schema([pa.field("units2", pa.float64(), nullable=True,
+                                   metadata={b"description": b"Grid area in square CRS units"})])
 
     def configuration(self) -> Mapping[str, Any]:      # active writer contract only
         return {}
@@ -129,9 +136,11 @@ class Area(Extension):
         return {}
 
     def run(self, context: ExtensionContext) -> Mapping[str, Sequence[Any]]:
-        shapes = context.columns["stac:tensor_shape"]
-        transforms = context.columns["stac:geotransform"]
-        return {"deg2": [abs(s[-1] * t[1] * s[-2] * t[5]) for s, t in zip(shapes, transforms)]}
+        shapes = context.columns["stac:proj_shape"]
+        transforms = context.columns["stac:proj_transform"]
+        # A row that supplied only a footprint has no grid.
+        return {"units2": [None if s is None else abs(s[0] * s[1] * (t[0] * t[4] - t[1] * t[3]))
+                           for s, t in zip(shapes, transforms)]}
 
 
 taco.Level("sample", stac=taco.extensions.STAC(), area=Area())
@@ -173,14 +182,14 @@ The writer sorts extensions by their `requires`, so declaration order does not m
 Three failures are contract errors:
 
 ```
-extensions at 'sample' require missing fields ['spatial:centroid']
+extensions at 'sample' require missing fields ['stac:centroid']
 extensions at 'sample' contain a dependency cycle
 extensions at 'sample' produce a field more than once
 ```
 
 Runtime failures are sample errors: a non-mapping return, wrong field names
-(`extension group 'area' returned ['area'], expected ['deg2']`), a wrong row count, or
-a value that will not coerce (`invalid extension output 'area:deg2' at 'sample': ...`).
+(`extension group 'area' returned ['area'], expected ['units2']`), a wrong row count, or
+a value that will not coerce (`invalid extension output 'area:units2' at 'sample': ...`).
 
 ### Configuration versus collection metadata
 
@@ -207,7 +216,9 @@ rows copied during an append, and writes `finish()` into the collection; returni
 `None` removes the key.
 
 `_SpatialExtent` and `_SpatioTemporalExtent` in `metadata/spatiotemporal.py` are the
-built-ins behind `extent`. They keep only what a summary needs: latitudes reduce to a
-running min and max, longitudes spill to a temporary file and are sorted with a memmap
-so the widest gap, and therefore the antimeridian-aware west and east, can be found
-without holding the table in memory.
+built-ins behind `extent`. They read `bbox` (and, for STAC, the three datetimes) and
+keep only what a summary needs: latitudes reduce to a running min and max, and each
+bbox spills to a temporary file as one longitude interval, or two when it crosses the
+antimeridian. At the end the intervals are sorted in place in a memmap and
+`longitude_cover` leaves out the widest gap, which gives the antimeridian-aware west
+and east without holding the table in memory.

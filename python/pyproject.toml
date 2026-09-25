@@ -57,10 +57,9 @@ dependencies = [
 [project.optional-dependencies]
 test = ["pytest>=8", "pytest-cov>=5"]
 dev = ["pytest>=8", "pytest-cov>=5", "ruff>=0.5", "mypy>=1.8"]
-test-eo = ["rumi-eo[write]>=0.19", "antimeridian>=0.4"]
+test-eo = ["rumi-eo[write]>=0.19"]
 geoenrich = ["earthengine-api>=1"]
 rumi = ["rumi-eo[write]>=0.19"]
-antimeridian = ["pyproj>=3.6", "shapely>=2", "antimeridian>=0.4"]
 
 [project.urls]
 Homepage = "https://asterisk.coop/taco"
@@ -113,7 +112,7 @@ module = "taco.container.cozip"
 disable_error_code = ["import-untyped"]
 
 [[tool.mypy.overrides]]
-module = ["pyarrow", "pyarrow.*", "cffi", "tqdm", "tqdm.*"]
+module = ["pyarrow", "pyarrow.*", "cffi", "shapely", "shapely.*", "tqdm", "tqdm.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

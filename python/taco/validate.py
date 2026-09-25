@@ -29,8 +29,10 @@ from .contract.naming import (
     level_to_filename,
     normalize_relative_path,
 )
+from .contract.schema import PROFILE_FIELDS
 from .contract.types import type_name
 from .errors import TacoError, ValidationFailed
+from .metadata.spatiotemporal import STAC, Spatial, Temporal
 from .writer.metadata import table_schema
 
 __all__ = ["Issue", "ValidationReport", "validate"]
@@ -108,6 +110,7 @@ def validate(path: str | PathLike[str], *, check_data: bool = True) -> Validatio
     _check_metadata_files(dataset, collector)
     _check_sample_ids(dataset, collector)
     _check_levels(dataset, dataset.tables, collector)
+    _check_profile_rows(dataset, collector)
     if dataset.container == "zip":
         _check_zip(dataset, collector, check_data=check_data)
     elif dataset.container == "folder":
@@ -141,6 +144,57 @@ def _check_sample_ids(dataset: DatasetView, collector: _Collector) -> None:
     duplicates = sum(count - 1 for count in counts.values() if count > 1)
     if duplicates:
         collector.error("id", f"sample: id must be unique ({duplicates} duplicates)")
+
+
+def _profile_problem(values: dict[str, object]) -> str | None:
+    try:
+        if "geometry" in values:
+            if values["geometry"] is None:
+                return "geometry is null"
+            if values["bbox"] is None:
+                return "bbox is null"
+            model = STAC if "datetime" in values else Spatial
+            model.model_validate(values)
+        else:
+            Temporal.model_validate(values)
+    except ValueError as exc:
+        return str(exc)
+    return None
+
+
+def _check_profile_rows(dataset: DatasetView, collector: _Collector) -> None:
+    """Check every row of a spatial or temporal profile against its rules."""
+    for level, fields in dataset.contract.metadata.items():
+        table = dataset.tables.get(level)
+        if table is None:
+            continue
+        namespaces = {name.partition(":")[0] for name in fields}.intersection(PROFILE_FIELDS)
+        for namespace in sorted(namespaces):
+            names = list(PROFILE_FIELDS[namespace])
+            if not all(f"{namespace}:{name}" in table.column_names for name in names):
+                continue
+            selected = table.select([f"{namespace}:{name}" for name in names])
+            first_problem: tuple[int, str] | None = None
+            problem_count = 0
+            offset = 0
+            for batch in selected.to_batches(max_chunksize=8192):
+                columns = [column.to_pylist() for column in batch.columns]
+                for row, values in enumerate(zip(*columns, strict=True), start=offset):
+                    # An optional group may be absent from a row as a whole.
+                    if all(value is None for value in values):
+                        continue
+                    problem = _profile_problem(dict(zip(names, values, strict=True)))
+                    if problem is not None:
+                        problem_count += 1
+                        if first_problem is None:
+                            first_problem = (row, problem)
+                offset += batch.num_rows
+            if first_problem is not None:
+                row, problem = first_problem
+                collector.error(
+                    "profile",
+                    f"{level}: {namespace} breaks its profile on {problem_count} rows (first row {row}: {problem})",
+                )
 
 
 def _check_collection(dataset: DatasetView, collector: _Collector) -> None:

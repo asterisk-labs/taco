@@ -38,9 +38,9 @@ def test_metadata_takes_a_list_of_levels() -> None:
             structure=["a.bin"],
             metadata=[taco.Level("sample", values=Values), taco.Level("sample", other=Values)],
         )
-    with pytest.raises(ContractError, match="list of taco.Level"):
+    with pytest.raises(ContractError, match=r"list of taco\.Level"):
         taco.Contract(structure=["a.bin"], metadata=[{"sample": {}}])
-    with pytest.raises(ContractError, match="list of taco.Level"):
+    with pytest.raises(ContractError, match=r"list of taco\.Level"):
         taco.Contract(structure=["a.bin"], metadata=taco.Level("sample", values=Values))
 
 
@@ -129,9 +129,12 @@ def test_disjoint_variable_leaves_with_similar_names() -> None:
 
 def test_profiles_require_canonical_nullability() -> None:
     fields = {
-        "temporal:time_start": {"type": "timestamp[us, UTC]", "nullable": True},
-        "temporal:time_end": {"type": "timestamp[us, UTC]", "nullable": False},
-        "temporal:time_middle": {"type": "timestamp[us, UTC]", "nullable": True},
+        "spatial:geometry": {"type": "binary", "nullable": True},
+        "spatial:bbox": {"type": "list<double>", "nullable": False},
+        "spatial:centroid": {"type": "binary", "nullable": False},
+        "spatial:proj_code": {"type": "string", "nullable": True},
+        "spatial:proj_shape": {"type": "list<int64>", "nullable": True},
+        "spatial:proj_transform": {"type": "list<double>", "nullable": True},
     }
     with pytest.raises(ContractError, match="canonical nullability"):
         taco.Contract(structure=["a.bin"], metadata={"sample": fields})
@@ -142,16 +145,17 @@ def test_passive_profile_validates_canonical_required_fields() -> None:
         structure=["a.bin"],
         metadata=[taco.Level("sample", stac=taco.metadata.sample.STAC)],
     )
+    # Without the extension nothing computes the footprint, so the producer must supply it.
     metadata = taco.Metadata(
         stac=taco.metadata.sample.STAC(
-            crs="EPSG:4326",
-            tensor_shape=(1, 16, 16),
-            geotransform=(0, 1, 0, 0, 0, -1),
-            time_start=datetime(2025, 1, 1, tzinfo=timezone.utc),
+            proj_code="EPSG:4326",
+            proj_shape=(16, 16),
+            proj_transform=(1, 0, 0, 0, -1, 0),
+            datetime=datetime(2025, 1, 1, tzinfo=timezone.utc),
         )
     )
-    with pytest.raises(SampleError, match="stac:centroid"):
-        contract.validate_sample(taco.Sample(id="missing-centroid", assets=b"x", metadata=metadata))
+    with pytest.raises(SampleError, match="stac:geometry"):
+        contract.validate_sample(taco.Sample(id="missing-geometry", assets=b"x", metadata=metadata))
 
 
 def test_scope_is_enforced() -> None:
@@ -169,18 +173,14 @@ def test_scope_is_enforced() -> None:
         )
     taco.Contract(
         structure=["folder/a.tif"],
-        metadata=[
-            taco.Level("children", stac=taco.extensions.STAC(model=taco.metadata.folder.STAC))
-        ],
+        metadata=[taco.Level("children", stac=taco.extensions.STAC(model=taco.metadata.folder.STAC))],
     )
 
 
 def test_derived_declaration_and_dependency() -> None:
     contract = taco.Contract(
         structure=["a.bin"],
-        metadata=[
-            taco.Level("sample", stac=taco.extensions.STAC(), grid=taco.extensions.MajorTOM(50))
-        ],
+        metadata=[taco.Level("sample", stac=taco.extensions.STAC(), grid=taco.extensions.MajorTOM(50))],
     )
     descriptor = contract.extensions["sample"]["grid"]
     assert descriptor["requires"] == ["stac:centroid"]
@@ -237,9 +237,7 @@ def test_serialized_derived_declaration_is_validated() -> None:
 def test_execution_graph_is_not_serialized() -> None:
     contract = taco.Contract(
         structure=["data.bin"],
-        metadata=[
-            taco.Level("sample", stac=taco.extensions.STAC(), grid=taco.extensions.MajorTOM())
-        ],
+        metadata=[taco.Level("sample", stac=taco.extensions.STAC(), grid=taco.extensions.MajorTOM())],
     )
     assert contract.extensions
     assert "taco:derived" not in contract.to_dict()

@@ -27,7 +27,7 @@ CMake, Ninja, pkg-config, libcurl 7.83+ and OpenSSL 3+; the sdist force-includes
 
 Runtime dependencies: `cffi`, `cozip`, `duckdb`, `numpy`, `tqdm`, `pyarrow`,
 `pydantic`, `pyproj`, `shapely`. Extras: `rumi` (the Rumi extension), `geoenrich`
-(Earth Engine), `antimeridian`, `test`, `dev`, `test-eo`.
+(Earth Engine), `test`, `dev`, `test-eo`.
 
 The library is found at `taco/_lib/libtaco.{dylib,so}` or wherever `TACO_LIB` points.
 
@@ -89,9 +89,9 @@ const samples = await dataset.read({ layout: "wide", idx: [0, 20],
                                      files: ["before/image.rumi"] });
 const files   = await dataset.read({ layout: "long", idx: 0 });
 const rows    = await dataset.readLevel("children/before", {
-  columns: ["internal:parent_id", "stac:time_start"],
+  columns: ["internal:parent_id", "stac:datetime"],
   rowStart: 0, rowEnd: 100,
-  filter: { "stac:time_start": { $gte: new Date("2024-01-01T00:00:00Z") } },
+  filter: { "stac:datetime": { $gte: new Date("2024-01-01T00:00:00Z") } },
 });
 ```
 

@@ -11,6 +11,24 @@ JavaScript reader are documented here. The format follows
 - `Contract(metadata=...)` takes a list of `taco.Level` objects.
   `taco.MetadataSchema` is removed; replace `taco.MetadataSchema(a, b)` with
   `[a, b]`. An empty list is the same as no metadata.
+- The spatial and temporal profiles follow STAC. `temporal` stores `datetime`
+  or an inclusive `start_datetime`/`end_datetime` range, `spatial` stores the
+  EPSG:4326 `geometry` footprint and its `bbox`, and `stac` stores both. A
+  sample supplies its footprint, or its grid as `proj_code`, `proj_shape` and
+  `proj_transform` in the STAC `proj:transform` order, and the writer computes
+  the footprint and bounding box, splitting a footprint at the antimeridian.
+  The writer also stores `centroid`: the exact grid center, or the centroid of
+  the footprint when the sample has no grid.
+- `ISpatial`, `ISTAC` and `taco.extensions.Temporal` are removed, together
+  with the `crs`, `tensor_shape`, `geotransform`, `time_start`, `time_end` and
+  `time_middle` fields. Pass `geometry=` to `STAC` or `Spatial`
+  for an irregular footprint, and declare `temporal=taco.metadata.sample.Temporal`.
+- The collection `extent` covers the sample bounding boxes instead of their
+  centroids.
+- `taco.validate` checks every row of a profile against its rules.
+- The Python reader rejects datasets written with the previous profiles, as a
+  contract error that names the missing fields. They must be rebuilt.
+- The `antimeridian` extra is removed.
 
 ### Added
 

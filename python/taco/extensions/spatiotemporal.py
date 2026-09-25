@@ -1,106 +1,22 @@
 from __future__ import annotations
 
-import math
-import struct
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime
-from importlib import import_module
 from typing import Any, ClassVar
 
 import pyarrow as pa
 
 from ..metadata._base import Extension, ExtensionContext
-from ..metadata.spatiotemporal import ISTAC as ISTACMetadata
 from ..metadata.spatiotemporal import STAC as STACMetadata
-from ..metadata.spatiotemporal import ISpatial as ISpatialMetadata
 from ..metadata.spatiotemporal import Spatial as SpatialMetadata
-from ..metadata.spatiotemporal import Temporal as TemporalMetadata
-
-
-def _point_wkb(longitude: float, latitude: float) -> bytes:
-    if not math.isfinite(longitude) or not math.isfinite(latitude):
-        raise ValueError("centroid coordinates must be finite")
-    if not -180 <= longitude <= 180:
-        raise ValueError(f"centroid longitude {longitude} is outside [-180, 180]")
-    if not -90 <= latitude <= 90:
-        raise ValueError(f"centroid latitude {latitude} is outside [-90, 90]")
-    return struct.pack("<BIdd", 1, 1, longitude, latitude)
-
-
-def _wgs84(crs: str, x: float, y: float) -> tuple[float, float]:
-    normalized = crs.strip().upper().replace(" ", "")
-    if normalized in {"EPSG:4326", "OGC:CRS84", "CRS84"}:
-        return x, y
-    try:
-        from pyproj import CRS, Transformer
-        from pyproj.exceptions import CRSError
-    except ImportError as exc:
-        raise ImportError("projected spatial metadata requires 'pyproj'") from exc
-    try:
-        source = CRS.from_user_input(crs)
-    except CRSError as exc:
-        raise ValueError(f"invalid CRS: {crs}") from exc
-    longitude, latitude = Transformer.from_crs(source, CRS.from_epsg(4326), always_xy=True).transform(x, y)
-    return float(longitude), float(latitude)
-
-
-def raster_centroid(
-    crs: str, geotransform: Sequence[float], tensor_shape: Sequence[int], *, namespace: str = "stac"
-) -> bytes:
-    """Return the affine-grid center as an EPSG:4326 WKB point."""
-    if len(tensor_shape) < 2:
-        raise ValueError(f"{namespace}:tensor_shape must have at least two dimensions")
-    if len(geotransform) != 6:
-        raise ValueError(f"{namespace}:geotransform must contain six values")
-    rows, columns = int(tensor_shape[-2]), int(tensor_shape[-1])
-    origin_x, pixel_width, row_rotation, origin_y, column_rotation, pixel_height = map(float, geotransform)
-    center_column = columns / 2
-    center_row = rows / 2
-    x = origin_x + center_column * pixel_width + center_row * row_rotation
-    y = origin_y + center_column * column_rotation + center_row * pixel_height
-    longitude, latitude = _wgs84(crs, x, y)
-    return _point_wkb(longitude, latitude)
-
-
-def geometry_centroid(crs: str, geometry: bytes, *, check_antimeridian: bool, namespace: str = "istac") -> bytes:
-    """Return an irregular geometry's center as an EPSG:4326 WKB point."""
-    try:
-        from shapely.wkb import loads as load_wkb  # type: ignore[import-untyped]
-    except ImportError as exc:
-        raise ImportError("automatic irregular centroids require 'shapely'") from exc
-    try:
-        shape = load_wkb(geometry)
-    except Exception as exc:
-        raise ValueError(f"{namespace}:geometry is not valid WKB") from exc
-    if shape.is_empty:
-        raise ValueError(f"{namespace}:geometry is empty")
-
-    try:
-        from pyproj import CRS
-        from pyproj.exceptions import CRSError
-    except ImportError as exc:
-        raise ImportError("automatic irregular centroids require 'pyproj'") from exc
-    try:
-        source = CRS.from_user_input(crs)
-    except CRSError as exc:
-        raise ValueError(f"invalid CRS: {crs}") from exc
-
-    if source.is_geographic and check_antimeridian:
-        try:
-            antimeridian = import_module("antimeridian")
-        except ImportError as exc:
-            raise ImportError(f"{namespace.upper()}(check_antimeridian=True) requires 'taco-eo[antimeridian]'") from exc
-        fixed = antimeridian.fix_shape(shape, fix_winding=True)
-        center = antimeridian.centroid(fixed)
-    else:
-        center = shape.centroid
-    longitude, latitude = _wgs84(crs, float(center.x), float(center.y))
-    return _point_wkb(longitude, latitude)
-
-
-def _middle(start: datetime, end: datetime | None, current: datetime | None) -> datetime | None:
-    return current if current is not None or end is None else start + (end - start) / 2
+from ..metadata.spatiotemporal import (
+    footprint_bbox,
+    footprint_center,
+    grid_center,
+    grid_footprint,
+    load_footprint,
+    point_wkb,
+)
 
 
 def _column(context: ExtensionContext, name: str) -> Sequence[Any]:
@@ -110,66 +26,60 @@ def _column(context: ExtensionContext, name: str) -> Sequence[Any]:
         raise ValueError(f"extension input {name!r} is unavailable") from exc
 
 
-def _centroid_field() -> pa.Field:
-    return pa.field("centroid", pa.binary(), nullable=False, metadata={b"description": b"Centroid in EPSG:4326 as WKB"})
+def _description(model: type[SpatialMetadata] | type[STACMetadata], name: str) -> dict[bytes, bytes]:
+    return {b"description": (model.model_fields[name].description or "").encode()}
 
 
-def _middle_field() -> pa.Field:
-    return pa.field(
-        "time_middle",
-        pa.timestamp("us", tz="UTC"),
-        nullable=True,
-        metadata={b"description": b"Acquisition midpoint"},
+def _location_fields(model: type[SpatialMetadata] | type[STACMetadata]) -> pa.Schema:
+    return pa.schema(
+        [
+            pa.field("geometry", pa.binary(), nullable=False, metadata=_description(model, "geometry")),
+            pa.field(
+                "bbox",
+                pa.list_(pa.field("item", pa.float64(), nullable=False)),
+                nullable=False,
+                metadata=_description(model, "bbox"),
+            ),
+            pa.field("centroid", pa.binary(), nullable=False, metadata=_description(model, "centroid")),
+        ]
     )
 
 
-def _regular_run(context: ExtensionContext, namespace: str) -> dict[str, Sequence[Any]]:
-    centroids = []
-    for crs, shape, transform, centroid in zip(
-        _column(context, f"{namespace}:crs"),
-        _column(context, f"{namespace}:tensor_shape"),
-        _column(context, f"{namespace}:geotransform"),
-        _column(context, f"{namespace}:centroid"),
-        strict=True,
-    ):
-        centroids.append(
-            centroid if centroid is not None else raster_centroid(crs, transform, shape, namespace=namespace)
-        )
-    return {"centroid": centroids}
-
-
-def _irregular_run(context: ExtensionContext, namespace: str, check_antimeridian: bool) -> dict[str, Sequence[Any]]:
-    centroids = []
-    for crs, geometry, centroid in zip(
-        _column(context, f"{namespace}:crs"),
+def _locate(context: ExtensionContext, namespace: str) -> dict[str, Sequence[Any]]:
+    geometries: list[bytes] = []
+    boxes: list[list[float]] = []
+    centroids: list[bytes] = []
+    for geometry, bbox, centroid, code, shape, transform in zip(
         _column(context, f"{namespace}:geometry"),
+        _column(context, f"{namespace}:bbox"),
         _column(context, f"{namespace}:centroid"),
+        _column(context, f"{namespace}:proj_code"),
+        _column(context, f"{namespace}:proj_shape"),
+        _column(context, f"{namespace}:proj_transform"),
         strict=True,
     ):
-        centroids.append(
-            centroid
-            if centroid is not None
-            else geometry_centroid(crs, geometry, check_antimeridian=check_antimeridian, namespace=namespace)
-        )
-    return {"centroid": centroids}
-
-
-def _temporal_run(context: ExtensionContext, namespace: str) -> dict[str, Sequence[Any]]:
-    middles = [
-        _middle(start, end, middle)
-        for start, end, middle in zip(
-            _column(context, f"{namespace}:time_start"),
-            _column(context, f"{namespace}:time_end"),
-            _column(context, f"{namespace}:time_middle"),
-            strict=True,
-        )
-    ]
-    return {"time_middle": middles}
+        grid = code is not None and shape is not None and transform is not None
+        if geometry is None:
+            if not grid:
+                raise ValueError(f"{namespace}:geometry is required unless the proj_ fields are given")
+            geometry = grid_footprint(code, shape, transform)
+        if bbox is None:
+            bbox = footprint_bbox(load_footprint(geometry, field=f"{namespace}:geometry"))
+        if centroid is None:
+            # The grid center is exact; a footprint only approximates the grid.
+            if grid:
+                centroid = grid_center(code, shape, transform)
+            else:
+                centroid = point_wkb(*footprint_center(geometry, field=f"{namespace}:geometry"))
+        geometries.append(geometry)
+        boxes.append([float(value) for value in bbox])
+        centroids.append(centroid)
+    return {"geometry": geometries, "bbox": boxes, "centroid": centroids}
 
 
 @dataclass(frozen=True)
 class Spatial(Extension):
-    """Complete regular spatial metadata during ``writer.run()``."""
+    """Complete the footprint and bounding box during ``writer.run()``."""
 
     __taco_scopes__: ClassVar[frozenset[str]] = frozenset({"sample", "folder"})
     model: type[SpatialMetadata] = SpatialMetadata
@@ -184,77 +94,19 @@ class Spatial(Extension):
 
     @property
     def requires(self) -> tuple[str, ...]:
-        return ("spatial:crs", "spatial:tensor_shape", "spatial:geotransform")
+        return ("spatial:proj_code", "spatial:proj_shape", "spatial:proj_transform")
 
     @property
     def fields(self) -> pa.Schema:
-        return pa.schema([_centroid_field()])
+        return _location_fields(self.model)
 
     def run(self, context: ExtensionContext) -> Mapping[str, Sequence[Any]]:
-        return _regular_run(context, "spatial")
-
-
-@dataclass(frozen=True)
-class ISpatial(Extension):
-    """Complete irregular spatial metadata during ``writer.run()``."""
-
-    check_antimeridian: bool = False
-    model: type[ISpatialMetadata] = ISpatialMetadata
-    __taco_scopes__: ClassVar[frozenset[str]] = frozenset({"sample", "folder"})
-
-    def __post_init__(self) -> None:
-        if not isinstance(self.model, type) or not issubclass(self.model, ISpatialMetadata):
-            raise TypeError("ISpatial model must inherit taco.metadata.sample.ISpatial")
-
-    @property
-    def input_model(self) -> type[ISpatialMetadata]:
-        return self.model
-
-    @property
-    def requires(self) -> tuple[str, ...]:
-        return ("ispatial:crs", "ispatial:geometry")
-
-    @property
-    def fields(self) -> pa.Schema:
-        return pa.schema([_centroid_field()])
-
-    def configuration(self) -> Mapping[str, Any]:
-        return {"check_antimeridian": self.check_antimeridian}
-
-    def run(self, context: ExtensionContext) -> Mapping[str, Sequence[Any]]:
-        return _irregular_run(context, "ispatial", self.check_antimeridian)
-
-
-@dataclass(frozen=True)
-class Temporal(Extension):
-    """Complete temporal metadata during ``writer.run()``."""
-
-    __taco_scopes__: ClassVar[frozenset[str]] = frozenset({"sample", "folder"})
-    model: type[TemporalMetadata] = TemporalMetadata
-
-    def __post_init__(self) -> None:
-        if not isinstance(self.model, type) or not issubclass(self.model, TemporalMetadata):
-            raise TypeError("Temporal model must inherit taco.metadata.sample.Temporal")
-
-    @property
-    def input_model(self) -> type[TemporalMetadata]:
-        return self.model
-
-    @property
-    def requires(self) -> tuple[str, ...]:
-        return ("temporal:time_start", "temporal:time_end")
-
-    @property
-    def fields(self) -> pa.Schema:
-        return pa.schema([_middle_field()])
-
-    def run(self, context: ExtensionContext) -> Mapping[str, Sequence[Any]]:
-        return _temporal_run(context, "temporal")
+        return _locate(context, "spatial")
 
 
 @dataclass(frozen=True)
 class STAC(Extension):
-    """Complete regular spatiotemporal metadata during ``writer.run()``."""
+    """Complete the footprint and bounding box of a STAC group during ``writer.run()``."""
 
     __taco_scopes__: ClassVar[frozenset[str]] = frozenset({"sample", "folder"})
     model: type[STACMetadata] = STACMetadata
@@ -269,48 +121,14 @@ class STAC(Extension):
 
     @property
     def requires(self) -> tuple[str, ...]:
-        return ("stac:crs", "stac:tensor_shape", "stac:geotransform", "stac:time_start", "stac:time_end")
+        return ("stac:proj_code", "stac:proj_shape", "stac:proj_transform")
 
     @property
     def fields(self) -> pa.Schema:
-        return pa.schema([_centroid_field(), _middle_field()])
+        return _location_fields(self.model)
 
     def run(self, context: ExtensionContext) -> Mapping[str, Sequence[Any]]:
-        return {**_regular_run(context, "stac"), **_temporal_run(context, "stac")}
+        return _locate(context, "stac")
 
 
-@dataclass(frozen=True)
-class ISTAC(Extension):
-    """Complete irregular spatiotemporal metadata during ``writer.run()``."""
-
-    check_antimeridian: bool = False
-    model: type[ISTACMetadata] = ISTACMetadata
-    __taco_scopes__: ClassVar[frozenset[str]] = frozenset({"sample", "folder"})
-
-    def __post_init__(self) -> None:
-        if not isinstance(self.model, type) or not issubclass(self.model, ISTACMetadata):
-            raise TypeError("ISTAC model must inherit taco.metadata.sample.ISTAC")
-
-    @property
-    def input_model(self) -> type[ISTACMetadata]:
-        return self.model
-
-    @property
-    def requires(self) -> tuple[str, ...]:
-        return ("istac:crs", "istac:geometry", "istac:time_start", "istac:time_end")
-
-    @property
-    def fields(self) -> pa.Schema:
-        return pa.schema([_centroid_field(), _middle_field()])
-
-    def configuration(self) -> Mapping[str, Any]:
-        return {"check_antimeridian": self.check_antimeridian}
-
-    def run(self, context: ExtensionContext) -> Mapping[str, Sequence[Any]]:
-        return {
-            **_irregular_run(context, "istac", self.check_antimeridian),
-            **_temporal_run(context, "istac"),
-        }
-
-
-__all__ = ["ISTAC", "STAC", "ISpatial", "Spatial", "Temporal", "geometry_centroid", "raster_centroid"]
+__all__ = ["STAC", "Spatial"]

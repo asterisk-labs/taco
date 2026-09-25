@@ -1,5 +1,5 @@
 import io
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Annotated, Literal
 
 import numpy as np
@@ -98,7 +98,7 @@ collection = taco.Collection(
 chips = [
     {
         "scene": "S2B_20240615T152629",
-        "centroid": (-77.04, -12.05),
+        "site": (-77.04, -12.05),
         "crs": "EPSG:32718",
         "origin": (279_680.0, 8_667_920.0),
         "time": datetime(2024, 6, 15, 15, 26, tzinfo=timezone.utc),
@@ -108,7 +108,7 @@ chips = [
     },
     {
         "scene": "S2A_20240710T151711",
-        "centroid": (-71.97, -13.53),
+        "site": (-71.97, -13.53),
         "crs": "EPSG:32719",
         "origin": (177_200.0, 8_502_080.0),
         "time": datetime(2024, 7, 10, 15, 17, tzinfo=timezone.utc),
@@ -118,7 +118,7 @@ chips = [
     },
     {
         "scene": "S2B_20240824T154619",
-        "centroid": (-80.63, -5.19),
+        "site": (-80.63, -5.19),
         "crs": "EPSG:32717",
         "origin": (541_120.0, 9_426_880.0),
         "time": datetime(2024, 8, 24, 15, 46, tzinfo=timezone.utc),
@@ -139,13 +139,12 @@ with taco.open_writer(collection, "stac-segmentation.zip", overwrite=True) as wr
         dominant_land_cover = class_names[int(np.bincount(label.ravel()).argmax())]
         easting, northing = chip["origin"]
 
-        # STAC is enough here because the affine grid reconstructs every footprint.
+        # The grid is enough: the writer computes the footprint and bbox from it.
         stac = taco.metadata.sample.STAC(
-            crs=chip["crs"],
-            tensor_shape=image.shape,
-            geotransform=(easting, 10, 0, northing, 0, -10),
-            time_start=chip["time"],
-            time_end=chip["time"] + timedelta(minutes=10),
+            proj_code=chip["crs"],
+            proj_shape=image.shape[-2:],
+            proj_transform=(10, 0, easting, 0, -10, northing),
+            datetime=chip["time"],
         )
         assets = [
             taco.Asset(
@@ -189,6 +188,6 @@ samples = taco.read(dataset)
 assert samples.num_rows == 3
 assert dataset.sql('SELECT * FROM dataset ORDER BY "taco:sample_index"').equals(samples)
 assert "majortom:code" in samples.column_names
-assert samples.column("stac:time_middle").null_count == 0
+assert samples.column("stac:bbox").null_count == 0
 assert dataset.collection.to_dict()["labels:num_classes"] == 3
 assert taco.validate("stac-segmentation.zip").ok

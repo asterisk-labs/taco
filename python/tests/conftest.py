@@ -85,15 +85,16 @@ def make_sample(tmp_path: Path):
             else:
                 metadata = taco.Metadata(node=Kind(kind="label" if path == "mask.tif" else "extra"))
             assets.append(taco.Asset(source, path=path, metadata=metadata))
-        longitude, latitude = -76 + index, -12 + index / 10
+        # Binary fractions keep every footprint corner, and so every extent, exact.
+        longitude, latitude = -76 + index, -12 + index / 8
         return taco.Sample(
             id=f"s{index}",
             metadata=taco.Metadata(
                 stac=taco.metadata.sample.STAC(
-                    crs="EPSG:4326",
-                    tensor_shape=(13, 256, 256),
-                    geotransform=(longitude - 0.1, 0.2 / 256, 0, latitude + 0.1, 0, -0.2 / 256),
-                    time_start=datetime(2024, 1, index + 1, tzinfo=timezone.utc),
+                    proj_code="EPSG:4326",
+                    proj_shape=(256, 256),
+                    proj_transform=(0.25 / 256, 0, longitude - 0.125, 0, -0.25 / 256, latitude + 0.125),
+                    datetime=datetime(2024, 1, index + 1, tzinfo=timezone.utc),
                 ),
                 ml=ML(split="train" if index % 2 == 0 else "val", cloud_cover=index * 10.5, tags=["a"]),
             ),

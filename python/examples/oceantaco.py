@@ -72,7 +72,7 @@ contract = taco.Contract(
     metadata=[
         taco.Level(
             "sample",
-            istac=taco.extensions.ISTAC(),
+            stac=taco.extensions.STAC(),
             ocean=OceanWindow,
             ml=taco.metadata.sample.Split,
         ),
@@ -97,13 +97,13 @@ contract = taco.Contract(
 
 collection = taco.Collection(
     contract=contract,
-    id="oceantaco-istac",
+    id="oceantaco-swaths",
     title="Synthetic SWOT and Argo collocations",
     description="Irregular ocean swaths with satellite predictors and collocated Argo profiles",
     licenses=["MIT"],
     providers=[{"name": "TACO examples", "roles": ["producer"]}],
     tasks=["regression"],
-    keywords=["ISTAC", "OceanTACO", "SWOT", "Argo", "sensor fusion"],
+    keywords=["STAC", "OceanTACO", "SWOT", "Argo", "sensor fusion"],
     metadata=taco.CollectionMetadata(
         origin=DatasetOrigin(
             project="OceanTACO",
@@ -128,7 +128,7 @@ collection = taco.Collection(
 
 windows = [
     {
-        "centroid": (-43.8, 35.2),
+        "site": (-43.8, 35.2),
         "ring": [(-45.3, 33.9), (-44.5, 33.6), (-42.1, 36.1), (-42.8, 36.7), (-43.9, 35.8)],
         "time": datetime(2024, 2, 11, 3, 42, tzinfo=timezone.utc),
         "cycle": 12,
@@ -140,7 +140,7 @@ windows = [
         "split": "train",
     },
     {
-        "centroid": (64.4, -42.7),
+        "site": (64.4, -42.7),
         "ring": [(62.9, -44.1), (63.6, -44.5), (66.0, -41.6), (65.2, -41.0), (64.0, -42.0)],
         "time": datetime(2024, 3, 6, 18, 7, tzinfo=timezone.utc),
         "cycle": 13,
@@ -153,7 +153,7 @@ windows = [
     },
 ]
 
-with taco.open_writer(collection, "oceantaco-istac.zip", overwrite=True) as writer:
+with taco.open_writer(collection, "oceantaco.zip", overwrite=True) as writer:
     for index, window in enumerate(windows):
         rng = np.random.default_rng(100 + index)
         ssh = rng.normal(0.0, 0.18, size=(24, 8)).astype(np.float32)
@@ -245,12 +245,11 @@ with taco.open_writer(collection, "oceantaco-istac.zip", overwrite=True) as writ
             ),
         ]
 
-        # The clipped swath is not recoverable from one affine transform, so ISTAC stores its footprint.
-        istac = taco.metadata.sample.ISTAC(
-            crs="EPSG:4326",
+        # One affine grid cannot describe the clipped swath, so the sample supplies its footprint instead.
+        stac = taco.metadata.sample.STAC(
             geometry=polygon(window["ring"]),
-            time_start=window["time"],
-            time_end=window["time"] + timedelta(minutes=18),
+            start_datetime=window["time"],
+            end_datetime=window["time"] + timedelta(minutes=18),
         )
         writer.add(
             taco.Sample(
@@ -277,7 +276,7 @@ with taco.open_writer(collection, "oceantaco-istac.zip", overwrite=True) as writ
                     ),
                 ],
                 metadata=taco.Metadata(
-                    istac=istac,
+                    stac=stac,
                     ocean=OceanWindow(
                         swot_cycle=window["cycle"],
                         pass_number=window["pass"],
@@ -292,13 +291,12 @@ with taco.open_writer(collection, "oceantaco-istac.zip", overwrite=True) as writ
         )
     writer.run()
 
-dataset = taco.open_dataset("oceantaco-istac.zip")
+dataset = taco.open_dataset("oceantaco.zip")
 samples = taco.read(dataset)
 assert samples.num_rows == 2
 assert dataset.sql('SELECT * FROM dataset ORDER BY "taco:sample_index"').equals(samples)
-assert "istac:geometry" in samples.column_names
-assert "stac:geotransform" not in samples.column_names
-assert samples.column("istac:time_middle").null_count == 0
+assert samples.column("stac:proj_code").null_count == samples.num_rows
+assert samples.column("stac:bbox").null_count == 0
 assert dataset.collection.extent is not None
 assert dataset.collection.to_dict()["origin:project"] == "OceanTACO"
-assert taco.validate("oceantaco-istac.zip").ok
+assert taco.validate("oceantaco.zip").ok

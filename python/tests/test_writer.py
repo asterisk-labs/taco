@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import io
 import json
-import struct
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -12,15 +11,13 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 from pydantic import BaseModel
+from shapely.geometry import MultiPolygon, box
 
 import taco
 from taco.container.view import open_view
 from taco.errors import SampleError, WriterError
+from taco.metadata.sample import STAC
 from taco.writer.identity import IdentifierIndex
-
-
-def point(x: float, y: float) -> bytes:
-    return struct.pack("<BIdd", 1, 1, x, y)
 
 
 def test_zip_end_to_end(tmp_path: Path, collection: taco.Collection, make_sample) -> None:
@@ -39,7 +36,7 @@ def test_zip_end_to_end(tmp_path: Path, collection: taco.Collection, make_sample
     assert dataset.levels == ("sample", "children", "children/before", "children/after")
     assert dataset.sample_count == 3
     assert dataset.collection.extent == taco.contract.Extent(
-        (-76, -12, -74, -11.8),
+        (-76.125, -12.125, -73.875, -11.625),
         ("2024-01-01T00:00:00Z", "2024-01-03T00:00:00Z"),
     )
     assert dataset.level("sample").column("majortom:code").null_count == 0
@@ -63,9 +60,11 @@ def test_zip_layout_and_offsets(archive: Path) -> None:
     assert collection["labels:num_classes"] == 2
     assert schema.metadata == {b"taco:level": b"sample"}
     assert schema.field("ml:cloud_cover").nullable
-    assert "stac:geometry" not in schema.names
-    assert schema.field("stac:tensor_shape").type == pa.list_(pa.field("item", pa.int64(), nullable=False))
-    assert schema.field("stac:geotransform").type == pa.list_(pa.field("item", pa.float64(), nullable=False))
+    assert schema.field("stac:geometry").type == pa.binary()
+    assert not schema.field("stac:geometry").nullable
+    assert schema.field("stac:bbox").type == pa.list_(pa.field("item", pa.float64(), nullable=False))
+    assert schema.field("stac:proj_shape").type == pa.list_(pa.field("item", pa.int64(), nullable=False))
+    assert schema.field("stac:proj_transform").type == pa.list_(pa.field("item", pa.float64(), nullable=False))
 
     raw = archive.read_bytes()
     dataset = open_view(archive)
@@ -82,7 +81,7 @@ def test_folder_end_to_end(folder_dataset: Path) -> None:
     assert "internal:offset" not in dataset.level("children").column_names
     assert (folder_dataset / "DATA/0/before/B02.tif").is_file()
     assert dataset.collection.extent == taco.contract.Extent(
-        (-76, -12, -73, -11.7),
+        (-76.125, -12.125, -72.875, -11.5),
         ("2024-01-01T00:00:00Z", "2024-01-04T00:00:00Z"),
     )
     assert taco.validate(folder_dataset).ok
@@ -99,7 +98,7 @@ def test_folder_append(tmp_path: Path, collection: taco.Collection, make_sample)
     dataset = open_view(output)
     assert dataset.sample_count == 3
     assert dataset.collection.extent == taco.contract.Extent(
-        (-76, -12, -74, -11.8),
+        (-76.125, -12.125, -73.875, -11.625),
         ("2024-01-01T00:00:00Z", "2024-01-03T00:00:00Z"),
     )
     assert taco.validate(output).ok
@@ -253,78 +252,64 @@ def test_stac_generates_extent(tmp_path: Path) -> None:
         tasks=["other"],
         extent={"spatial": [0, 0, 0, 0]},
     )
+    # Chips of 0.25 degrees. The extent leaves out the widest gap, the 174.75
+    # degrees between the chips at -178 and -3, so it runs east from -3.125
+    # across the antimeridian to -177.875.
+    first, last = datetime(2024, 1, 1, tzinfo=timezone.utc), datetime(2024, 1, 5, tzinfo=timezone.utc)
     records = [
-        (94, -10, datetime(2024, 1, 2, tzinfo=timezone.utc), datetime(2024, 1, 5, tzinfo=timezone.utc)),
-        (-178, 20, datetime(2024, 1, 1, tzinfo=timezone.utc), None),
-        (-3, 5, datetime(2024, 1, 3, tzinfo=timezone.utc), None),
+        (94, -10, {"start_datetime": datetime(2024, 1, 2, tzinfo=timezone.utc), "end_datetime": last}),
+        (-178, 20, {"datetime": first}),
+        (-3, 5, {"datetime": datetime(2024, 1, 3, tzinfo=timezone.utc)}),
     ]
     with taco.open_writer(collection, tmp_path / "data.zip", batch_size=1) as writer:
-        for index, (lon, lat, start, end) in enumerate(records):
-            writer.add(
-                taco.Sample(
-                    id=f"s{index}",
-                    assets=b"x",
-                    metadata=taco.Metadata(
-                        stac=taco.metadata.sample.STAC(
-                            crs="EPSG:4326",
-                            tensor_shape=(1, 256, 256),
-                            geotransform=(lon - 0.1, 0.2 / 256, 0, lat + 0.1, 0, -0.2 / 256),
-                            time_start=start,
-                            time_end=end,
-                        )
-                    ),
-                )
+        for index, (lon, lat, times) in enumerate(records):
+            stac = taco.metadata.sample.STAC(
+                proj_code="EPSG:4326",
+                proj_shape=(256, 256),
+                proj_transform=(0.25 / 256, 0, lon - 0.125, 0, -0.25 / 256, lat + 0.125),
+                **times,
             )
+            writer.add(taco.Sample(id=f"s{index}", assets=b"x", metadata=taco.Metadata(stac=stac)))
         writer.run()
 
     assert open_view(tmp_path / "data.zip").collection.extent == taco.contract.Extent(
-        (-3, -10, -178, 20),
+        (-3.125, -10.125, -177.875, 20.125),
         ("2024-01-01T00:00:00Z", "2024-01-05T00:00:00Z"),
     )
 
 
-def test_istac_keeps_geometry_and_generates_centroid_extent(tmp_path: Path) -> None:
+def test_extent_covers_footprints_across_the_antimeridian(tmp_path: Path) -> None:
     contract = taco.Contract(
         structure=["data.bin"],
-        metadata=[taco.Level("sample", istac=taco.extensions.ISTAC())],
+        metadata=[taco.Level("sample", stac=taco.extensions.STAC())],
     )
     collection = taco.Collection(
         contract=contract,
-        id="irregular",
-        description="Irregular spatiotemporal sample",
+        id="pacific",
+        description="Footprints on both sides of the antimeridian",
         licenses=["MIT"],
         providers=["me"],
         tasks=["other"],
     )
-    start = datetime(2024, 1, 1, tzinfo=timezone.utc)
-    end = datetime(2024, 1, 3, tzinfo=timezone.utc)
-    location = point(-76, -12)
-    with taco.open_writer(collection, tmp_path / "irregular.zip") as writer:
+    moment = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    split = MultiPolygon([box(179.5, -1, 180, 1), box(-180, -1, -179.5, 1)])
+    with taco.open_writer(collection, tmp_path / "pacific.zip") as writer:
+        writer.add(
+            taco.Sample(id="a", assets=b"x", metadata=taco.Metadata(stac=STAC(geometry=split.wkb, datetime=moment)))
+        )
         writer.add(
             taco.Sample(
-                id="s1",
+                id="b",
                 assets=b"x",
-                metadata=taco.Metadata(
-                    istac=taco.metadata.sample.ISTAC(
-                        crs="EPSG:4326",
-                        geometry=location,
-                        time_start=start,
-                        time_end=end,
-                    )
-                ),
+                metadata=taco.Metadata(stac=STAC(geometry=box(170, 0, 171, 2).wkb, datetime=moment)),
             )
         )
         writer.run()
 
-    dataset = open_view(tmp_path / "irregular.zip")
-    table = dataset.level("sample")
-    assert "istac:geometry" in table.column_names
-    assert "istac:tensor_shape" not in table.column_names
-    assert table.column("istac:time_middle").to_pylist() == [datetime(2024, 1, 2, tzinfo=timezone.utc)]
-    assert dataset.collection.extent == taco.contract.Extent(
-        (-76, -12, -76, -12),
-        ("2024-01-01T00:00:00Z", "2024-01-03T00:00:00Z"),
-    )
+    dataset = open_view(tmp_path / "pacific.zip")
+    assert dataset.level("sample").column("stac:bbox").to_pylist()[0] == [179.5, -1, -179.5, 1]
+    assert dataset.collection.extent == taco.contract.Extent((170, -1, -179.5, 2), ("2024-01-01T00:00:00Z",) * 2)
+    assert taco.validate(tmp_path / "pacific.zip").ok
 
 
 def test_empty_stac_summary_removes_extent(tmp_path: Path) -> None:
@@ -372,16 +357,16 @@ def test_partition_by_sample_metadata(tmp_path: Path, collection: taco.Collectio
     extents = {path.name: open_view(path).collection.extent for path in result.parts}
     assert extents == {
         "parts_train.zip": taco.contract.Extent(
-            (-76, -12, -74, -11.8),
+            (-76.125, -12.125, -73.875, -11.625),
             ("2024-01-01T00:00:00Z", "2024-01-03T00:00:00Z"),
         ),
         "parts_val.zip": taco.contract.Extent(
-            (-75, -11.9, -73, -11.7),
+            (-75.125, -12.0, -72.875, -11.5),
             ("2024-01-02T00:00:00Z", "2024-01-04T00:00:00Z"),
         ),
     }
     assert open_view(result.path).collection.extent == taco.contract.Extent(
-        (-76, -12, -73, -11.7),
+        (-76.125, -12.125, -72.875, -11.5),
         ("2024-01-01T00:00:00Z", "2024-01-04T00:00:00Z"),
     )
     assert taco.validate(result.path).ok

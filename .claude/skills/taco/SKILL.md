@@ -86,11 +86,11 @@ with taco.open_writer(collection, "tiny.zip", overwrite=True) as writer:
             id="lima-0001",                          # stable identity, never the index
             assets=[taco.Asset(data, path=name) for name, data in payloads.items()],
             metadata=taco.Metadata(
-                stac=taco.metadata.sample.STAC(      # centroid and time_middle are derived
-                    crs="EPSG:4326",
-                    tensor_shape=(3, 256, 256),
-                    geotransform=(-76.6, 0.2 / 256, 0, -12.0, 0, -0.2 / 256),
-                    time_start=datetime(2024, 1, 1, tzinfo=timezone.utc),
+                stac=taco.metadata.sample.STAC(      # geometry, bbox and centroid are derived
+                    proj_code="EPSG:4326",
+                    proj_shape=(256, 256),           # [height, width]
+                    proj_transform=(0.2 / 256, 0, -76.6, 0, -0.2 / 256, -12.0),
+                    datetime=datetime(2024, 1, 1, tzinfo=timezone.utc),
                 ),
                 ml=ML(split="train"),
             ),
@@ -156,10 +156,14 @@ and only ZIP metadata carries the byte offsets that make random access possible.
 - **Semantic extension parameters travel in `COLLECTION.json`.** `MajorTOM(dist_km=100)`
   stores `majortom:dist_km`, and an append using a different distance is rejected.
   Operational settings such as `batch_size` and `workers` are never stored.
-- **A level has at most one spatial or temporal profile, with canonical types.**
-  `Spatial`/`STAC` describe a regular affine grid (`tensor_shape` + `geotransform`);
-  `ISpatial`/`ISTAC` describe an irregular WKB footprint. Mixing them, or using
-  `timestamp[ms]`, is a `ContractError`.
+- **A level has at most one spatial or temporal profile, with STAC fields.**
+  `temporal` holds `datetime` or an inclusive `start_datetime`/`end_datetime` range;
+  `spatial` holds an EPSG:4326 WKB `geometry` and its `bbox`; `stac` holds both. A
+  sample gives its footprint or its grid (`proj_code`, `proj_shape` as
+  `[height, width]`, `proj_transform` in STAC/rasterio order, **not** GDAL order) and
+  the extension computes `geometry`, `bbox` and `centroid` (the exact grid center,
+  which MajorTOM uses). Mixing profiles, or using
+  `timestamp[ms]`, is a `ContractError`; `temporal` is a plain model, not an extension.
 - **Names are deliberately restricted.** The `taco`, `internal` and `cozip`
   namespaces and `__` in names are reserved. Path components reject `<>:"\|?` and a
   trailing space or dot. `*`, `[` and `]` are allowed only in the final component of a

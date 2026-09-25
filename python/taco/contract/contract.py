@@ -12,49 +12,13 @@ from ..errors import ContractError, SampleError
 from ..metadata._base import ExtensionContext
 from .naming import level_folder
 from .sample import Asset, Folder, Sample, _PreparedAsset, _PreparedNode, _PreparedSample
-from .schema import Field, Group, Level, Metadata, validate_qualified_field
+from .schema import PROFILE_FIELDS, Field, Group, Level, Metadata, validate_qualified_field
 from .structure import Leaf, Node, build_tree, parse_leaf
 from .types import coerce_value, parse_type, type_name
 
 SAMPLE_LEVEL = "sample"
 CHILDREN_LEVEL = "children"
 SAMPLE_ID = "id"
-
-_PROFILE_TYPES = {
-    "spatial": {
-        "crs": ("string", False),
-        "tensor_shape": ("list<int64>", False),
-        "geotransform": ("list<double>", False),
-        "centroid": ("binary", False),
-    },
-    "ispatial": {
-        "crs": ("string", False),
-        "geometry": ("binary", False),
-        "centroid": ("binary", False),
-    },
-    "temporal": {
-        "time_start": ("timestamp[us, UTC]", False),
-        "time_end": ("timestamp[us, UTC]", True),
-        "time_middle": ("timestamp[us, UTC]", True),
-    },
-    "stac": {
-        "crs": ("string", False),
-        "tensor_shape": ("list<int64>", False),
-        "geotransform": ("list<double>", False),
-        "time_start": ("timestamp[us, UTC]", False),
-        "time_end": ("timestamp[us, UTC]", True),
-        "centroid": ("binary", False),
-        "time_middle": ("timestamp[us, UTC]", True),
-    },
-    "istac": {
-        "crs": ("string", False),
-        "geometry": ("binary", False),
-        "time_start": ("timestamp[us, UTC]", False),
-        "time_end": ("timestamp[us, UTC]", True),
-        "centroid": ("binary", False),
-        "time_middle": ("timestamp[us, UTC]", True),
-    },
-}
 
 
 def _raw_field(name: str, spec: Any, *, level: str) -> Field:
@@ -178,16 +142,16 @@ class Contract:
         children = build_tree(leaves)
         folders = frozenset(folder for folder in children if folder)
         levels = self._derive_levels(children)
-        if isinstance(metadata, (list, tuple)):
-            normalized, types_, groups, derived_ = self._from_models(metadata, levels, children)
-        else:
+        if metadata is None or isinstance(metadata, Mapping):
             normalized = self._from_mapping(metadata or {}, levels)
             types_ = {
                 level: {name: parse_type(spec.type) for name, spec in fields.items()}
                 for level, fields in normalized.items()
             }
-            groups = dict.fromkeys(levels, ())
+            groups: dict[str, tuple[Group, ...]] = dict.fromkeys(levels, ())
             derived_ = self._normalize_extensions(derived or {}, levels, normalized)
+        else:
+            normalized, types_, groups, derived_ = self._from_models(metadata, levels, children)
         self._check_profiles(normalized)
 
         object.__setattr__(self, "structure", declarations)
@@ -205,34 +169,13 @@ class Contract:
     def _check_profiles(metadata: Mapping[str, Mapping[str, Field]]) -> None:
         for level, fields in metadata.items():
             namespaces = {name.partition(":")[0] for name in fields}
-            profiles = sorted(namespaces.intersection(_PROFILE_TYPES))
+            profiles = sorted(namespaces.intersection(PROFILE_FIELDS))
             if len(profiles) > 1:
-                if profiles == ["istac", "stac"]:
-                    raise ContractError(f"metadata level {level!r} must choose either STAC or ISTAC, not both")
                 names = ", ".join(name.upper() for name in profiles)
                 raise ContractError(f"metadata level {level!r} must choose one metadata profile, got {names}")
-            for namespace in ("spatial", "stac"):
-                if f"{namespace}:geometry" in fields:
-                    irregular = "ISpatial" if namespace == "spatial" else "ISTAC"
-                    raise ContractError(
-                        f"metadata level {level!r} puts geometry in {namespace.upper()}; "
-                        f"use the {irregular} group for irregular footprints"
-                    )
-            for namespace in ("ispatial", "istac"):
-                irregular_grid_fields = {
-                    f"{namespace}:tensor_shape",
-                    f"{namespace}:geotransform",
-                }.intersection(fields)
-                if irregular_grid_fields:
-                    regular = "Spatial" if namespace == "ispatial" else "STAC"
-                    raise ContractError(
-                        f"metadata level {level!r} puts affine-grid fields in {namespace.upper()}; "
-                        f"use the {regular} group for regular chunks"
-                    )
-            for namespace, expected in _PROFILE_TYPES.items():
+            for namespace in profiles:
+                expected = PROFILE_FIELDS[namespace]
                 present = {name.partition(":")[2] for name in fields if name.startswith(f"{namespace}:")}
-                if not present:
-                    continue
                 missing = sorted(set(expected) - present)
                 if missing:
                     raise ContractError(f"{namespace.upper()} metadata at level {level!r} is missing fields {missing}")
@@ -290,8 +233,8 @@ class Contract:
         dict[str, tuple[Group, ...]],
         dict[str, dict[str, dict[str, Any]]],
     ]:
-        if not all(isinstance(level, Level) for level in schema):
-            raise ContractError("metadata must be a list of taco.Level")
+        if not isinstance(schema, (list, tuple)) or not all(isinstance(level, Level) for level in schema):
+            raise ContractError("metadata must be a list of taco.Level or a mapping")
         declared = {level.name: level for level in schema}
         if len(declared) != len(schema):
             raise ContractError("metadata level names must be unique")

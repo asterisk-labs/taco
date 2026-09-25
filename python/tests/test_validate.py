@@ -165,3 +165,23 @@ def test_validation_report_can_raise(folder_dataset: Path) -> None:
     assert not report.ok
     with pytest.raises(Exception, match="not a valid TACO"):
         report.raise_for_errors()
+
+
+@pytest.mark.parametrize(
+    ("column", "value"),
+    [
+        ("stac:proj_shape", [-1, 256]),
+        ("stac:proj_transform", [0, 0, 0, 0, 0, 0]),
+        ("stac:proj_code", "not-a-code"),
+    ],
+)
+def test_invalid_stored_spatial_fields_are_reported(folder_dataset: Path, column: str, value: object) -> None:
+    path = folder_dataset / "METADATA/sample.parquet"
+    table = pq.read_table(path)
+    field = table.schema.field(column)
+    values = table.column(column).to_pylist()
+    values[0] = value
+    table = table.set_column(table.schema.get_field_index(column), field, pa.array(values, type=field.type))
+    pq.write_table(table, path)
+    report = taco.validate(folder_dataset, check_data=False)
+    assert any(issue.code == "profile" for issue in report.errors)

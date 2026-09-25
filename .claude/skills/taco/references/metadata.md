@@ -49,8 +49,8 @@ A group is bound to what it can describe through `__taco_scopes__`:
 
 | Module | Scope | Contents |
 | --- | --- | --- |
-| `taco.metadata.sample` | `sample` | `Spatial`, `ISpatial`, `Temporal`, `STAC`, `ISTAC`, `Split`, `MajorTOM`, `GeoEnrich` |
-| `taco.metadata.folder` | `folder` | The five profiles, re-scoped |
+| `taco.metadata.sample` | `sample` | `Spatial`, `Temporal`, `STAC`, `Split`, `MajorTOM`, `GeoEnrich` |
+| `taco.metadata.folder` | `folder` | The three profiles, re-scoped |
 | `taco.metadata.asset` | `asset` | `Scaling` |
 | `taco.metadata.collection` | `collection` | `Labels`, `Optical`, `Publications`, `SplitStrategy` |
 
@@ -110,55 +110,82 @@ as `invalid quality:score at 'sample': ...`.
 
 ## Spatial and temporal profiles
 
-Five profiles, each with canonical fields, types and nullability. A level may use at
-most one.
+Three profiles built from STAC Item fields, each with canonical fields, types and
+nullability. A level may use at most one. STAC `proj:` fields are stored with a
+`proj_` prefix (`stac:proj_code`), because a column has exactly one `:`.
 
-| Profile | Producer supplies | Writer adds | Geometry |
+| Profile | Producer supplies | Writer adds | Declare it as |
 | --- | --- | --- | --- |
-| `spatial` | `crs`, `tensor_shape`, `geotransform` | `centroid` | regular affine grid |
-| `ispatial` | `crs`, `geometry` | `centroid` | irregular WKB footprint |
-| `temporal` | `time_start`, optional `time_end` | `time_middle` | none |
-| `stac` | spatial inputs plus `time_start` | `centroid`, `time_middle` | regular affine grid |
-| `istac` | ispatial inputs plus `time_start` | `centroid`, `time_middle` | irregular WKB |
+| `temporal` | `datetime`, or `start_datetime` + `end_datetime` | nothing | `temporal=taco.metadata.sample.Temporal` |
+| `spatial` | `geometry`, or `proj_code` + `proj_shape` + `proj_transform` | `geometry`, `bbox`, `centroid` | `spatial=taco.extensions.Spatial()` |
+| `stac` | both of the above | `geometry`, `bbox`, `centroid` | `stac=taco.extensions.STAC()` |
 
-Canonical declarations, enforced by `Contract._check_profiles`:
+Canonical declarations, enforced by `Contract._check_profiles` from
+`contract/schema.py:PROFILE_FIELDS`:
 
 | Field | Type | Nullable |
 | --- | --- | --- |
-| `crs` | `string` | no |
-| `tensor_shape` | `list<int64>` | no |
-| `geotransform` | `list<double>` | no |
 | `geometry` | `binary` | no |
-| `time_start` | `timestamp[us, UTC]` | no |
-| `time_end`, `time_middle` | `timestamp[us, UTC]` | yes |
-| `centroid` | `binary` | no |
+| `bbox` | `list<double>` | no |
+| `centroid` | `binary` (WKB Point, EPSG:4326) | no |
+| `datetime`, `start_datetime`, `end_datetime` | `timestamp[us, UTC]` | yes |
+| `proj_code` | `string` | yes |
+| `proj_shape` | `list<int64>` | yes |
+| `proj_transform` | `list<double>` | yes |
 
 Either match that nullability exactly, or make the **whole group** nullable with
-`Model | None`. Anything in between raises `STAC metadata at level 'sample' must use
+`Model | None`. Anything in between raises `SPATIAL metadata at level 'sample' must use
 canonical nullability or make the complete optional group nullable`.
+
+The row rules live in the model validators (`check_times`, `check_location` in
+`metadata/spatiotemporal.py`) and `taco.validate()` re-applies them to every stored row:
+
+- **Time**: `datetime`, or `start_datetime` and `end_datetime` together; the range is
+  inclusive and must not be reversed; `datetime` may sit inside a range. A DEM or an
+  annual composite uses a range.
+- **Grid**: `proj_code`, `proj_shape`, `proj_transform` all or none. `proj_code` is
+  `AUTHORITY:CODE` (`EPSG:32718`), `proj_shape` is `[height, width]`, and
+  `proj_transform` is `[a, b, c, d, e, f]` with `x = a*column + b*row + c`,
+  `y = d*column + e*row + f`: the STAC and rasterio order, **not** the GDAL
+  geotransform. An `EPSG:4326` grid uses longitude as `x`.
+- **Footprint**: `geometry` is valid 2D EPSG:4326 WKB (`shapely.is_valid`), not a
+  GeometryCollection, and split at 180 degrees when it crosses the antimeridian
+  (RFC 7946). An edge longer than 180 degrees is only allowed with both ends on the
+  antimeridian or along a pole; otherwise it fails with `geometry crosses the
+  antimeridian; split it at 180 degrees as RFC 7946 requires`.
+- **bbox**: `[west, south, east, north]`, west and east being the narrowest longitude
+  interval covering every part, so `west > east` across the antimeridian. A supplied
+  bbox must equal the computed one.
+
+`grid_footprint` reprojects 16 points per grid edge to EPSG:4326 and keeps them all,
+so a computed footprint has about 65 vertices (around 1 KB of WKB per row). A grid
+across the antimeridian becomes a MultiPolygon; a grid around a pole keeps its
+boundary and closes through that pole.
+A supplied `geometry` wins over the grid, so a footprint may trace valid data only.
+`centroid` is the one point that stands for the sample (MajorTOM and GeoEnrich read
+it). With a grid it is `grid_center`: the grid center in its own CRS, reprojected as a
+single point, so it never depends on how `geometry` samples the edges. Without a grid
+it is `footprint_center(geometry)`, which joins a footprint split at the antimeridian
+before taking the centroid. A supplied `centroid` is kept. It is TACO's own field; STAC
+has no equivalent in the core Item.
+
+Binding `Spatial` or `STAC` as a plain model (no extension) means nothing computes the
+outputs: the producer must supply `geometry`, `bbox` and `centroid` on every row.
 
 Profile mistakes have their own messages:
 
 ```
-metadata level 'sample' must choose either STAC or ISTAC, not both
 metadata level 'sample' must choose one metadata profile, got SPATIAL, TEMPORAL
-metadata level 'sample' puts geometry in STAC; use the ISTAC group for irregular footprints
-metadata level 'sample' puts affine-grid fields in ISTAC; use the STAC group for regular chunks
-STAC metadata at level 'sample' is missing fields ['centroid', 'time_middle']
-field sample.stac:time_start must have type timestamp[us, UTC], got timestamp[ms]
+STAC metadata at level 'sample' is missing fields ['end_datetime']
+field sample.stac:bbox must have type list<double>, got fixed_size_list<double, 4>
+datetime is required unless start_datetime and end_datetime are given
+geometry is required unless proj_code, proj_shape and proj_transform are given
 ```
 
-`geotransform` is the six GDAL affine coefficients `(x_origin, pixel_width,
-row_rotation, y_origin, column_rotation, pixel_height)`, all finite.
-`raster_centroid` reads them in that order. `tensor_shape` needs at least two positive
-dimensions and ends in height and width. `centroid` is always an EPSG:4326 WKB point;
-supply it to override the computed one. `point_from_wkb` validates byte order, a
-point geometry type, the optional SRID flag and the EPSG:4326 bounds.
-
-A profile carries a **collection summary**: `Spatial` and `ISpatial` produce the
-spatial part of `extent`, `STAC` and `ISTAC` also the temporal part, and `Temporal`
-produces nothing. The summary streams: centroids spill to a temporary file and the
-longitude interval is chosen from the largest gap, so a dataset crossing the
+A profile carries a **collection summary**: `Spatial` produces the spatial part of
+`extent`, `STAC` also the temporal part, and `Temporal` produces nothing. The summary
+streams: every bbox spills to a temporary file as one or two longitude intervals, and
+the extent leaves out the largest gap between them, so a dataset crossing the
 antimeridian gets `west > east` rather than a band around the whole globe. If a
 profile appears at several levels, the shallowest owns `extent`.
 

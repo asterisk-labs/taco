@@ -32,19 +32,19 @@ def test_consolidate(tmp_path: Path, collection: taco.Collection, make_sample) -
             {
                 "file": "a.zip",
                 "samples": 2,
-                "spatial": [-76.0, -12.0, -75.0, -11.9],
+                "spatial": [-76.125, -12.125, -74.875, -11.75],
                 "temporal": ["2024-01-01T00:00:00Z", "2024-01-02T00:00:00Z"],
             },
             {
                 "file": "b.zip",
                 "samples": 1,
-                "spatial": [-74.0, -11.8, -74.0, -11.8],
+                "spatial": [-74.125, -11.875, -73.875, -11.625],
                 "temporal": ["2024-01-03T00:00:00Z", "2024-01-03T00:00:00Z"],
             },
         ],
     }
     assert dataset.collection.extent == taco.contract.Extent(
-        (-76, -12, -74, -11.8),
+        (-76.125, -12.125, -73.875, -11.625),
         ("2024-01-01T00:00:00Z", "2024-01-03T00:00:00Z"),
     )
     table = dataset.level("sample")
@@ -73,7 +73,7 @@ def test_open_partitions(tmp_path: Path, collection: taco.Collection, make_sampl
 
     assert dataset.sources == tuple(parts)
     assert dataset.collection.extent == taco.contract.Extent(
-        (-76, -12, -74, -11.8),
+        (-76.125, -12.125, -73.875, -11.625),
         ("2024-01-01T00:00:00Z", "2024-01-03T00:00:00Z"),
     )
     assert ">PARTITIONS<" in dataset._repr_html_()

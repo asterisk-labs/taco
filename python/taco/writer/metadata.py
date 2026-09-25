@@ -25,14 +25,12 @@ from ..contract.naming import (
 )
 from ..contract.sample import _PreparedSample
 from ..metadata._base import CollectionSummary, SampleModel
-from ..metadata.spatiotemporal import ISTAC, STAC, ISpatial, Spatial, Temporal
+from ..metadata.spatiotemporal import STAC, Spatial, Temporal
 
 _PROFILES: dict[str, type[SampleModel]] = {
     "spatial": Spatial,
-    "ispatial": ISpatial,
     "temporal": Temporal,
     "stac": STAC,
-    "istac": ISTAC,
 }
 
 

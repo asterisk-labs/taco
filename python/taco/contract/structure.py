@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import PurePosixPath
 from typing import Any
 
@@ -83,18 +83,21 @@ def parse_leaf(declaration: str) -> Leaf:
 
 
 def _check_ambiguity(folder: tuple[str, ...], fixed_names: list[str], variables: list[Leaf]) -> None:
+    # Compare without case, because a case-insensitive file system would merge the names.
     where = "/".join(folder) or "the sample root"
     for name in fixed_names:
         for variable in variables:
-            if variable.match_index(name) is not None:
+            assert variable.prefix is not None
+            lowered = replace(variable, prefix=variable.prefix.lower(), suffix=variable.suffix.lower())
+            if lowered.match_index(name.lower()) is not None:
                 raise ContractError(f"{name!r} overlaps {variable.declaration!r} under {where}")
     for index, first in enumerate(variables):
         for second in variables[index + 1 :]:
             assert first.prefix is not None
             assert second.prefix is not None
             if variable_sequences_overlap(
-                (first.prefix, first.suffix, first.maximum),
-                (second.prefix, second.suffix, second.maximum),
+                (first.prefix.lower(), first.suffix.lower(), first.maximum),
+                (second.prefix.lower(), second.suffix.lower(), second.maximum),
             ):
                 raise ContractError(f"{first.declaration!r} overlaps {second.declaration!r} under {where}")
 
@@ -116,9 +119,15 @@ def build_tree(leaves: tuple[Leaf, ...]) -> dict[tuple[str, ...], tuple[tuple[st
 
     for folder, entries in children.items():
         identifiers = [item if kind == "folder" else item.identifier for kind, item in entries]
+        where = "/".join(folder) or "the sample root"
         if len(identifiers) != len(set(identifiers)):
-            where = "/".join(folder) or "the sample root"
             raise ContractError(f"children under {where} must have distinct identifiers")
+        # Case-insensitive file systems and SQL identifiers would merge names that differ only in case.
+        seen: dict[str, str] = {}
+        for identifier in identifiers:
+            other = seen.setdefault(identifier.lower(), identifier)
+            if other != identifier:
+                raise ContractError(f"{other!r} and {identifier!r} under {where} differ only in case")
         fixed_names = [
             item if kind == "folder" else item.name for kind, item in entries if kind == "folder" or not item.variable
         ]

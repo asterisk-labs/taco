@@ -152,6 +152,7 @@ class Contract:
             derived_ = self._normalize_extensions(derived or {}, levels, normalized)
         else:
             normalized, types_, groups, derived_ = self._from_models(metadata, levels, children)
+        self._check_field_case(normalized)
         self._check_profiles(normalized)
 
         object.__setattr__(self, "structure", declarations)
@@ -164,6 +165,16 @@ class Contract:
         object.__setattr__(self, "_children", children)
         object.__setattr__(self, "_types", types_)
         object.__setattr__(self, "_groups", groups)
+
+    @staticmethod
+    def _check_field_case(metadata: Mapping[str, Mapping[str, Field]]) -> None:
+        # DuckDB matches column names without case, so a query for 'ml:Split' would read 'ml:split'.
+        for level, fields in metadata.items():
+            seen: dict[str, str] = {}
+            for name in fields:
+                other = seen.setdefault(name.lower(), name)
+                if other != name:
+                    raise ContractError(f"metadata fields {other!r} and {name!r} at {level} differ only in case")
 
     @staticmethod
     def _check_profiles(metadata: Mapping[str, Mapping[str, Field]]) -> None:

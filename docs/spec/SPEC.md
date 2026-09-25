@@ -138,6 +138,8 @@ Entries in the same folder MUST have unique identifiers. The identifier is the f
 
 A folder or fixed file MUST NOT have a name that a variable sequence can produce. Two variable sequences MUST NOT be able to produce the same filename.
 
+These comparisons ignore letter case, so `B02.tif` and `b02.tif` conflict: case-insensitive file systems and SQL identifiers treat them as one name.
+
 The order of `taco:structure` is significant. A folder takes the position of its first path. Fixed files and folders follow declaration order, while instances of a variable sequence follow their numeric index. Writers MUST use this order when assigning child row identifiers.
 
 #### Examples
@@ -269,7 +271,7 @@ Every user column MUST follow the type and nullability declared in the contract.
 
 #### Namespaces
 
-Every user field MUST use the form `namespace:field`. Namespaces MUST match `[a-z][a-z0-9_]*`. Field names MUST be non-empty and MUST NOT contain `:`, `/`, or `__`. The qualified name MUST be unique within its level.
+Every user field MUST use the form `namespace:field`. Namespaces MUST match `[a-z][a-z0-9_]*`. Field names MUST be non-empty and MUST NOT contain `:`, `/`, or `__`. The qualified name MUST be unique within its level, ignoring letter case, because SQL does not distinguish `ml:split` from `ml:Split`.
 
 The same namespace MAY appear at multiple levels and MAY use a different schema at each level. The `internal`, `taco`, and `cozip` namespaces are reserved. Producers MUST NOT create fields in these namespaces.
 

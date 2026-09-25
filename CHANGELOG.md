@@ -14,6 +14,13 @@ JavaScript reader are documented here. The format follows
   double quotes in SQL. Parquet filenames keep `__`, so existing datasets read
   unchanged.
 
+### Fixed
+
+- Folders, files and metadata fields whose names differ only in letter case
+  are rejected. They produced datasets that could not be opened on
+  case-insensitive file systems, and DuckDB read one field in place of the
+  other.
+
 ## 0.11.0 - 2026-09-25
 
 ### Changed

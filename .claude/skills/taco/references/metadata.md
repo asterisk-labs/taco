@@ -27,8 +27,9 @@ imply fails: `metadata has unknown levels ['children/nope']; valid levels are
 
 A namespace matches `[a-z][a-z0-9_]*`; `taco`, `internal` and `cozip` are reserved.
 A field name must be non-empty and contain no `:`, `/`, `__` or NUL. The qualified
-name `namespace:field` must be unique in its level. The same namespace may appear at
-several levels with different schemas.
+name `namespace:field` must be unique in its level, ignoring case: `ml:split` and
+`ml:Split` are rejected because DuckDB would read one for the other. The same
+namespace may appear at several levels with different schemas.
 
 A raw mapping works too, and is what `COLLECTION.json` round-trips:
 

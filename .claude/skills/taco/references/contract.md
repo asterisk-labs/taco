@@ -56,10 +56,13 @@ count error looks impossible.
 ## Uniqueness inside a folder
 
 Entries in one folder must have distinct **identifiers**: the folder name, the full
-fixed filename, or the prefix of a variable sequence.
+fixed filename, or the prefix of a variable sequence. Identifiers and the overlap
+checks below ignore letter case, because a case-insensitive file system or a SQL
+identifier would merge `B02.tif` and `b02.tif`.
 
 ```
 ContractError: children under the sample root must have distinct identifiers
+ContractError: 'Before' and 'before' under the sample root differ only in case
 ContractError: 'img3.tif' overlaps 'img*[1,9].tif' under the sample root
 ```
 

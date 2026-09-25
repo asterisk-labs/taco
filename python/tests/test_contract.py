@@ -127,6 +127,35 @@ def test_disjoint_variable_leaves_with_similar_names() -> None:
     taco.Contract(structure=["x*[1,2]", "x9/a.bin"])
 
 
+@pytest.mark.parametrize(
+    ("structure", "message"),
+    [
+        (["Before/a.tif", "before/a.tif"], "'Before' and 'before' under the sample root differ only in case"),
+        (["a.tif", "A.tif"], "'a.tif' and 'A.tif' under the sample root differ only in case"),
+        (["img/a.tif", "IMG"], "'img' and 'IMG' under the sample root differ only in case"),
+        (["IMG*[1,3].tif", "img*[1,3].tif"], "'IMG' and 'img' under the sample root differ only in case"),
+        (["img*[1,3].tif", "IMG0.tif"], "'IMG0.tif' overlaps 'img\\*\\[1,3\\].tif'"),
+        (["a*[1,20].tif", "A1*[1,3].tif"], "'a\\*\\[1,20\\].tif' overlaps 'A1\\*\\[1,3\\].tif'"),
+    ],
+)
+def test_structure_names_must_differ_beyond_case(structure: list[str], message: str) -> None:
+    with pytest.raises(ContractError, match=message):
+        taco.Contract(structure=structure)
+
+
+class CaseFields(BaseModel):
+    split: str
+    Split: str
+
+
+def test_metadata_fields_must_differ_beyond_case() -> None:
+    message = "metadata fields 'ml:split' and 'ml:Split' at sample differ only in case"
+    with pytest.raises(ContractError, match=message):
+        taco.Contract(structure=["a.bin"], metadata=[taco.Level("sample", ml=CaseFields)])
+    with pytest.raises(ContractError, match=message):
+        taco.Contract(structure=["a.bin"], metadata={"sample": {"ml:split": "string", "ml:Split": "string"}})
+
+
 def test_profiles_require_canonical_nullability() -> None:
     fields = {
         "spatial:geometry": {"type": "binary", "nullable": True},

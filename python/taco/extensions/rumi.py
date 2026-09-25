@@ -76,14 +76,19 @@ def _source(value: Path | None) -> Path:
 class Rumi(Extension):
     """Inspect local ``.rumi`` assets during ``writer.run()``."""
 
+    header: bool = True
     stats: bool = False
     nodata: float | int | None = None
 
     __taco_scopes__: ClassVar[frozenset[str]] = frozenset({"sample", "asset"})
 
     def __post_init__(self) -> None:
+        if not isinstance(self.header, bool):
+            raise TypeError("header must be a boolean")
         if not isinstance(self.stats, bool):
             raise TypeError("stats must be a boolean")
+        if not (self.header or self.stats):
+            raise ValueError("the Rumi extension needs header=True or stats=True")
         if self.nodata is not None:
             if isinstance(self.nodata, bool) or not isinstance(self.nodata, int | float):
                 raise TypeError("nodata must be a number or None")
@@ -96,14 +101,16 @@ class Rumi(Extension):
 
     @property
     def fields(self) -> pa.Schema:
-        fields = [
-            pa.field(
-                "header",
-                pa.binary(),
-                nullable=False,
-                metadata={b"description": b"Canonical external Rumi header"},
+        fields = []
+        if self.header:
+            fields.append(
+                pa.field(
+                    "header",
+                    pa.binary(),
+                    nullable=False,
+                    metadata={b"description": b"Canonical external Rumi header"},
+                )
             )
-        ]
         if self.stats:
             fields.append(
                 pa.field(
@@ -116,7 +123,7 @@ class Rumi(Extension):
         return pa.schema(fields)
 
     def configuration(self) -> Mapping[str, Any]:
-        return {"stats": self.stats, "nodata": self.nodata}
+        return {"header": self.header, "stats": self.stats, "nodata": self.nodata}
 
     def run(self, context: ExtensionContext) -> Mapping[str, Sequence[Any]]:
         # Validate the row-to-asset contract before importing the optional
@@ -134,7 +141,9 @@ class Rumi(Extension):
             headers.append(metadata.header)
             if self.stats:
                 statistics.append(_band_stats(np.asarray(rumi.read(source, metadata.header)), self.nodata))
-        result: dict[str, Sequence[Any]] = {"header": headers}
+        result: dict[str, Sequence[Any]] = {}
+        if self.header:
+            result["header"] = headers
         if self.stats:
             result["stats"] = statistics
         return result

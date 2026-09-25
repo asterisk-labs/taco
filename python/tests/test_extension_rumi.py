@@ -152,6 +152,31 @@ def test_rumi_all_missing_band_has_nullable_statistics(tmp_path: Path, monkeypat
     ]
 
 
+def test_rumi_extension_can_store_stats_without_the_header(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "dem.rumi"
+    source.write_bytes(b"RUMI fixture")
+    fake_rumi(monkeypatch, np.ones((1, 2, 2), dtype=np.int16))
+    contract = taco.Contract(
+        structure=["data.rumi"],
+        metadata=taco.MetadataSchema(taco.Level("sample", rumi=taco.extensions.Rumi(header=False, stats=True))),
+    )
+    assert "rumi:header" not in contract.metadata["sample"]
+    output = tmp_path / "dataset.zip"
+    with taco.open_writer(collection(contract), output) as writer:
+        writer.add(taco.Sample(id="u15", assets=taco.Asset(source, path="data.rumi")))
+        writer.run()
+    row = taco.read(output).to_pylist()[0]
+    assert row["rumi:stats"][0]["valid_count"] == 4
+    assert "data.rumi::header" not in row
+
+
+def test_rumi_extension_rejects_an_empty_configuration() -> None:
+    with pytest.raises(ValueError, match="header=True or stats=True"):
+        taco.extensions.Rumi(header=False)
+
+
 def test_rumi_extension_runs_at_asset_scope(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     source = tmp_path / "dem.rumi"
     source.write_bytes(b"RUMI fixture")

@@ -28,7 +28,7 @@ rejects it before that branch can run.
 | `Temporal(model=...)` | `temporal:time_start`, `time_end` | `temporal:time_middle` | sample, folder |
 | `STAC(model=...)` | the four `stac:` inputs plus `time_end` | `stac:centroid`, `stac:time_middle` | sample, folder |
 | `ISTAC(check_antimeridian=False, model=...)` | the `istac:` inputs | `istac:centroid`, `istac:time_middle` | sample, folder |
-| `Rumi(stats=False, nodata=None)` | nothing | `rumi:header`, optional `rumi:stats` | sample, asset |
+| `Rumi(header=True, stats=False, nodata=None)` | nothing | `rumi:header` and/or `rumi:stats`, at least one | sample, asset |
 | `MajorTOM(dist_km=100, extra=(), latitude_range=(-85, 85), longitude_range=(-180, 180), sep="_", centroid="stac:centroid")` | the centroid field | `majortom:code` plus one per extra grid | sample |
 | `GeoEnrich(variables=None, backend="majortom-index", scale_m=5120, batch_size=250, max_concurrency=8, centroid="stac:centroid", code="majortom:code", index_url=...)` | the 10 km MajorTOM code by default; the centroid field for `earthengine` | one column per variable | sample |
 

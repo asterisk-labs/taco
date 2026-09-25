@@ -352,7 +352,7 @@ Every produced column MUST appear in `taco:metadata` with its final type, nullab
 
 #### Rumi extension
 
-The Rumi extension operates on one local `.rumi` asset per row. It MUST obtain `rumi:header` from `rumi.info(source=asset_path).header`. Producers MUST NOT construct this value themselves.
+The Rumi extension operates on one local `.rumi` asset per row. It stores `rumi:header` unless configured with `header=False`, and `rumi:stats` when configured with `stats=True`. At least one of the two MUST be enabled. It MUST obtain `rumi:header` from `rumi.info(source=asset_path).header`. Producers MUST NOT construct this value themselves.
 
 The header is stored as Parquet `binary`. A reader can use it for selective access without parsing the payload first.
 
@@ -853,7 +853,7 @@ For example, Spatial receives affine-grid values and produces `spatial:centroid`
 
 The writer computes extension outputs from batches of validated metadata during `run()`. Each context also contains the local asset associated with every row, allowing format extensions to inspect payloads without asking producers to duplicate file metadata.
 
-`taco.extensions.Rumi(stats=True)` requires a local `.rumi` asset. It produces the canonical binary `rumi:header` and the per-band `rumi:stats`. `taco.extensions.GeoEnrich` attaches selected environmental variables through one of two backends. The default `majortom-index` backend joins a 10 km MajorTOM code against the public MajorTOM index on Source Cooperative without requiring an Earth Engine account; the explicitly selected `earthengine` backend samples a configurable centroid. The index backend and source URL are stored as collection metadata.
+`taco.extensions.Rumi(stats=True)` requires a local `.rumi` asset. It produces the canonical binary `rumi:header` and the per-band `rumi:stats`; `header=False` omits the header. `taco.extensions.GeoEnrich` attaches selected environmental variables through one of two backends. The default `majortom-index` backend joins a 10 km MajorTOM code against the public MajorTOM index on Source Cooperative without requiring an Earth Engine account; the explicitly selected `earthengine` backend samples a configurable centroid. The index backend and source URL are stored as collection metadata.
 
 Extension dependencies and operational settings remain in the active Python contract while writing. Semantic parameters are stored as collection metadata as defined in Section 5.4. The persisted contract contains only the resulting structure and metadata schema.
 

@@ -4,6 +4,15 @@ All notable changes across the TACO core, language bindings, writer, and
 JavaScript reader are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## Unreleased
+
+### Added
+
+- `taco.extensions.Rumi(header=False)` stores `rumi:stats` without the
+  `rumi:header` column, so wide reads carry no `::header` column for those
+  files. `header` defaults to `True`, and disabling both `header` and `stats`
+  is an error. The setting is stored with the extension configuration.
+
 ## 0.10.3 - 2026-09-24
 
 ### Added

@@ -18,7 +18,7 @@ def encode(array: np.ndarray) -> bytes:
 
 contract = taco.Contract(
     structure=["image.npy", "mask.npy"],
-    metadata=taco.MetadataSchema(taco.Level("sample", ml=ML)),
+    metadata=[taco.Level("sample", ml=ML)],
 )
 collection = taco.Collection(
     contract=contract,

@@ -150,7 +150,7 @@ def collection(
 def single_file() -> DatasetCase:
     contract = taco.Contract(
         structure=["data.bin"],
-        metadata=taco.MetadataSchema(taco.Level("sample", core=SampleInfo)),
+        metadata=[taco.Level("sample", core=SampleInfo)],
     )
     samples = tuple(
         taco.Sample(
@@ -173,7 +173,7 @@ def single_file() -> DatasetCase:
 def flat_assets() -> DatasetCase:
     contract = taco.Contract(
         structure=["image.tif", "label.tif"],
-        metadata=taco.MetadataSchema(taco.Level("sample", ml=taco.metadata.sample.Split)),
+        metadata=[taco.Level("sample", ml=taco.metadata.sample.Split)],
     )
     samples = tuple(
         taco.Sample(
@@ -202,13 +202,13 @@ def nested_folders() -> DatasetCase:
     )
     contract = taco.Contract(
         structure=paths,
-        metadata=taco.MetadataSchema(
+        metadata=[
             taco.Level("sample", core=SampleInfo),
             taco.Level(
                 "children",
                 stac=taco.metadata.folder.STAC | None,
             ),
-        ),
+        ],
     )
     samples = []
     for index in range(2):
@@ -237,9 +237,9 @@ def nested_folders() -> DatasetCase:
 def variable_sequence() -> DatasetCase:
     contract = taco.Contract(
         structure=["image*[1,4].tif"],
-        metadata=taco.MetadataSchema(
+        metadata=[
             taco.Level("sample", core=SampleInfo),
-        ),
+        ],
     )
     files = (
         ("image0.tif",),
@@ -273,14 +273,14 @@ def mixed_structure() -> DatasetCase:
     ]
     contract = taco.Contract(
         structure=structure,
-        metadata=taco.MetadataSchema(
+        metadata=[
             taco.Level("sample", core=SampleInfo),
             taco.Level("children", node=NodeInfo),
             taco.Level(
                 "children/labels",
                 vector=VectorInfo | None,
             ),
-        ),
+        ],
     )
     files = (
         (
@@ -342,12 +342,12 @@ def deep_hierarchy() -> DatasetCase:
     )
     contract = taco.Contract(
         structure=paths,
-        metadata=taco.MetadataSchema(
+        metadata=[
             taco.Level("sample", istac=taco.extensions.ISTAC()),
             taco.Level("children", istac=taco.metadata.folder.ISTAC),
             taco.Level("children/inputs", istac=taco.metadata.folder.ISTAC),
             taco.Level("children/targets", istac=taco.metadata.folder.ISTAC),
-        ),
+        ],
     )
     samples = []
     for index in range(2):
@@ -387,10 +387,10 @@ def deep_hierarchy() -> DatasetCase:
 def rich_metadata() -> DatasetCase:
     contract = taco.Contract(
         structure=["data.bin"],
-        metadata=taco.MetadataSchema(
+        metadata=[
             taco.Level("sample", rich=RichMetadata),
             taco.Level("children", blob=BlobInfo),
-        ),
+        ],
     )
     samples = tuple(
         taco.Sample(
@@ -426,7 +426,7 @@ def rich_metadata() -> DatasetCase:
 def derived_metadata() -> DatasetCase:
     contract = taco.Contract(
         structure=["image.tif", "label.tif"],
-        metadata=taco.MetadataSchema(
+        metadata=[
             taco.Level(
                 "sample",
                 stac=taco.extensions.STAC(model=CloudSTAC),
@@ -437,7 +437,7 @@ def derived_metadata() -> DatasetCase:
                 "children",
                 scaling=taco.metadata.asset.Scaling,
             ),
-        ),
+        ],
     )
     splits = ("train", "validation", "test")
     samples = []
@@ -503,10 +503,10 @@ def independent_profile(profile: str) -> DatasetCase:
     }[profile]
     contract = taco.Contract(
         structure=["scene/data.bin"],
-        metadata=taco.MetadataSchema(
+        metadata=[
             taco.Level("sample", **{profile: sample_extension()}),
             taco.Level("children", **{profile: sample_extension(model=folder_model)}),
-        ),
+        ],
     )
     samples = tuple(
         taco.Sample(

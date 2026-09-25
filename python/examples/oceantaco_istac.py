@@ -69,7 +69,7 @@ contract = taco.Contract(
         "in_situ/argo_profile.npy",
         "quality.npy",
     ],
-    metadata=taco.MetadataSchema(
+    metadata=[
         taco.Level(
             "sample",
             istac=taco.extensions.ISTAC(),
@@ -92,7 +92,7 @@ contract = taco.Contract(
             variables=OceanVariables,
             array=ArrayLayout,
         ),
-    ),
+    ],
 )
 
 collection = taco.Collection(

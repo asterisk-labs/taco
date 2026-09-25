@@ -24,10 +24,10 @@ contract = taco.Contract(
         "after/B03.npy",
         "change.npy",
     ],
-    metadata=taco.MetadataSchema(
+    metadata=[
         taco.Level("sample", ml=taco.metadata.sample.Split),
         taco.Level("children", acquisition=Acquisition | None),
-    ),
+    ],
 )
 collection = taco.Collection(
     contract=contract,

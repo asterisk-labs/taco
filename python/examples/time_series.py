@@ -26,10 +26,10 @@ def encode(array: np.ndarray) -> bytes:
 
 contract = taco.Contract(
     structure=["image*[3,6].npy"],
-    metadata=taco.MetadataSchema(
+    metadata=[
         taco.Level("sample", site=Site),
         taco.Level("children", observation=Observation),
-    ),
+    ],
 )
 collection = taco.Collection(
     contract=contract,

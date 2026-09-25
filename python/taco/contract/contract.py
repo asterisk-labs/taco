@@ -12,7 +12,7 @@ from ..errors import ContractError, SampleError
 from ..metadata._base import ExtensionContext
 from .naming import level_folder
 from .sample import Asset, Folder, Sample, _PreparedAsset, _PreparedNode, _PreparedSample
-from .schema import Field, Group, Metadata, MetadataSchema, validate_qualified_field
+from .schema import Field, Group, Level, Metadata, validate_qualified_field
 from .structure import Leaf, Node, build_tree, parse_leaf
 from .types import coerce_value, parse_type, type_name
 
@@ -165,7 +165,7 @@ class Contract:
         self,
         *,
         structure: Iterable[str],
-        metadata: MetadataSchema | Mapping[str, Mapping[str, Any]] | None = None,
+        metadata: Sequence[Level] | Mapping[str, Mapping[str, Any]] | None = None,
         derived: Mapping[str, Mapping[str, Mapping[str, Any]]] | None = None,
     ) -> None:
         if structure is None or isinstance(structure, (str, bytes)):
@@ -178,7 +178,7 @@ class Contract:
         children = build_tree(leaves)
         folders = frozenset(folder for folder in children if folder)
         levels = self._derive_levels(children)
-        if isinstance(metadata, MetadataSchema):
+        if isinstance(metadata, (list, tuple)):
             normalized, types_, groups, derived_ = self._from_models(metadata, levels, children)
         else:
             normalized = self._from_mapping(metadata or {}, levels)
@@ -262,7 +262,7 @@ class Contract:
         metadata: Mapping[str, Mapping[str, Any]], levels: tuple[str, ...]
     ) -> dict[str, dict[str, Field]]:
         if not isinstance(metadata, Mapping):
-            raise ContractError("metadata must be a mapping or MetadataSchema")
+            raise ContractError("metadata must be a list of taco.Level or a mapping")
         extra = sorted(set(metadata) - set(levels))
         if extra:
             raise ContractError(f"metadata has unknown levels {extra}; valid levels are {list(levels)}")
@@ -281,7 +281,7 @@ class Contract:
     @classmethod
     def _from_models(
         cls,
-        schema: MetadataSchema,
+        schema: Sequence[Level],
         levels: tuple[str, ...],
         children: Mapping[tuple[str, ...], tuple[tuple[str, Any], ...]],
     ) -> tuple[
@@ -290,7 +290,11 @@ class Contract:
         dict[str, tuple[Group, ...]],
         dict[str, dict[str, dict[str, Any]]],
     ]:
+        if not all(isinstance(level, Level) for level in schema):
+            raise ContractError("metadata must be a list of taco.Level")
         declared = {level.name: level for level in schema}
+        if len(declared) != len(schema):
+            raise ContractError("metadata level names must be unique")
         extra = sorted(set(declared) - set(levels))
         if extra:
             raise ContractError(f"metadata has unknown levels {extra}; valid levels are {list(levels)}")

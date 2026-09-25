@@ -13,9 +13,9 @@ def encode(array: np.ndarray) -> bytes:
 
 contract = taco.Contract(
     structure=["image*[2,5].npy"],
-    metadata=taco.MetadataSchema(
+    metadata=[
         taco.Level("sample", ml=taco.metadata.sample.Split),
-    ),
+    ],
 )
 collection = taco.Collection(
     contract=contract,

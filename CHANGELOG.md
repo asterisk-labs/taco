@@ -6,6 +6,12 @@ JavaScript reader are documented here. The format follows
 
 ## Unreleased
 
+### Changed
+
+- `Contract(metadata=...)` takes a list of `taco.Level` objects.
+  `taco.MetadataSchema` is removed; replace `taco.MetadataSchema(a, b)` with
+  `[a, b]`. An empty list is the same as no metadata.
+
 ### Added
 
 - `taco.extensions.Rumi(header=False)` stores `rumi:stats` without the

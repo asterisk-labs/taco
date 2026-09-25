@@ -4,7 +4,7 @@ from importlib.metadata import PackageNotFoundError, version
 
 from . import extensions, metadata
 from .contract import Asset, Collection, Contract, Folder, Sample
-from .contract.schema import CollectionMetadata, DerivedMetadata, Extension, Level, Metadata, MetadataSchema
+from .contract.schema import CollectionMetadata, DerivedMetadata, Extension, Level, Metadata
 from .errors import TacoError
 from .metadata._base import ExtensionContext
 from .reader import Dataset, open_dataset, read
@@ -31,7 +31,6 @@ __all__ = [
     "Folder",
     "Level",
     "Metadata",
-    "MetadataSchema",
     "Sample",
     "TacoError",
     "__version__",

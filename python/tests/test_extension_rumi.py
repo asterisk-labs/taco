@@ -33,7 +33,7 @@ def fake_rumi(monkeypatch: pytest.MonkeyPatch, array: np.ndarray, *, header: byt
 def test_rumi_stats_contract_matches_the_spec() -> None:
     contract = taco.Contract(
         structure=["data.rumi"],
-        metadata=taco.MetadataSchema(taco.Level("sample", rumi=taco.extensions.Rumi(stats=True))),
+        metadata=[taco.Level("sample", rumi=taco.extensions.Rumi(stats=True))],
     )
     assert contract.metadata["sample"]["rumi:stats"].type == (
         "list<struct<minimum: double?, maximum: double?, mean: double?, stddev: double?, "
@@ -54,7 +54,7 @@ def write_fake_rumi(
     fake_rumi(monkeypatch, array)
     contract = taco.Contract(
         structure=["data.rumi"],
-        metadata=taco.MetadataSchema(taco.Level("sample", rumi=taco.extensions.Rumi(stats=stats, nodata=nodata))),
+        metadata=[taco.Level("sample", rumi=taco.extensions.Rumi(stats=stats, nodata=nodata))],
     )
     with taco.open_writer(collection(contract), tmp_path / "dataset") as writer:
         writer.add(taco.Sample(id="u10", assets=taco.Asset(source, path="data.rumi")))
@@ -98,7 +98,7 @@ def test_rumi_header_only_does_not_decode(tmp_path: Path, monkeypatch: pytest.Mo
     monkeypatch.setitem(sys.modules, "rumi", fake)
     contract = taco.Contract(
         structure=["data.rumi"],
-        metadata=taco.MetadataSchema(taco.Level("sample", rumi=taco.extensions.Rumi())),
+        metadata=[taco.Level("sample", rumi=taco.extensions.Rumi())],
     )
     with taco.open_writer(collection(contract), tmp_path / "dataset") as writer:
         writer.add(taco.Sample(id="u11", assets=taco.Asset(source, path="data.rumi")))
@@ -152,15 +152,13 @@ def test_rumi_all_missing_band_has_nullable_statistics(tmp_path: Path, monkeypat
     ]
 
 
-def test_rumi_extension_can_store_stats_without_the_header(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_rumi_extension_can_store_stats_without_the_header(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     source = tmp_path / "dem.rumi"
     source.write_bytes(b"RUMI fixture")
     fake_rumi(monkeypatch, np.ones((1, 2, 2), dtype=np.int16))
     contract = taco.Contract(
         structure=["data.rumi"],
-        metadata=taco.MetadataSchema(taco.Level("sample", rumi=taco.extensions.Rumi(header=False, stats=True))),
+        metadata=[taco.Level("sample", rumi=taco.extensions.Rumi(header=False, stats=True))],
     )
     assert "rumi:header" not in contract.metadata["sample"]
     output = tmp_path / "dataset.zip"
@@ -183,7 +181,7 @@ def test_rumi_extension_runs_at_asset_scope(tmp_path: Path, monkeypatch: pytest.
     fake_rumi(monkeypatch, np.ones((1, 2, 2), dtype=np.int16), header=b"asset-header")
     contract = taco.Contract(
         structure=["dem.rumi"],
-        metadata=taco.MetadataSchema(taco.Level("children", rumi=taco.extensions.Rumi())),
+        metadata=[taco.Level("children", rumi=taco.extensions.Rumi())],
     )
     sample = taco.Sample(id="u12", assets=taco.Asset(source, path="dem.rumi"))
     with taco.open_writer(collection(contract), tmp_path / "dataset") as writer:
@@ -198,7 +196,7 @@ def test_rumi_extension_rejects_a_non_rumi_asset_without_importing_rumi(tmp_path
     source.write_bytes(b"not rumi")
     contract = taco.Contract(
         structure=["data.rumi"],
-        metadata=taco.MetadataSchema(taco.Level("sample", rumi=taco.extensions.Rumi())),
+        metadata=[taco.Level("sample", rumi=taco.extensions.Rumi())],
     )
     with taco.open_writer(collection(contract), tmp_path / "dataset") as writer:
         writer.add(taco.Sample(id="u13", assets=taco.Asset(source, path="data.rumi")))
@@ -220,7 +218,7 @@ def test_rumi_extension_reads_a_real_rumi_file(tmp_path: Path) -> None:
 
     contract = taco.Contract(
         structure=["data.rumi"],
-        metadata=taco.MetadataSchema(taco.Level("sample", rumi=taco.extensions.Rumi(stats=True))),
+        metadata=[taco.Level("sample", rumi=taco.extensions.Rumi(stats=True))],
     )
     with taco.open_writer(collection(contract), tmp_path / "dataset") as writer:
         writer.add(taco.Sample(id="u14", assets=taco.Asset(source, path="data.rumi")))
@@ -241,7 +239,7 @@ def test_wide_reads_carry_rumi_headers_next_to_locations(tmp_path: Path, monkeyp
         (tmp_path / name).write_bytes(name.encode())
     contract = taco.Contract(
         structure=["scene/optical.rumi", "scene/img*[1,2].rumi", "mask.bin"],
-        metadata=taco.MetadataSchema(taco.Level("children/scene", rumi=taco.extensions.Rumi())),
+        metadata=[taco.Level("children/scene", rumi=taco.extensions.Rumi())],
     )
     output = tmp_path / "rumi.zip"
     with taco.open_writer(collection(contract), output) as writer:

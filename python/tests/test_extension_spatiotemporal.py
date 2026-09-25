@@ -55,13 +55,13 @@ def spatial(
 def test_extension_dependencies_ignore_declaration_order(tmp_path: Path) -> None:
     contract = taco.Contract(
         structure=["data.bin"],
-        metadata=taco.MetadataSchema(
+        metadata=[
             taco.Level(
                 "sample",
                 majortom=taco.extensions.MajorTOM(dist_km=10),
                 stac=taco.extensions.STAC(),
             )
-        ),
+        ],
     )
     with taco.open_writer(collection(contract), tmp_path / "dataset") as writer:
         writer.add(taco.Sample(id="u15", assets=b"x", metadata=taco.Metadata(stac=stac())))
@@ -75,13 +75,13 @@ def test_extension_dependencies_ignore_declaration_order(tmp_path: Path) -> None
 def test_spatial_is_regular_only_and_composes_with_majortom(tmp_path: Path) -> None:
     contract = taco.Contract(
         structure=["data.bin"],
-        metadata=taco.MetadataSchema(
+        metadata=[
             taco.Level(
                 "sample",
                 majortom=taco.extensions.MajorTOM(centroid="spatial:centroid"),
                 spatial=taco.extensions.Spatial(),
             )
-        ),
+        ],
     )
     with taco.open_writer(collection(contract), tmp_path / "dataset") as writer:
         writer.add(taco.Sample(id="u16", assets=b"x", metadata=taco.Metadata(spatial=spatial())))
@@ -98,7 +98,7 @@ def test_spatial_is_regular_only_and_composes_with_majortom(tmp_path: Path) -> N
 def test_temporal_is_temporal_only(tmp_path: Path) -> None:
     contract = taco.Contract(
         structure=["data.bin"],
-        metadata=taco.MetadataSchema(taco.Level("sample", temporal=taco.extensions.Temporal())),
+        metadata=[taco.Level("sample", temporal=taco.extensions.Temporal())],
     )
     metadata = taco.metadata.sample.Temporal(
         time_start=datetime(2024, 1, 1, tzinfo=timezone.utc),
@@ -118,7 +118,7 @@ def test_temporal_is_temporal_only(tmp_path: Path) -> None:
 def test_ispatial_is_irregular_spatial_only(tmp_path: Path) -> None:
     contract = taco.Contract(
         structure=["data.bin"],
-        metadata=taco.MetadataSchema(taco.Level("sample", ispatial=taco.extensions.ISpatial())),
+        metadata=[taco.Level("sample", ispatial=taco.extensions.ISpatial())],
     )
     metadata = taco.metadata.sample.ISpatial(
         crs="EPSG:4326",
@@ -155,7 +155,7 @@ def test_stac_preserves_explicit_centroid_and_midpoint(tmp_path: Path) -> None:
     )
     contract = taco.Contract(
         structure=["data.bin"],
-        metadata=taco.MetadataSchema(taco.Level("sample", stac=taco.extensions.STAC())),
+        metadata=[taco.Level("sample", stac=taco.extensions.STAC())],
     )
     with taco.open_writer(collection(contract), tmp_path / "dataset") as writer:
         writer.add(taco.Sample(id="u19", assets=b"x", metadata=taco.Metadata(stac=metadata)))
@@ -168,9 +168,9 @@ def test_stac_preserves_explicit_centroid_and_midpoint(tmp_path: Path) -> None:
 def test_stac_extension_runs_on_folder_metadata(tmp_path: Path) -> None:
     contract = taco.Contract(
         structure=["scene/dem.bin"],
-        metadata=taco.MetadataSchema(
+        metadata=[
             taco.Level("children", stac=taco.extensions.STAC(model=taco.metadata.folder.STAC))
-        ),
+        ],
     )
     sample = taco.Sample(
         id="s0",
@@ -187,7 +187,7 @@ def test_stac_extension_runs_on_folder_metadata(tmp_path: Path) -> None:
 def test_istac_centroid_is_derived_from_geometry(tmp_path: Path) -> None:
     contract = taco.Contract(
         structure=["data.bin"],
-        metadata=taco.MetadataSchema(taco.Level("sample", istac=taco.extensions.ISTAC())),
+        metadata=[taco.Level("sample", istac=taco.extensions.ISTAC())],
     )
     metadata = taco.metadata.sample.ISTAC(
         crs="EPSG:4326",
@@ -204,9 +204,9 @@ def test_istac_centroid_is_derived_from_geometry(tmp_path: Path) -> None:
 def test_istac_extension_runs_on_folder_metadata(tmp_path: Path) -> None:
     contract = taco.Contract(
         structure=["scene/dem.bin"],
-        metadata=taco.MetadataSchema(
+        metadata=[
             taco.Level("children", istac=taco.extensions.ISTAC(model=taco.metadata.folder.ISTAC))
-        ),
+        ],
     )
     metadata = taco.metadata.folder.ISTAC(
         crs="EPSG:4326",

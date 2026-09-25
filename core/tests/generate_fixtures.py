@@ -81,10 +81,10 @@ def collection(contract: taco.Contract, name: str) -> taco.Collection:
 def write_flat(output: Path) -> None:
     contract = taco.Contract(
         structure=["image.bin", "label.bin"],
-        metadata=taco.MetadataSchema(
+        metadata=[
             taco.Level("sample", geo=Geo, ml=ML),
             taco.Level("children", file=File),
-        ),
+        ],
     )
     with taco.open_writer(collection(contract, "taco-flat"), output, overwrite=True) as writer:
         for index in range(4):
@@ -112,12 +112,12 @@ def write_flat(output: Path) -> None:
 def write_nested(output: Path) -> None:
     contract = taco.Contract(
         structure=["before/B02.bin", "before/B03.bin", "after/B02.bin", "change.bin"],
-        metadata=taco.MetadataSchema(
+        metadata=[
             taco.Level("sample", geo=Geo, ml=ML),
             taco.Level("children", node=Kind),
             taco.Level("children/before", raster=Raster),
             taco.Level("children/after", raster=Raster),
-        ),
+        ],
     )
     with taco.open_writer(collection(contract, "taco-nested"), output, overwrite=True) as writer:
         for index in range(3):
@@ -159,10 +159,10 @@ def write_nested(output: Path) -> None:
 def write_variable(output: Path) -> None:
     contract = taco.Contract(
         structure=["img*[1,3].bin", "mask.bin"],
-        metadata=taco.MetadataSchema(
+        metadata=[
             taco.Level("sample", ml=VariableML),
             taco.Level("children", node=Kind),
-        ),
+        ],
     )
     with taco.open_writer(collection(contract, "taco-variable"), output, overwrite=True) as writer:
         for index in range(3):
@@ -190,11 +190,11 @@ def write_variable(output: Path) -> None:
 def write_shadow(output: Path) -> None:
     contract = taco.Contract(
         structure=["before/B02.bin", "change.bin"],
-        metadata=taco.MetadataSchema(
+        metadata=[
             taco.Level("sample", ml=VariableML),
             taco.Level("children", raster=Raster),
             taco.Level("children/before", raster=Raster),
-        ),
+        ],
     )
     with taco.open_writer(collection(contract, "taco-shadow"), output, overwrite=True) as writer:
         for index in range(2):
@@ -224,7 +224,7 @@ def write_tacocat(output: Path) -> None:
     output.mkdir(parents=True)
     contract = taco.Contract(
         structure=["image.bin"],
-        metadata=taco.MetadataSchema(taco.Level("sample", geo=Geo, ml=ML)),
+        metadata=[taco.Level("sample", geo=Geo, ml=ML)],
     )
     with taco.open_writer(
         collection(contract, "taco-cat"), output / "part.zip", partition_by="ml:split", overwrite=True

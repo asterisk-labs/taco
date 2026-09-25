@@ -732,8 +732,7 @@ The writer uses the following immutable data objects.
 | `Sample` | Contains one sample |
 | `Folder` | Attaches metadata to a folder declared by the contract |
 | `Asset` | Points to one source file |
-| `MetadataSchema` | Contains the metadata levels |
-| `Level` | Associates namespaces with models or writer-time extensions |
+| `Level` | Associates namespaces with models or writer-time extensions; `Contract(metadata=[...])` takes a list of them |
 | `Metadata` | Carries values for a sample, folder, or asset |
 | `CollectionMetadata` | Carries metadata that applies to the complete dataset |
 
@@ -765,14 +764,14 @@ class ML(BaseModel):
 
 contract = taco.Contract(
     structure=["image.tif", "label.tif"],
-    metadata=taco.MetadataSchema(
+    metadata=[
         taco.Level(
             "sample",
             stac=taco.extensions.STAC(),
             ml=ML,
             majortom=taco.extensions.MajorTOM(dist_km=100),
         ),
-    ),
+    ],
 )
 ```
 
@@ -904,14 +903,14 @@ class ML(BaseModel):
 
 contract = taco.Contract(
     structure=["image.tif", "label.tif"],
-    metadata=taco.MetadataSchema(
+    metadata=[
         taco.Level(
             "sample",
             stac=taco.extensions.STAC(),
             ml=ML,
             majortom=taco.extensions.MajorTOM(dist_km=100),
         ),
-    ),
+    ],
 )
 
 collection = taco.Collection(

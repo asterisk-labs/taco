@@ -11,7 +11,7 @@ descriptions. Python class names, defaults and validators are not part of it.
 ```python
 contract = taco.Contract(
     structure=["before/B02.tif", "before/B03.tif", "after/B02.tif", "mask.tif"],
-    metadata=taco.MetadataSchema(...),   # or a plain mapping, see metadata.md
+    metadata=[...],   # taco.Level objects, or a plain mapping, see metadata.md
 )
 contract.levels      # ('sample', 'children', 'children/before', 'children/after')
 contract.leaves      # parsed Leaf objects, in declaration order

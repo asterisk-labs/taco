@@ -4,7 +4,7 @@ import taco
 
 contract = taco.Contract(
     structure=["image.bin"],
-    metadata=taco.MetadataSchema(
+    metadata=[
         taco.Level(
             "sample",
             stac=taco.extensions.STAC(),
@@ -14,7 +14,7 @@ contract = taco.Contract(
                 longitude_range=(-90, -60),
             ),
         ),
-    ),
+    ],
 )
 collection = taco.Collection(
     contract=contract,

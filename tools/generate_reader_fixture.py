@@ -25,10 +25,10 @@ class File(BaseModel):
 def main() -> None:
     contract = taco.Contract(
         structure=["image.bin", "mask.bin"],
-        metadata=taco.MetadataSchema(
+        metadata=[
             taco.Level("sample", ml=ML),
             taco.Level("children", file=File),
-        ),
+        ],
     )
     collection = taco.Collection(
         contract=contract,

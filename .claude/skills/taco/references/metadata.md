@@ -9,17 +9,18 @@ are separate systems and their objects are not interchangeable.
 
 ## Declaring levels
 
-`MetadataSchema` holds `Level` objects; each keyword becomes a **namespace**.
+`Contract(metadata=...)` takes a list of `Level` objects; each keyword becomes a
+**namespace**. Level names must be unique in the list.
 
 ```python
-taco.MetadataSchema(
+metadata=[
     taco.Level("sample", stac=taco.extensions.STAC(), ml=ML, majortom=taco.extensions.MajorTOM()),
     taco.Level("children", node=Kind | None),        # Model | None makes the group optional
     taco.Level("children/before", file=AssetInfo),
-)
+]
 ```
 
-A level not named in the schema stores no user fields, which is valid; the Parquet
+A level not named in the list stores no user fields, which is valid; the Parquet
 file still exists with its internal columns. Naming a level the structure does not
 imply fails: `metadata has unknown levels ['children/nope']; valid levels are
 ['sample', 'children']`.

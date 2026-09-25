@@ -134,9 +134,9 @@ def test_contract_rejects_stac_and_istac_on_same_level() -> None:
     with pytest.raises(ContractError, match="either STAC or ISTAC"):
         taco.Contract(
             structure=["data.bin"],
-            metadata=taco.MetadataSchema(
+            metadata=[
                 taco.Level("sample", stac=taco.metadata.sample.STAC, istac=taco.metadata.sample.ISTAC)
-            ),
+            ],
         )
 
     with pytest.raises(ContractError, match="puts geometry in STAC"):
@@ -166,7 +166,7 @@ def test_contract_rejects_stac_and_istac_on_same_level() -> None:
 
     serialized = taco.Contract(
         structure=["data.bin"],
-        metadata=taco.MetadataSchema(taco.Level("sample", stac=taco.extensions.STAC())),
+        metadata=[taco.Level("sample", stac=taco.extensions.STAC())],
     ).to_dict()
     serialized["taco:metadata"]["sample"]["stac:centroid"]["type"] = "string"
     with pytest.raises(ContractError, match="stac:centroid must have type binary"):
@@ -174,7 +174,7 @@ def test_contract_rejects_stac_and_istac_on_same_level() -> None:
 
     serialized = taco.Contract(
         structure=["data.bin"],
-        metadata=taco.MetadataSchema(taco.Level("sample", stac=taco.extensions.STAC())),
+        metadata=[taco.Level("sample", stac=taco.extensions.STAC())],
     ).to_dict()
     del serialized["taco:metadata"]["sample"]["stac:time_middle"]
     with pytest.raises(ContractError, match=r"STAC metadata.*missing fields"):
@@ -185,9 +185,9 @@ def test_contract_rejects_mixed_profiles_and_incomplete_new_profiles() -> None:
     with pytest.raises(ContractError, match="must choose one metadata profile"):
         taco.Contract(
             structure=["data.bin"],
-            metadata=taco.MetadataSchema(
+            metadata=[
                 taco.Level("sample", spatial=taco.extensions.Spatial(), temporal=taco.extensions.Temporal())
-            ),
+            ],
         )
     with pytest.raises(ContractError, match=r"SPATIAL metadata.*missing fields"):
         taco.Contract(structure=["data.bin"], metadata={"sample": {"spatial:centroid": "binary"}})
@@ -513,7 +513,7 @@ def test_arrow_type_inference() -> None:
 
     contract = taco.Contract(
         structure=["data.bin"],
-        metadata=taco.MetadataSchema(taco.Level("sample", types=Types)),
+        metadata=[taco.Level("sample", types=Types)],
     )
     fields = contract.metadata["sample"]
     assert fields["types:flag"].type == "bool"
@@ -541,7 +541,7 @@ def test_runtime_model_must_match_contract() -> None:
 
     contract = taco.Contract(
         structure=["data.bin"],
-        metadata=taco.MetadataSchema(taco.Level("sample", value=First)),
+        metadata=[taco.Level("sample", value=First)],
     )
     with pytest.raises(SampleError, match="must be First"):
         contract.validate_sample(taco.Sample(id="u21", assets=b"x", metadata=taco.Metadata(value=Second(value=1))))
@@ -558,7 +558,7 @@ def test_computed_fields_are_not_stored_implicitly() -> None:
 
     contract = taco.Contract(
         structure=["data.bin"],
-        metadata=taco.MetadataSchema(taco.Level("sample", value=Value)),
+        metadata=[taco.Level("sample", value=Value)],
     )
     sample = contract.prepare_sample(taco.Sample(id="u22", assets=b"x", metadata=taco.Metadata(value=Value(value=2))))
     assert sample.id == "u22"
@@ -588,7 +588,7 @@ def test_custom_derived_group(tmp_path) -> None:
 
     contract = taco.Contract(
         structure=["data.bin"],
-        metadata=taco.MetadataSchema(taco.Level("sample", base=Base, next=PlusOne())),
+        metadata=[taco.Level("sample", base=Base, next=PlusOne())],
     )
     assert contract.extensions["sample"]["next"]["configuration"] == {"values": [1, 2]}
     collection = taco.Collection(
@@ -632,7 +632,7 @@ def test_derived_group_may_not_read_across_its_batch(tmp_path) -> None:
 
     contract = taco.Contract(
         structure=["data.bin"],
-        metadata=taco.MetadataSchema(taco.Level("sample", base=Base, batch=BatchSize())),
+        metadata=[taco.Level("sample", base=Base, batch=BatchSize())],
     )
     collection = taco.Collection(
         contract=contract,

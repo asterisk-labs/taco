@@ -142,7 +142,7 @@ def test_extension_combines_inputs_with_local_assets(tmp_path: Path) -> None:
     source.write_bytes(b"value")
     contract = taco.Contract(
         structure=["data.bin"],
-        metadata=taco.MetadataSchema(taco.Level("sample", value=AssetValue())),
+        metadata=[taco.Level("sample", value=AssetValue())],
     )
     with taco.open_writer(collection(contract), tmp_path / "dataset") as writer:
         writer.add(
@@ -162,7 +162,7 @@ def test_extension_combines_inputs_with_local_assets(tmp_path: Path) -> None:
 def test_sample_extension_asset_is_defined_by_the_contract(tmp_path: Path) -> None:
     contract = taco.Contract(
         structure=["image*[1,2].bin"],
-        metadata=taco.MetadataSchema(taco.Level("sample", value=AssetValue())),
+        metadata=[taco.Level("sample", value=AssetValue())],
     )
     samples = [
         taco.Sample(
@@ -188,7 +188,7 @@ def test_complete_level_extension_receives_all_rows(tmp_path: Path) -> None:
     COMPLETE_BATCHES.clear()
     contract = taco.Contract(
         structure=["data.bin"],
-        metadata=taco.MetadataSchema(taco.Level("sample", complete=CompleteGenerated())),
+        metadata=[taco.Level("sample", complete=CompleteGenerated())],
     )
     with taco.open_writer(collection(contract), tmp_path / "complete", batch_size=1) as writer:
         writer.extend(taco.Sample(id=f"u8-{index}", assets=b"x") for index in range(3))
@@ -204,9 +204,7 @@ def test_executable_extensions_reject_a_dependency_cycle() -> None:
     with pytest.raises(ContractError, match="cycle"):
         taco.Contract(
             structure=["data.bin"],
-            metadata=taco.MetadataSchema(
-                taco.Level("sample", first=Generated("second:value"), second=Generated("first:value"))
-            ),
+            metadata=[taco.Level("sample", first=Generated("second:value"), second=Generated("first:value"))],
         )
 
 
@@ -222,7 +220,7 @@ def test_executable_extensions_reject_a_dependency_cycle() -> None:
 def test_writer_rejects_invalid_extension_outputs(behavior: str, message: str, tmp_path: Path) -> None:
     contract = taco.Contract(
         structure=["data.bin"],
-        metadata=taco.MetadataSchema(taco.Level("sample", broken=Broken(behavior))),
+        metadata=[taco.Level("sample", broken=Broken(behavior))],
     )
     with taco.open_writer(collection(contract), tmp_path / behavior) as writer:
         writer.add(taco.Sample(id="u9", assets=b"x"))
@@ -234,10 +232,10 @@ def test_writer_rejects_invalid_extension_outputs(behavior: str, message: str, t
 def test_extensions_reject_conflicting_collection_metadata() -> None:
     contract = taco.Contract(
         structure=["folder/data.bin"],
-        metadata=taco.MetadataSchema(
+        metadata=[
             taco.Level("sample", tag=CollectionTagged("first")),
             taco.Level("children", tag=CollectionTagged("second")),
-        ),
+        ],
     )
     with pytest.raises(ContractError, match="conflicting collection metadata"):
         contract.extension_metadata()
@@ -246,7 +244,7 @@ def test_extensions_reject_conflicting_collection_metadata() -> None:
 def test_collection_rejects_metadata_that_conflicts_with_an_extension() -> None:
     contract = taco.Contract(
         structure=["data.bin"],
-        metadata=taco.MetadataSchema(taco.Level("sample", tag=CollectionTagged("active"))),
+        metadata=[taco.Level("sample", tag=CollectionTagged("active"))],
     )
     with pytest.raises(CollectionError, match="conflicts with the active extension"):
         collection(contract).replace(metadata=taco.CollectionMetadata.from_flat({"tag:setting": "different"}))
@@ -256,7 +254,7 @@ def test_append_rejects_changed_extension_metadata(tmp_path: Path) -> None:
     def tagged(value: str) -> taco.Collection:
         contract = taco.Contract(
             structure=["data.bin"],
-            metadata=taco.MetadataSchema(taco.Level("sample", tag=CollectionTagged(value))),
+            metadata=[taco.Level("sample", tag=CollectionTagged(value))],
         )
         return collection(contract)
 

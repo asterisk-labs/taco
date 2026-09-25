@@ -83,12 +83,12 @@ def nested_samples() -> list[taco.Sample]:
 
 NESTED = taco.Contract(
     structure=["before/B02.bin", "before/B03.bin", "after/B02.bin", "change.bin"],
-    metadata=taco.MetadataSchema(
+    metadata=[
         taco.Level("sample", ml=Split),
         taco.Level("children", node=Kind),
         taco.Level("children/before", raster=Raster),
         taco.Level("children/after", raster=Raster),
-    ),
+    ],
 )
 
 
@@ -100,7 +100,7 @@ def data(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
     variable = taco.Contract(
         structure=["img*[1,3].bin", "mask.bin"],
-        metadata=taco.MetadataSchema(taco.Level("sample", ml=Split), taco.Level("children", node=Kind)),
+        metadata=[taco.Level("sample", ml=Split), taco.Level("children", node=Kind)],
     )
     samples = []
     for index in range(3):
@@ -137,11 +137,11 @@ def data(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
     shadow = taco.Contract(
         structure=["before/B02.bin", "change.bin"],
-        metadata=taco.MetadataSchema(
+        metadata=[
             taco.Level("sample", ml=Split),
             taco.Level("children", raster=Raster),
             taco.Level("children/before", raster=Raster),
-        ),
+        ],
     )
     samples = [
         taco.Sample(
@@ -161,7 +161,7 @@ def data(tmp_path_factory: pytest.TempPathFactory) -> Path:
     ]
     write("shadow", shadow, samples, root / "shadow.zip")
 
-    single = taco.Contract(structure=["data.bin"], metadata=taco.MetadataSchema(taco.Level("sample", ml=Split)))
+    single = taco.Contract(structure=["data.bin"], metadata=[taco.Level("sample", ml=Split)])
     samples = [
         taco.Sample(
             id=f"s{index}",
@@ -201,7 +201,7 @@ def test_generated_columns_do_not_collide_with_metadata(tmp_path: Path) -> None:
 
     contract = taco.Contract(
         structure=["image"],
-        metadata=taco.MetadataSchema(taco.Level("sample", image=LocationMetadata)),
+        metadata=[taco.Level("sample", image=LocationMetadata)],
     )
     output = write(
         "column-collision",

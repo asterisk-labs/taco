@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 import types
-from collections.abc import Iterator, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
@@ -282,24 +282,6 @@ class Level:
 
 
 @dataclass(frozen=True, init=False)
-class MetadataSchema:
-    levels: tuple[Level, ...]
-
-    def __init__(self, *levels: Level) -> None:
-        if not levels:
-            raise ContractError("MetadataSchema needs at least one Level")
-        if not all(isinstance(level, Level) for level in levels):
-            raise ContractError("MetadataSchema accepts Level objects")
-        names = [level.name for level in levels]
-        if len(names) != len(set(names)):
-            raise ContractError("metadata level names must be unique")
-        object.__setattr__(self, "levels", tuple(levels))
-
-    def __iter__(self) -> Iterator[Level]:
-        return iter(self.levels)
-
-
-@dataclass(frozen=True, init=False)
 class Metadata:
     groups: dict[str, BaseModel]
 
@@ -354,6 +336,5 @@ __all__ = [
     "Field",
     "Level",
     "Metadata",
-    "MetadataSchema",
     "validate_qualified_field",
 ]

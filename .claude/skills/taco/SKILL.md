@@ -60,9 +60,9 @@ class ML(BaseModel):
 
 contract = taco.Contract(
     structure=["before/B02.tif", "after/B02.tif", "mask.tif", "extra*[1,3].png"],
-    metadata=taco.MetadataSchema(
+    metadata=[
         taco.Level("sample", stac=taco.extensions.STAC(), ml=ML),
-    ),
+    ],
 )
 collection = taco.Collection(
     contract=contract,

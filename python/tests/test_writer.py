@@ -197,7 +197,7 @@ def test_single_file_dataset(tmp_path: Path) -> None:
 
     contract = taco.Contract(
         structure=["data.bin"],
-        metadata=taco.MetadataSchema(taco.Level("sample", label=Label)),
+        metadata=[taco.Level("sample", label=Label)],
     )
     collection = taco.Collection(
         contract=contract,
@@ -222,7 +222,7 @@ def test_single_file_dataset(tmp_path: Path) -> None:
 
 def test_collection_without_tasks_round_trips(tmp_path: Path) -> None:
     collection = taco.Collection(
-        contract=taco.Contract(structure=["data.bin"], metadata=taco.MetadataSchema(taco.Level("sample"))),
+        contract=taco.Contract(structure=["data.bin"], metadata=[taco.Level("sample")]),
         id="untasked",
         description="No tasks",
         licenses=["MIT"],
@@ -242,7 +242,7 @@ def test_collection_without_tasks_round_trips(tmp_path: Path) -> None:
 def test_stac_generates_extent(tmp_path: Path) -> None:
     contract = taco.Contract(
         structure=["data.bin"],
-        metadata=taco.MetadataSchema(taco.Level("sample", stac=taco.extensions.STAC())),
+        metadata=[taco.Level("sample", stac=taco.extensions.STAC())],
     )
     collection = taco.Collection(
         contract=contract,
@@ -286,7 +286,7 @@ def test_stac_generates_extent(tmp_path: Path) -> None:
 def test_istac_keeps_geometry_and_generates_centroid_extent(tmp_path: Path) -> None:
     contract = taco.Contract(
         structure=["data.bin"],
-        metadata=taco.MetadataSchema(taco.Level("sample", istac=taco.extensions.ISTAC())),
+        metadata=[taco.Level("sample", istac=taco.extensions.ISTAC())],
     )
     collection = taco.Collection(
         contract=contract,
@@ -330,7 +330,7 @@ def test_istac_keeps_geometry_and_generates_centroid_extent(tmp_path: Path) -> N
 def test_empty_stac_summary_removes_extent(tmp_path: Path) -> None:
     contract = taco.Contract(
         structure=["data.bin"],
-        metadata=taco.MetadataSchema(taco.Level("sample", stac=taco.metadata.sample.STAC | None)),
+        metadata=[taco.Level("sample", stac=taco.metadata.sample.STAC | None)],
     )
     collection = taco.Collection(
         contract=contract,

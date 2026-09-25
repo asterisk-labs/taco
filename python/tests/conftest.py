@@ -39,7 +39,7 @@ STRUCTURE = ["before/B02.tif", "before/B03.tif", "after/B02.tif", "mask.tif", "e
 def contract() -> taco.Contract:
     return taco.Contract(
         structure=STRUCTURE,
-        metadata=taco.MetadataSchema(
+        metadata=[
             taco.Level(
                 "sample",
                 stac=taco.extensions.STAC(),
@@ -49,7 +49,7 @@ def contract() -> taco.Contract:
             taco.Level("children", node=Kind),
             taco.Level("children/before", file=AssetInfo),
             taco.Level("children/after", file=AssetInfo),
-        ),
+        ],
     )
 
 

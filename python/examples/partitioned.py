@@ -2,7 +2,7 @@ import taco
 
 contract = taco.Contract(
     structure=["data.bin"],
-    metadata=taco.MetadataSchema(taco.Level("sample", ml=taco.metadata.sample.Split)),
+    metadata=[taco.Level("sample", ml=taco.metadata.sample.Split)],
 )
 collection = taco.Collection(
     contract=contract,

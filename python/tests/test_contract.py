@@ -20,7 +20,7 @@ class Values(BaseModel):
 def test_model_schema_is_serialized() -> None:
     contract = taco.Contract(
         structure=["a.bin"],
-        metadata=taco.MetadataSchema(taco.Level("sample", values=Values)),
+        metadata=[taco.Level("sample", values=Values)],
     )
     assert contract.levels == ("sample", "children")
     assert contract.to_dict()["taco:metadata"]["sample"] == {
@@ -28,6 +28,20 @@ def test_model_schema_is_serialized() -> None:
         "values:score": {"type": "double", "nullable": True, "description": ""},
     }
     assert taco.Contract.from_dict(contract.to_dict()) == contract
+
+
+def test_metadata_takes_a_list_of_levels() -> None:
+    empty = taco.Contract(structure=["a.bin"], metadata=[])
+    assert empty == taco.Contract(structure=["a.bin"])
+    with pytest.raises(ContractError, match="unique"):
+        taco.Contract(
+            structure=["a.bin"],
+            metadata=[taco.Level("sample", values=Values), taco.Level("sample", other=Values)],
+        )
+    with pytest.raises(ContractError, match="list of taco.Level"):
+        taco.Contract(structure=["a.bin"], metadata=[{"sample": {}}])
+    with pytest.raises(ContractError, match="list of taco.Level"):
+        taco.Contract(structure=["a.bin"], metadata=taco.Level("sample", values=Values))
 
 
 def test_serialized_schema_uses_the_complete_form() -> None:
@@ -46,7 +60,7 @@ def test_serialized_schema_uses_the_complete_form() -> None:
 def test_optional_group_makes_all_fields_nullable() -> None:
     contract = taco.Contract(
         structure=["a.bin"],
-        metadata=taco.MetadataSchema(taco.Level("children", values=Values | None)),
+        metadata=[taco.Level("children", values=Values | None)],
     )
     assert all(field.nullable for field in contract.metadata["children"].values())
     contract.validate_sample(taco.Sample(id="u0", assets=[taco.Asset(b"x", path="a.bin")]))
@@ -55,7 +69,7 @@ def test_optional_group_makes_all_fields_nullable() -> None:
 def test_required_group_is_checked() -> None:
     contract = taco.Contract(
         structure=["a.bin"],
-        metadata=taco.MetadataSchema(taco.Level("sample", values=Values)),
+        metadata=[taco.Level("sample", values=Values)],
     )
     with pytest.raises(SampleError, match="required"):
         contract.validate_sample(taco.Sample(id="u1", assets=[taco.Asset(b"x", path="a.bin")]))
@@ -126,7 +140,7 @@ def test_profiles_require_canonical_nullability() -> None:
 def test_passive_profile_validates_canonical_required_fields() -> None:
     contract = taco.Contract(
         structure=["a.bin"],
-        metadata=taco.MetadataSchema(taco.Level("sample", stac=taco.metadata.sample.STAC)),
+        metadata=[taco.Level("sample", stac=taco.metadata.sample.STAC)],
     )
     metadata = taco.Metadata(
         stac=taco.metadata.sample.STAC(
@@ -144,29 +158,29 @@ def test_scope_is_enforced() -> None:
     with pytest.raises(ContractError, match="cannot be used"):
         taco.Contract(
             structure=["a.tif"],
-            metadata=taco.MetadataSchema(taco.Level("sample", scaling=taco.metadata.asset.Scaling)),
+            metadata=[taco.Level("sample", scaling=taco.metadata.asset.Scaling)],
         )
     with pytest.raises(TypeError, match="not collection"):
         taco.CollectionMetadata(split=taco.metadata.sample.Split(split="train"))
     with pytest.raises(ContractError, match="cannot be used"):
         taco.Contract(
             structure=["folder/a.tif"],
-            metadata=taco.MetadataSchema(taco.Level("children", stac=taco.metadata.sample.STAC | None)),
+            metadata=[taco.Level("children", stac=taco.metadata.sample.STAC | None)],
         )
     taco.Contract(
         structure=["folder/a.tif"],
-        metadata=taco.MetadataSchema(
+        metadata=[
             taco.Level("children", stac=taco.extensions.STAC(model=taco.metadata.folder.STAC))
-        ),
+        ],
     )
 
 
 def test_derived_declaration_and_dependency() -> None:
     contract = taco.Contract(
         structure=["a.bin"],
-        metadata=taco.MetadataSchema(
+        metadata=[
             taco.Level("sample", stac=taco.extensions.STAC(), grid=taco.extensions.MajorTOM(50))
-        ),
+        ],
     )
     descriptor = contract.extensions["sample"]["grid"]
     assert descriptor["requires"] == ["stac:centroid"]
@@ -176,7 +190,7 @@ def test_derived_declaration_and_dependency() -> None:
     with pytest.raises(ContractError, match="missing"):
         taco.Contract(
             structure=["a.bin"],
-            metadata=taco.MetadataSchema(taco.Level("sample", grid=taco.extensions.MajorTOM())),
+            metadata=[taco.Level("sample", grid=taco.extensions.MajorTOM())],
         )
 
 
@@ -223,9 +237,9 @@ def test_serialized_derived_declaration_is_validated() -> None:
 def test_execution_graph_is_not_serialized() -> None:
     contract = taco.Contract(
         structure=["data.bin"],
-        metadata=taco.MetadataSchema(
+        metadata=[
             taco.Level("sample", stac=taco.extensions.STAC(), grid=taco.extensions.MajorTOM())
-        ),
+        ],
     )
     assert contract.extensions
     assert "taco:derived" not in contract.to_dict()
@@ -260,7 +274,7 @@ def test_custom_types() -> None:
 
     contract = taco.Contract(
         structure=["data.bin"],
-        metadata=taco.MetadataSchema(taco.Level("sample", custom=Types)),
+        metadata=[taco.Level("sample", custom=Types)],
     )
     fields = contract.metadata["sample"]
     assert fields["custom:at"].type == "timestamp[ms, UTC]"

@@ -11,6 +11,12 @@ JavaScript reader are documented here. The format follows
 - `Contract(metadata=...)` takes a list of `taco.Level` objects.
   `taco.MetadataSchema` is removed; replace `taco.MetadataSchema(a, b)` with
   `[a, b]`. An empty list is the same as no metadata.
+- `Collection` accepts metadata as keyword groups, such as
+  `labels=taco.metadata.collection.Labels(...)` or `poi={"category": "volcano"}`.
+  Replace `metadata=taco.CollectionMetadata(a=A, b=B)` with `a=A, b=B`.
+  All parameters are keyword-only. `collection.metadata` holds the groups as
+  JSON values; `to_dict()` returns an independent copy. `Collection.replace()`
+  and `taco.export()` replace whole groups by name; `None` removes a group.
 - The spatial and temporal profiles follow STAC. `temporal` stores `datetime`
   or an inclusive `start_datetime`/`end_datetime` range, `spatial` stores the
   EPSG:4326 `geometry` footprint and its `bbox`, and `stac` stores both. A

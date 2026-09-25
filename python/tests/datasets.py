@@ -131,8 +131,8 @@ def collection(
     name: str,
     contract: taco.Contract,
     *,
-    metadata: taco.CollectionMetadata | None = None,
     tasks: list[str] | None = None,
+    **groups: object,
 ) -> taco.Collection:
     return taco.Collection(
         contract=contract,
@@ -141,7 +141,7 @@ def collection(
         licenses=["MIT"],
         providers=[{"name": "TACO tests", "roles": ["producer"]}],
         tasks=tasks or ["other"],
-        metadata=metadata,
+        **groups,
     )
 
 
@@ -181,10 +181,10 @@ def flat_assets() -> DatasetCase:
         )
         for index in range(2)
     )
-    metadata = taco.CollectionMetadata(labels=taco.metadata.collection.Labels(classes=["clear", "cloud"]))
+    labels = taco.metadata.collection.Labels(classes=["clear", "cloud"])
     files = (("image.tif", "label.tif"),) * 2
     return DatasetCase(
-        "flat_assets", collection("flat-assets", contract, metadata=metadata), samples, contract.levels, files, (2, 4)
+        "flat_assets", collection("flat-assets", contract, labels=labels), samples, contract.levels, files, (2, 4)
     )
 
 
@@ -325,10 +325,9 @@ def mixed_structure() -> DatasetCase:
                 assets=assets,
             )
         )
-    metadata = taco.CollectionMetadata(benchmark=Benchmark(source="synthetic", revision=1))
     return DatasetCase(
         "mixed_structure",
-        collection("mixed-structure", contract, metadata=metadata),
+        collection("mixed-structure", contract, benchmark=Benchmark(source="synthetic", revision=1)),
         tuple(samples),
         contract.levels,
         files,
@@ -459,26 +458,27 @@ def derived_metadata() -> DatasetCase:
                 assets=assets,
             )
         )
-    collection_metadata = taco.CollectionMetadata(
-        labels=taco.metadata.collection.Labels(classes=["clear", "cloud"]),
-        optical=taco.metadata.collection.Optical(
-            sensor="synthetic",
-            bands=[taco.metadata.collection.SpectralBand(name="B02", index=0)],
-        ),
-        scientific=taco.metadata.collection.Publications(
-            publications=[
-                taco.metadata.collection.Publication(
-                    doi="10.0000/taco.test",
-                    citation="TACO writer regression dataset",
-                )
-            ]
-        ),
-        split=taco.metadata.collection.SplitStrategy(strategy="manual"),
-    )
     files = (("image.tif", "label.tif"),) * len(samples)
     return DatasetCase(
         "derived_metadata",
-        collection("derived-metadata", contract, metadata=collection_metadata),
+        collection(
+            "derived-metadata",
+            contract,
+            labels=taco.metadata.collection.Labels(classes=["clear", "cloud"]),
+            optical=taco.metadata.collection.Optical(
+                sensor="synthetic",
+                bands=[taco.metadata.collection.SpectralBand(name="B02", index=0)],
+            ),
+            scientific=taco.metadata.collection.Publications(
+                publications=[
+                    taco.metadata.collection.Publication(
+                        doi="10.0000/taco.test",
+                        citation="TACO writer regression dataset",
+                    )
+                ]
+            ),
+            split=taco.metadata.collection.SplitStrategy(strategy="manual"),
+        ),
         tuple(samples),
         contract.levels,
         files,

@@ -64,7 +64,7 @@ def collection(contract: taco.Contract) -> taco.Collection:
         tasks=["change-detection"],
         title="Tiny change",
         keywords=["fixture"],
-        metadata=taco.CollectionMetadata(labels=taco.metadata.collection.Labels(classes=["clear", "change"])),
+        labels=taco.metadata.collection.Labels(classes=["clear", "change"]),
     )
 
 

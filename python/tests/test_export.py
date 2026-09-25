@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import re
 import threading
@@ -17,7 +18,7 @@ import taco.writer.export as export_module
 from taco.container.view import DatasetView, open_view
 from taco.contract.naming import RELATIVE_PATH, SOURCE_FILE
 from taco.contract.types import type_name
-from taco.errors import ContainerError, WriterError
+from taco.errors import CollectionError, ContainerError, WriterError
 from taco.writer.export import _metadata_path
 
 from .datasets import CASES, DatasetCase, case_id
@@ -269,13 +270,22 @@ def test_collection_fields_are_inherited_unless_given(archive: Path, tmp_path: P
     assert exported.licenses == source.licenses
     assert exported.contract == source.contract
 
-    with pytest.raises(TypeError, match="unexpected keyword"):
+    with pytest.raises(CollectionError, match="must be a mapping or a Pydantic model"):
         taco.export(archive, tmp_path / "bad.zip", sql=ALL_SAMPLES, nonsense="x")
     with pytest.raises(ValueError, match="keeps the contract"):
         taco.export(archive, tmp_path / "bad.zip", sql=ALL_SAMPLES, contract=source.contract)
     with pytest.raises(WriterError, match="without samples"):
         taco.export(archive, tmp_path / "none.zip", sql="SELECT * FROM sample LIMIT 0", id="tiny-change-none")
     assert not (tmp_path / "none.zip").exists()
+
+
+def test_export_replaces_and_removes_collection_metadata_groups(archive: Path, tmp_path: Path) -> None:
+    output = tmp_path / "grouped.zip"
+    taco.export(archive, output, sql=ALL_SAMPLES, labels=None, poi={"category": "volcano"})
+    exported = open_view(output).collection
+    assert "labels" not in exported.metadata
+    assert exported.metadata["poi"] == {"category": "volcano"}
+    assert json.loads(zipfile.ZipFile(output).read("COLLECTION.json"))["poi:category"] == "volcano"
 
 
 def test_export_sql_must_preserve_sample_index(archive: Path, tmp_path: Path) -> None:

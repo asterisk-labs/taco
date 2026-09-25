@@ -1,15 +1,18 @@
 from __future__ import annotations
 
+import difflib
 import json
 import math
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
-from ..errors import CollectionError
+from pydantic import BaseModel
+
+from ..errors import CollectionError, ContractError
 from .contract import Contract
-from .schema import CollectionMetadata
+from .schema import validate_qualified_field
 
 TACO_VERSION = "3.0.0"
 KNOWN_TASKS = frozenset(
@@ -254,22 +257,141 @@ class Extent:
         return Extent((west, south, east, north), temporal)
 
 
-@dataclass(frozen=True)
+# Keyword arguments of Collection other than these are collection metadata groups.
+_PARAMETERS = (
+    "contract",
+    "id",
+    "description",
+    "licenses",
+    "providers",
+    "tasks",
+    "title",
+    "curators",
+    "keywords",
+    "extent",
+    "sources",
+)
+
+
+def _group_values(namespace: str, value: object) -> dict[str, Any]:
+    """Check one collection metadata group and return its values as JSON."""
+    if isinstance(value, BaseModel):
+        scopes: frozenset[str] = getattr(type(value), "__taco_scopes__", frozenset())
+        if scopes and "collection" not in scopes:
+            raise CollectionError(f"{type(value).__name__} is not collection metadata")
+        try:
+            values = value.model_dump(mode="json")
+        except (TypeError, ValueError) as exc:
+            raise CollectionError(f"collection metadata group {namespace!r} must be JSON serializable") from exc
+        if not isinstance(values, dict):
+            raise CollectionError(f"collection metadata group {namespace!r} must serialize to a JSON object")
+    elif isinstance(value, Mapping):
+        values = dict(value)
+    elif isinstance(value, type) and issubclass(value, BaseModel):
+        raise CollectionError(
+            f"collection metadata group {namespace!r} needs an instance, such as {value.__name__}(...)"
+        )
+    else:
+        # A misspelled Collection parameter arrives here as a group.
+        close = difflib.get_close_matches(namespace, _PARAMETERS, n=1)
+        hint = f"; did you mean {close[0]!r}?" if close else ""
+        raise CollectionError(
+            f"collection metadata group {namespace!r} must be a mapping or a Pydantic model, "
+            f"got {type(value).__name__}{hint}"
+        )
+    if not values:
+        raise CollectionError(f"collection metadata group {namespace!r} is empty")
+    for name in values:
+        if not isinstance(name, str):
+            raise CollectionError(f"collection metadata group {namespace!r} has a non-string field {name!r}")
+        try:
+            validate_qualified_field(f"{namespace}:{name}")
+        except ContractError as exc:
+            raise CollectionError(str(exc)) from exc
+    try:
+        encoded = json.dumps(values, allow_nan=False)
+    except (TypeError, ValueError) as exc:
+        raise CollectionError(f"collection metadata group {namespace!r} must be JSON serializable") from exc
+    # Normalize tuples and detach nested values from the caller's objects.
+    result: dict[str, Any] = json.loads(encoded)
+    return result
+
+
+@dataclass(frozen=True, init=False)
 class Collection:
+    """Dataset description and metadata stored in COLLECTION.json.
+
+    Keyword arguments other than the named parameters are collection metadata
+    groups, such as ``labels=taco.metadata.collection.Labels(...)`` or
+    ``poi={"category": "volcano"}``. Each field ``x`` of group ``g`` is stored
+    as ``g:x``. ``metadata`` contains the validated groups as dictionaries.
+    Collections read from disk also include the groups written by extensions.
+    """
+
     contract: Contract
     id: str
     description: str
     licenses: tuple[str, ...]
     providers: tuple[Provider, ...]
-    tasks: tuple[str, ...] | None = None
-    metadata: CollectionMetadata | None = None
-    title: str | None = None
-    curators: tuple[Curator, ...] | None = None
-    keywords: tuple[str, ...] | None = None
-    extent: Extent | None = None
-    sources: dict[str, Any] | None = None
+    tasks: tuple[str, ...] | None
+    title: str | None
+    curators: tuple[Curator, ...] | None
+    keywords: tuple[str, ...] | None
+    extent: Extent | None
+    sources: dict[str, Any] | None
+    metadata: dict[str, dict[str, Any]]
 
-    def __post_init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        contract: Contract,
+        id: str,
+        description: str,
+        licenses: Sequence[str],
+        providers: Sequence[Provider | Mapping[str, Any] | str],
+        tasks: Sequence[str] | None = None,
+        title: str | None = None,
+        curators: Sequence[Curator | Mapping[str, Any] | str] | None = None,
+        keywords: Sequence[str] | None = None,
+        extent: Extent | Mapping[str, Any] | None = None,
+        sources: dict[str, Any] | None = None,
+        **groups: Any,
+    ) -> None:
+        if "metadata" in groups:
+            raise CollectionError(
+                "pass collection metadata as groups, such as labels=... or poi={...}, instead of metadata="
+            )
+        parameters = {
+            "contract": contract,
+            "id": id,
+            "description": description,
+            "licenses": licenses,
+            "providers": providers,
+            "tasks": tasks,
+            "title": title,
+            "curators": curators,
+            "keywords": keywords,
+            "extent": extent,
+            "sources": sources,
+        }
+        self._initialize(parameters, groups)
+
+    @classmethod
+    def _from_parts(cls, parameters: Mapping[str, Any], groups: Mapping[str, Any]) -> Collection:
+        # A group read from COLLECTION.json may share a name with a parameter,
+        # which keyword arguments cannot express.
+        instance = object.__new__(cls)
+        instance._initialize(parameters, groups)
+        return instance
+
+    def _initialize(self, parameters: Mapping[str, Any], groups: Mapping[str, Any]) -> None:
+        for name in _PARAMETERS:
+            object.__setattr__(self, name, parameters[name])
+        metadata = {
+            namespace: _group_values(namespace, value) for namespace, value in groups.items() if value is not None
+        }
+        object.__setattr__(self, "metadata", metadata)
+
         if not isinstance(self.contract, Contract):
             raise CollectionError("contract must be a Contract")
         if not isinstance(self.id, str) or not self.id.strip() or any(char in self.id for char in "/\\:\x00"):
@@ -284,15 +406,12 @@ class Collection:
         if not self.providers:
             raise CollectionError("providers must not be empty")
         object.__setattr__(self, "providers", tuple(Provider.from_any(value) for value in self.providers))
-        if self.metadata is not None and not isinstance(self.metadata, CollectionMetadata):
-            raise CollectionError("metadata must be taco.CollectionMetadata")
-        if self.metadata is not None:
-            try:
-                json.dumps(self.metadata.flatten(), allow_nan=False)
-            except (TypeError, ValueError) as exc:
-                raise CollectionError("collection metadata must be JSON serializable") from exc
-        supplied_metadata = {} if self.metadata is None else self.metadata.flatten()
-        for name, value in self.contract.extension_metadata().items():
+        supplied_metadata = self._flat_metadata()
+        try:
+            extension_metadata = json.loads(json.dumps(self.contract.extension_metadata(), allow_nan=False))
+        except (TypeError, ValueError) as exc:
+            raise CollectionError("extension collection metadata must be JSON serializable") from exc
+        for name, value in extension_metadata.items():
             if name in supplied_metadata and supplied_metadata[name] != value:
                 raise CollectionError(f"collection metadata {name!r} conflicts with the active extension")
         if self.curators is not None:
@@ -307,10 +426,30 @@ class Collection:
             except (TypeError, ValueError) as exc:
                 raise CollectionError("taco:sources must be JSON serializable") from exc
 
+    def _flat_metadata(self) -> dict[str, Any]:
+        return {
+            f"{namespace}:{name}": value
+            for namespace, values in self.metadata.items()
+            for name, value in values.items()
+        }
+
     def replace(self, **changes: Any) -> Collection:
-        return replace(self, **changes)
+        """Return a copy with some parameters or groups replaced; a group set to None is removed."""
+        if "metadata" in changes:
+            raise CollectionError("replace collection metadata by group, such as labels=..., instead of metadata=")
+        parameters = {name: getattr(self, name) for name in _PARAMETERS}
+        groups: dict[str, Any] = dict(self.metadata)
+        for name, value in changes.items():
+            if name in _PARAMETERS:
+                parameters[name] = value
+            elif value is None:
+                groups.pop(name, None)
+            else:
+                groups[name] = value
+        return type(self)._from_parts(parameters, groups)
 
     def to_dict(self) -> dict[str, Any]:
+        """Return an independent copy of the collection as JSON values."""
         data: dict[str, Any] = {
             "taco:version": TACO_VERSION,
             "id": self.id,
@@ -331,11 +470,10 @@ class Collection:
             data["extent"] = self.extent.to_dict()
         if self.sources is not None:
             data["taco:sources"] = self.sources
-        if self.metadata is not None:
-            data.update(self.metadata.flatten())
+        data.update(self._flat_metadata())
         data.update(self.contract.extension_metadata())
-        json.dumps(data, allow_nan=False)
-        return data
+        result: dict[str, Any] = json.loads(json.dumps(data, allow_nan=False))
+        return result
 
     def to_json(self) -> str:
         return json.dumps(self.to_dict(), ensure_ascii=False, indent=2, allow_nan=False) + "\n"
@@ -375,20 +513,24 @@ class Collection:
         unqualified = sorted(key for key in extra if ":" not in key)
         if unqualified:
             raise CollectionError(f"COLLECTION.json has unknown unqualified fields {unqualified}")
-        return cls(
-            contract=Contract.from_dict(data),
-            id=data["id"],
-            description=data["description"],
-            licenses=data["licenses"],
-            providers=tuple(Provider.from_any(value) for value in providers),
-            tasks=data.get("tasks"),
-            metadata=CollectionMetadata.from_flat(extra) if extra else None,
-            title=data.get("title"),
-            curators=None if curators is None else tuple(Curator.from_any(value) for value in curators),
-            keywords=data.get("keywords"),
-            extent=data.get("extent"),
-            sources=data.get("taco:sources"),
-        )
+        groups: dict[str, dict[str, Any]] = {}
+        for key, value in extra.items():
+            namespace, _, name = key.partition(":")
+            groups.setdefault(namespace, {})[name] = value
+        parameters = {
+            "contract": Contract.from_dict(data),
+            "id": data["id"],
+            "description": data["description"],
+            "licenses": data["licenses"],
+            "providers": tuple(Provider.from_any(value) for value in providers),
+            "tasks": data.get("tasks"),
+            "title": data.get("title"),
+            "curators": None if curators is None else tuple(Curator.from_any(value) for value in curators),
+            "keywords": data.get("keywords"),
+            "extent": data.get("extent"),
+            "sources": data.get("taco:sources"),
+        }
+        return cls._from_parts(parameters, groups)
 
     @classmethod
     def from_json(cls, text: str | bytes) -> Collection:

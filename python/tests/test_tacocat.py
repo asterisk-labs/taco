@@ -118,9 +118,7 @@ def test_consolidate_rejects_collection_metadata_mismatch(
     tmp_path: Path, collection: taco.Collection, make_sample
 ) -> None:
     first = build(tmp_path / "a.zip", collection, [make_sample(0)])
-    changed = collection.replace(
-        metadata=taco.CollectionMetadata(labels=taco.metadata.collection.Labels(classes=["clear"]))
-    )
+    changed = collection.replace(labels=taco.metadata.collection.Labels(classes=["clear"]))
     second = build(tmp_path / "b.zip", changed, [make_sample(1)])
     with pytest.raises(ContainerError, match="same collection"):
         taco.open_dataset([first, second])

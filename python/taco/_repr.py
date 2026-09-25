@@ -228,8 +228,9 @@ def _collection(dataset: Dataset) -> str:
         rows.insert(1, ("tasks", list(collection.tasks)))
     if collection.extent is not None:
         rows.append(("extent", collection.extent.to_dict()))
-    if collection.metadata is not None:
-        rows.append(("metadata", sorted(collection.metadata.flatten())))
+    if collection.metadata:
+        fields = [f"{group}:{name}" for group, values in collection.metadata.items() for name in values]
+        rows.append(("metadata", sorted(fields)))
     return "".join(
         f'<div class="taco-row"><div class="taco-key">{escape(name)}</div>'
         f'<div class="taco-value">{escape(_short(value))}</div></div>'

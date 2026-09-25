@@ -480,7 +480,7 @@ Collection metadata is stored directly in `COLLECTION.json` as qualified fields.
 }
 ```
 
-The Python writer groups these values in `CollectionMetadata`, but the serialized form remains flat and language-independent. Collection groups and sample groups are separate. A collection group MUST NOT be attached to a sample, folder, or asset.
+The Python writer takes these values as groups, one keyword argument of `Collection` per namespace, but the serialized form remains flat and language-independent. Collection groups and sample groups are separate. A collection group MUST NOT be attached to a sample, folder, or asset.
 
 Collection metadata values MUST be valid JSON. Non-finite numbers such as NaN and Infinity are not allowed.
 
@@ -752,9 +752,8 @@ The writer uses the following immutable data objects.
 | `Asset` | Points to one source file |
 | `Level` | Associates namespaces with models or writer-time extensions; `Contract(metadata=[...])` takes a list of them |
 | `Metadata` | Carries values for a sample, folder, or asset |
-| `CollectionMetadata` | Carries metadata that applies to the complete dataset |
 
-`Metadata` and `CollectionMetadata` cannot be used interchangeably.
+Metadata for the complete dataset is not a separate object. It is passed to `Collection` as groups, described under Collection metadata below.
 
 #### Metadata schema
 
@@ -813,18 +812,28 @@ The serialized contract contains the resulting columns, not Python class names, 
 
 #### Collection metadata
 
-Collection groups are passed through `CollectionMetadata`. They are written as qualified fields in `COLLECTION.json`.
+Pass collection metadata as keyword groups. Each group accepts a mapping or a Pydantic model that serializes to a JSON object. For example, `source={"mission": "Sentinel-2"}` writes `"source:mission": "Sentinel-2"` to `COLLECTION.json`. The models in `taco.metadata.collection` provide common fields and validation.
 
 ```
-collection_metadata = taco.CollectionMetadata(
+collection = taco.Collection(
+    contract=contract,
+    id="cloud-segmentation",
+    description="Cloud segmentation dataset",
+    licenses=["CC-BY-4.0"],
+    providers=[{"name": "CSIC", "roles": ["producer"]}],
     labels=taco.metadata.collection.Labels(
         classes=["clear", "cloud", "shadow"],
         description="Cloud mask classes",
-    )
+    ),
+    source={"mission": "Sentinel-2", "level": "L1C"},
 )
 ```
 
-A collection group is validated once. It is never copied into every sample row. The writer adds `taco:version` automatically.
+Groups must be non-empty, use valid qualified field names, and contain JSON values. Models scoped to samples, folders, or assets are rejected, as are values that conflict with an active extension. Validation failures raise `CollectionError`.
+
+Group names cannot be `metadata` or a named parameter of `Collection`. Readers still preserve those namespaces when they occur in a file. `Collection.replace(poi={...})` replaces the entire `poi` group; `poi=None` removes it. `taco.export()` accepts the same overrides.
+
+`collection.metadata` holds the groups as JSON values. `to_dict()` returns an independent copy, so editing its nested lists or dictionaries does not change the collection. Collection groups are validated at construction and stored only in `COLLECTION.json`. The writer adds `taco:version` automatically.
 
 #### Collection summaries
 
@@ -938,11 +947,9 @@ collection = taco.Collection(
     licenses=["CC-BY-4.0"],
     providers=[{"name": "CSIC", "roles": ["producer"]}],
     tasks=["segmentation"],
-    metadata=taco.CollectionMetadata(
-        labels=taco.metadata.collection.Labels(
-            classes=["clear", "cloud"],
-            description="Cloud mask classes",
-        )
+    labels=taco.metadata.collection.Labels(
+        classes=["clear", "cloud"],
+        description="Cloud mask classes",
     ),
 )
 

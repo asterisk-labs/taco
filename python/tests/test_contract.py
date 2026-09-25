@@ -9,7 +9,7 @@ import pytest
 from pydantic import BaseModel, Field
 
 import taco
-from taco.errors import ContractError, SampleError
+from taco.errors import CollectionError, ContractError, SampleError
 
 
 class Values(BaseModel):
@@ -164,8 +164,15 @@ def test_scope_is_enforced() -> None:
             structure=["a.tif"],
             metadata=[taco.Level("sample", scaling=taco.metadata.asset.Scaling)],
         )
-    with pytest.raises(TypeError, match="not collection"):
-        taco.CollectionMetadata(split=taco.metadata.sample.Split(split="train"))
+    with pytest.raises(CollectionError, match="not collection"):
+        taco.Collection(
+            contract=taco.Contract(structure=["a.tif"]),
+            id="scoped",
+            description="Scoped metadata",
+            licenses=["MIT"],
+            providers=["me"],
+            split=taco.metadata.sample.Split(split="train"),
+        )
     with pytest.raises(ContractError, match="cannot be used"):
         taco.Contract(
             structure=["folder/a.tif"],

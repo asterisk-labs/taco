@@ -202,18 +202,38 @@ collection = taco.Collection(
     title="CloudSEN12",
     curators=[{"name": "Cesar Aybar", "email": "cesar@asterisk.coop"}],
     keywords=["clouds"],
-    metadata=taco.CollectionMetadata(
-        labels=taco.metadata.collection.Labels(classes=["clear", "cloud", "shadow"]),
-        optical=taco.metadata.collection.Optical(sensor="Sentinel-2"),
-    ),
+    labels=taco.metadata.collection.Labels(classes=["clear", "cloud", "shadow"]),
+    optical=taco.metadata.collection.Optical(sensor="Sentinel-2"),
+    poi={"category": "volcano", "catalog": "Wikidata"},
 )
 ```
 
-`CollectionMetadata.flatten()` writes `labels:classes`, `labels:num_classes`,
-`optical:sensor` and so on as flat qualified keys in `COLLECTION.json`. It never
-becomes a Parquet column and is never copied into a row. `Labels` and `Optical` add
-computed `num_classes` and `num_bands`. Values must be JSON serializable with no NaN
-or Infinity.
+Every keyword that is not a `Collection` parameter is a **group**, and each field `x`
+of group `g` is written to `COLLECTION.json` as `g:x` (`labels:classes`,
+`labels:num_classes`, `poi:category`). A group is a mapping or a Pydantic model
+instance; `Labels` and `Optical` add computed `num_classes` and `num_bands`. It never
+becomes a Parquet column and is never copied into a row. `collection.metadata` holds
+the groups as JSON values (`{"poi": {"category": "volcano", ...}}`); read back from
+`COLLECTION.json` it also holds the values extensions stored, such as `majortom`.
+There is no `CollectionMetadata` and no `metadata=` parameter.
+
+The groups are checked when the collection is built, always as `CollectionError`:
+
+```
+pass collection metadata as groups, such as labels=... or poi={...}, instead of metadata=
+collection metadata group 'licences' must be a mapping or a Pydantic model, got list; did you mean 'licenses'?
+collection metadata group 'poi' needs an instance, such as POI(...)
+collection metadata group 'poi' is empty
+metadata field 'poi:a:b' must be namespace:field
+collection metadata group 'poi' must be JSON serializable
+Split is not collection metadata
+collection metadata 'majortom:dist_km' conflicts with the active extension
+```
+
+The parameters are keyword-only, so a group can never shift them.
+`collection.replace(poi={...})` and `taco.export(..., poi={...})` replace a group, and
+`poi=None` removes it. A group cannot be named after a parameter (`title`, `tasks`,
+...) from Python; `Collection.from_dict` still reads such a namespace from JSON.
 
 `Collection.from_dict` rejects an unknown reserved key (`taco:`, `internal:`,
 `cozip:`) and any unknown key without a namespace; unknown qualified keys in a user

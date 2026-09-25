@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import re
 import types
-from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
@@ -297,42 +296,8 @@ class Metadata:
         return bool(self.groups)
 
 
-@dataclass(frozen=True, init=False)
-class CollectionMetadata:
-    groups: dict[str, BaseModel]
-    _flat: dict[str, Any]
-
-    def __init__(self, **groups: BaseModel) -> None:
-        for namespace, model in groups.items():
-            _namespace(namespace)
-            if not isinstance(model, BaseModel):
-                raise TypeError(f"collection metadata group {namespace!r} must be a Pydantic model instance")
-            scopes: frozenset[str] = getattr(type(model), "__taco_scopes__", frozenset())
-            if scopes and "collection" not in scopes:
-                raise TypeError(f"{type(model).__name__} is not collection metadata")
-        object.__setattr__(self, "groups", dict(groups))
-        object.__setattr__(self, "_flat", {})
-
-    def flatten(self) -> dict[str, Any]:
-        result: dict[str, Any] = dict(self._flat)
-        for namespace, model in self.groups.items():
-            for name, value in model.model_dump(mode="json").items():
-                result[f"{namespace}:{name}"] = value
-        return result
-
-    @classmethod
-    def from_flat(cls, values: Mapping[str, Any]) -> CollectionMetadata:
-        for name in values:
-            validate_qualified_field(name)
-        instance = object.__new__(cls)
-        object.__setattr__(instance, "groups", {})
-        object.__setattr__(instance, "_flat", dict(values))
-        return instance
-
-
 __all__ = [
     "PROFILE_FIELDS",
-    "CollectionMetadata",
     "DerivedMetadata",
     "Extension",
     "Field",

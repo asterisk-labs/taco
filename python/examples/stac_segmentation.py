@@ -25,12 +25,6 @@ class AssetContent(BaseModel):
     nodata: float | None = Field(default=None, description="Value reserved for missing pixels")
 
 
-class SourceCollection(BaseModel):
-    name: str = Field(description="Input collection")
-    bands: list[str] = Field(description="Selected source bands")
-    note: str = Field(description="Relationship between the source and this example")
-
-
 def encode(array: np.ndarray) -> bytes:
     buffer = io.BytesIO()
     np.save(buffer, array)
@@ -68,31 +62,29 @@ collection = taco.Collection(
     providers=[{"name": "TACO examples", "roles": ["producer"]}],
     tasks=["semantic-segmentation"],
     keywords=["STAC", "Sentinel-2", "land cover", "regular chunks"],
-    metadata=taco.CollectionMetadata(
-        source=SourceCollection(
-            name="Sentinel-2 MSI",
-            bands=["B02", "B03", "B04", "B08"],
-            note="The arrays are synthetic; only their shape and scale resemble reflectance chips",
-        ),
-        labels=taco.metadata.collection.Labels(
-            classes=[
-                taco.metadata.collection.LabelClass(name="water", category=0),
-                taco.metadata.collection.LabelClass(name="vegetation", category=1),
-                taco.metadata.collection.LabelClass(name="urban", category=2),
-            ],
-            description="Dense land-cover classes stored in label.npy",
-        ),
-        optical=taco.metadata.collection.Optical(
-            sensor="Sentinel-2 MSI",
-            bands=[
-                taco.metadata.collection.SpectralBand(name="B02", index=0, common_name="blue"),
-                taco.metadata.collection.SpectralBand(name="B03", index=1, common_name="green"),
-                taco.metadata.collection.SpectralBand(name="B04", index=2, common_name="red"),
-                taco.metadata.collection.SpectralBand(name="B08", index=3, common_name="nir"),
-            ],
-        ),
-        split=taco.metadata.collection.SplitStrategy(strategy="manual"),
+    source={
+        "name": "Sentinel-2 MSI",
+        "bands": ["B02", "B03", "B04", "B08"],
+        "note": "The arrays are synthetic; only their shape and scale resemble reflectance chips",
+    },
+    labels=taco.metadata.collection.Labels(
+        classes=[
+            taco.metadata.collection.LabelClass(name="water", category=0),
+            taco.metadata.collection.LabelClass(name="vegetation", category=1),
+            taco.metadata.collection.LabelClass(name="urban", category=2),
+        ],
+        description="Dense land-cover classes stored in label.npy",
     ),
+    optical=taco.metadata.collection.Optical(
+        sensor="Sentinel-2 MSI",
+        bands=[
+            taco.metadata.collection.SpectralBand(name="B02", index=0, common_name="blue"),
+            taco.metadata.collection.SpectralBand(name="B03", index=1, common_name="green"),
+            taco.metadata.collection.SpectralBand(name="B04", index=2, common_name="red"),
+            taco.metadata.collection.SpectralBand(name="B08", index=3, common_name="nir"),
+        ],
+    ),
+    split=taco.metadata.collection.SplitStrategy(strategy="manual"),
 )
 
 chips = [

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, RootModel
 
 import taco
 from taco.contract import Curator, Extent, Provider
@@ -22,8 +22,8 @@ def test_collection_round_trip(collection: taco.Collection) -> None:
     assert loaded.to_dict() == data
 
 
-def test_collection_metadata_models() -> None:
-    metadata = taco.CollectionMetadata(
+def test_collection_metadata_models(collection: taco.Collection) -> None:
+    collection = collection.replace(
         labels=taco.metadata.collection.Labels(classes=["cloud", "clear"]),
         optical=taco.metadata.collection.Optical(
             sensor="sentinel2msi",
@@ -31,10 +31,83 @@ def test_collection_metadata_models() -> None:
         ),
         split=taco.metadata.collection.SplitStrategy(strategy="stratified"),
     )
-    values = metadata.flatten()
+    values = collection.to_dict()
     assert values["labels:num_classes"] == 2
     assert values["optical:num_bands"] == 1
     assert values["split:strategy"] == "stratified"
+    assert collection.metadata["split"] == {"strategy": "stratified"}
+
+
+class POI(BaseModel):
+    category: str
+
+
+def test_collection_metadata_groups_are_keywords(collection: taco.Collection) -> None:
+    grouped = collection.replace(poi={"category": "volcano", "tags": ("a", "b")}, source={"collection": "s2"})
+    assert grouped.metadata["poi"] == {"category": "volcano", "tags": ["a", "b"]}
+    assert grouped.metadata["labels"]["num_classes"] == 2
+    data = grouped.to_dict()
+    assert data["poi:category"] == "volcano"
+    assert data["source:collection"] == "s2"
+    assert "metadata" not in data
+    loaded = taco.Collection.from_json(grouped.to_json())
+    assert loaded.to_dict() == data
+    # Read back, the values MajorTOM stored are one more group.
+    assert loaded.metadata["majortom"]["dist_km"] == 100
+    assert set(loaded.replace(poi=None).metadata) == {"labels", "majortom", "source"}
+    assert taco.Collection(**_required(collection), poi=POI(category="volcano"), empty=None).metadata == {
+        "poi": {"category": "volcano"}
+    }
+
+
+def _required(collection: taco.Collection) -> dict[str, object]:
+    return {
+        "contract": collection.contract,
+        "id": collection.id,
+        "description": collection.description,
+        "licenses": collection.licenses,
+        "providers": collection.providers,
+    }
+
+
+@pytest.mark.parametrize(
+    ("groups", "message"),
+    [
+        ({"metadata": {"poi": {"category": "x"}}}, "instead of metadata="),
+        ({"licences": ["MIT"]}, "got list; did you mean 'licenses'"),
+        ({"titel": "Tiny"}, "got str; did you mean 'title'"),
+        ({"poi": POI}, r"needs an instance, such as POI\(\.\.\.\)"),
+        ({"poi": {}}, "is empty"),
+        ({"poi": {"a:b": 1}}, "must be namespace:field"),
+        ({"poi": {"a__b": 1}}, "must not contain '__'"),
+        ({"poi": {1: "x"}}, "non-string field"),
+        ({"Poi": {"a": 1}}, "invalid metadata namespace"),
+        ({"taco": {"a": 1}}, "reserved"),
+        ({"poi": {"a": float("nan")}}, "JSON serializable"),
+        ({"majortom": {"dist_km": 50}}, "conflicts with the active extension"),
+    ],
+)
+def test_collection_metadata_groups_are_checked(
+    collection: taco.Collection, groups: dict[str, object], message: str
+) -> None:
+    with pytest.raises(CollectionError, match=message):
+        taco.Collection(**_required(collection), **groups)
+
+
+def test_collection_parameters_are_keyword_only(collection: taco.Collection) -> None:
+    with pytest.raises(TypeError, match="positional"):
+        taco.Collection(collection.contract, "positional", "d", ["MIT"], ["me"])  # type: ignore[misc]
+    with pytest.raises(CollectionError, match="instead of metadata="):
+        collection.replace(metadata={"poi": {"category": "x"}})
+
+
+def test_collection_reads_a_group_named_like_a_parameter(collection: taco.Collection) -> None:
+    data = collection.to_dict()
+    data["title:note"] = "kept"
+    loaded = taco.Collection.from_dict(data)
+    assert loaded.metadata["title"] == {"note": "kept"}
+    assert loaded.title == collection.title
+    assert loaded.to_dict() == data
 
 
 def test_provider_and_curator() -> None:
@@ -172,4 +245,33 @@ def test_collection_metadata_must_be_json(collection: taco.Collection) -> None:
         value: float
 
     with pytest.raises(CollectionError, match="JSON serializable"):
-        collection.replace(metadata=taco.CollectionMetadata(values=Values(value=float("nan"))))
+        collection.replace(values=Values(value=float("nan")))
+    with pytest.raises(CollectionError, match="JSON serializable"):
+        collection.replace(values={"value": float("inf")})
+
+
+def test_serialized_metadata_does_not_share_nested_values(collection: taco.Collection) -> None:
+    grouped = collection.replace(poi={"tags": ["volcano"], "location": {"country": "Peru"}})
+    data = grouped.to_dict()
+    data["poi:tags"].append("changed")
+    data["poi:location"]["country"] = "changed"
+    assert grouped.metadata["poi"] == {"tags": ["volcano"], "location": {"country": "Peru"}}
+
+
+@pytest.mark.parametrize("root", ["volcano", ["volcano"], 42, None])
+def test_collection_model_must_serialize_to_an_object(collection: taco.Collection, root: object) -> None:
+    with pytest.raises(CollectionError, match="must serialize to a JSON object"):
+        collection.replace(poi=RootModel[object](root))
+
+
+def test_collection_accepts_a_root_mapping(collection: taco.Collection) -> None:
+    grouped = collection.replace(poi=RootModel[dict[str, str]]({"category": "volcano"}))
+    assert grouped.metadata["poi"] == {"category": "volcano"}
+
+
+def test_collection_wraps_model_serialization_errors(collection: taco.Collection) -> None:
+    class Values(BaseModel):
+        value: object
+
+    with pytest.raises(CollectionError, match=r"group 'values'.*JSON serializable"):
+        collection.replace(values=Values(value=object()))

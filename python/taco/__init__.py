@@ -4,7 +4,7 @@ from importlib.metadata import PackageNotFoundError, version
 
 from . import extensions, metadata
 from .contract import Asset, Collection, Contract, Folder, Sample
-from .contract.schema import CollectionMetadata, DerivedMetadata, Extension, Level, Metadata
+from .contract.schema import DerivedMetadata, Extension, Level, Metadata
 from .errors import TacoError
 from .metadata._base import ExtensionContext
 from .reader import Dataset, open_dataset, read
@@ -22,7 +22,6 @@ except PackageNotFoundError:  # pragma: no cover - source checkout
 __all__ = [
     "Asset",
     "Collection",
-    "CollectionMetadata",
     "Contract",
     "Dataset",
     "DerivedMetadata",

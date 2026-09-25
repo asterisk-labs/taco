@@ -247,7 +247,18 @@ def test_collection_rejects_metadata_that_conflicts_with_an_extension() -> None:
         metadata=[taco.Level("sample", tag=CollectionTagged("active"))],
     )
     with pytest.raises(CollectionError, match="conflicts with the active extension"):
-        collection(contract).replace(metadata=taco.CollectionMetadata.from_flat({"tag:setting": "different"}))
+        collection(contract).replace(tag={"setting": "different"})
+
+
+def test_collection_compares_extension_metadata_as_json() -> None:
+    class BandNames(CollectionTagged):
+        def collection_metadata(self) -> Mapping[str, Any]:
+            return {"bands": ("red", "nir")}
+
+    contract = taco.Contract(structure=["data.bin"], metadata=[taco.Level("sample", tag=BandNames("active"))])
+    grouped = collection(contract).replace(tag={"bands": ["red", "nir"]})
+    assert grouped.to_dict()["tag:bands"] == ["red", "nir"]
+    assert taco.Collection.from_json(grouped.to_json()).to_dict() == grouped.to_dict()
 
 
 def test_append_rejects_changed_extension_metadata(tmp_path: Path) -> None:

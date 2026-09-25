@@ -5,6 +5,7 @@ from types import ModuleType
 
 import pyarrow as pa
 import pytest
+from pydantic import BaseModel, ValidationError
 
 import taco
 from taco.container.view import DatasetView, open_view
@@ -193,6 +194,25 @@ def public_metadata_groups(module: ModuleType) -> set[type[object]]:
     return groups
 
 
+def collection_models_matching(values: dict[str, object], candidates: set[type[object]]) -> set[type[object]]:
+    """Collection models whose stored fields and values a group has.
+
+    A collection group is stored as plain JSON, so its model is recognised by shape.
+    """
+    matching: set[type[object]] = set()
+    for candidate in candidates:
+        if not issubclass(candidate, BaseModel) or "collection" not in candidate.__taco_scopes__:
+            continue
+        if set(values) != set(candidate.model_fields) | set(candidate.model_computed_fields):
+            continue
+        try:
+            candidate.model_validate({name: value for name, value in values.items() if name in candidate.model_fields})
+        except ValidationError:
+            continue
+        matching.add(candidate)
+    return matching
+
+
 def test_every_public_metadata_group_has_a_writer_case() -> None:
     modules = (
         taco.metadata.sample,
@@ -208,9 +228,8 @@ def test_every_public_metadata_group_has_a_writer_case() -> None:
             for group in groups:
                 target = group.model if group.model is not None else type(group.derived)
                 used.update(candidate for candidate in public if issubclass(target, candidate))
-        if case.collection.metadata is not None:
-            for model in case.collection.metadata.groups.values():
-                used.update(candidate for candidate in public if isinstance(model, candidate))
+        for values in case.collection.metadata.values():
+            used.update(collection_models_matching(values, public))
 
     external = {taco.metadata.sample.GeoEnrich}
     assert public == used | external

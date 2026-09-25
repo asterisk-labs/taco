@@ -40,13 +40,6 @@ class ArrayLayout(BaseModel):
     data_type: str = Field(description="NumPy data type")
 
 
-class DatasetOrigin(BaseModel):
-    project: str = Field(description="Project that inspired the example")
-    url: str = Field(description="Project repository")
-    dataset_doi: str = Field(description="Reference dataset DOI")
-    note: str = Field(description="Relationship between the project and this example")
-
-
 def encode(array: np.ndarray) -> bytes:
     buffer = io.BytesIO()
     np.save(buffer, array)
@@ -104,26 +97,22 @@ collection = taco.Collection(
     providers=[{"name": "TACO examples", "roles": ["producer"]}],
     tasks=["regression"],
     keywords=["STAC", "OceanTACO", "SWOT", "Argo", "sensor fusion"],
-    metadata=taco.CollectionMetadata(
-        origin=DatasetOrigin(
-            project="OceanTACO",
-            url="https://github.com/nilsleh/oceanTACO",
-            dataset_doi="10.57967/hf/8171",
-            note="Workflow inspiration only; every value in this example is synthetic",
-        ),
-        scientific=taco.metadata.collection.Publications(
-            publications=[
-                taco.metadata.collection.Publication(
-                    doi="10.5194/essd-2026-232",
-                    citation=(
-                        "Lehmann et al. (2026), OceanTACO: A Multi-Sensor Global Ocean Sea Surface State Dataset"
-                    ),
-                    summary="Motivation for the synthetic multi-sensor collocation workflow",
-                )
-            ]
-        ),
-        split=taco.metadata.collection.SplitStrategy(strategy="manual"),
+    origin={
+        "project": "OceanTACO",
+        "url": "https://github.com/nilsleh/oceanTACO",
+        "dataset_doi": "10.57967/hf/8171",
+        "note": "Workflow inspiration only; every value in this example is synthetic",
+    },
+    scientific=taco.metadata.collection.Publications(
+        publications=[
+            taco.metadata.collection.Publication(
+                doi="10.5194/essd-2026-232",
+                citation=("Lehmann et al. (2026), OceanTACO: A Multi-Sensor Global Ocean Sea Surface State Dataset"),
+                summary="Motivation for the synthetic multi-sensor collocation workflow",
+            )
+        ]
     ),
+    split=taco.metadata.collection.SplitStrategy(strategy="manual"),
 )
 
 windows = [

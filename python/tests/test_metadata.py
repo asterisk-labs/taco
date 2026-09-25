@@ -160,7 +160,16 @@ def test_collection_models() -> None:
     publications = taco.metadata.collection.Publications(
         publications=[taco.metadata.collection.Publication(doi="10.0/x", citation="A et al.")]
     )
-    values = taco.CollectionMetadata(labels=labels, scientific=publications).flatten()
+    collection = taco.Collection(
+        contract=taco.Contract(structure=["data.bin"]),
+        id="models",
+        description="Collection models",
+        licenses=["MIT"],
+        providers=["me"],
+        labels=labels,
+        scientific=publications,
+    )
+    values = collection.to_dict()
     assert values["labels:classes"][0]["category"] == "1"
     assert values["labels:num_classes"] == 2
     assert values["scientific:publications"][0]["doi"] == "10.0/x"

@@ -214,7 +214,7 @@ def test_rumi_extension_reads_a_real_rumi_file(tmp_path: Path) -> None:
     frames = rumi.frames(image, "b (row h) (col w) -> row col b (h w)", tile_size=2)
     for frame in frames:
         frame.compressed = geozl.compress(frame.data, graph=geozl.graph(frame.data, "id>zstd"))
-    _, expected_header = rumi.write(source, frames)
+    _, expected_header = rumi.write(source, frames, bands=["elevation"], time=["2024-01-01"])
 
     contract = taco.Contract(
         structure=["data.rumi"],

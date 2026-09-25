@@ -7,7 +7,7 @@ Sources: `CHANGELOG.md`, `docs/RELEASING.md`, `.github/workflows/`,
 
 The **specification** is versioned on its own: this is spec `3.0.0`, stored in every
 dataset as `taco:version`, and a reader must reject a version it does not support.
-The **implementations** share one number, currently `0.10.2`, and declare which
+The **implementations** share one number, currently `0.11.0`, and declare which
 specification they support.
 
 The C API has a third number, `TACO_API_VERSION`, currently `2`. The Python binding
@@ -29,6 +29,14 @@ when samples must evolve independently.
 
 ## Recent surface changes worth knowing
 
+- **0.11.0**: `Contract(metadata=...)` takes a list of `taco.Level`; **`taco.MetadataSchema`
+  was removed**. `Collection` takes metadata as keyword groups (`labels=...`) instead of
+  `metadata=taco.CollectionMetadata(...)`. The spatial and temporal profiles use STAC
+  fields (`datetime`, `geometry`, `bbox`, `proj_code`, `proj_shape`, `proj_transform`);
+  `ISpatial`, `ISTAC` and `taco.extensions.Temporal` are gone, and datasets written with
+  the old profiles must be rebuilt.
+- **0.10.3**: `GeoEnrich` defaults to the public MajorTOM index on Source Cooperative;
+  Earth Engine needs `backend="earthengine"`.
 - **0.10.2**: filtered `dataset` queries resolve file columns only for matching
   samples; exports rebuild in bounded batches; R and Julia reuse native handles.
 - **0.10.1**: `taco.export()` **requires** `sql`. Python datasets reuse their native

@@ -1,6 +1,6 @@
 {
   "name": "taco-core",
-  "version-string": "0.10.3",
+  "version-string": "0.11.0",
   "builtin-baseline": "9e44ec0e9f247d77c230ced0ee66c76296837807",
   "dependencies": [
     {

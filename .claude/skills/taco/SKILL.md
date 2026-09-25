@@ -25,7 +25,7 @@ metadata, and points to the ZIP partitions that hold the payloads. Readers compu
 file locations without extracting payloads: ZIP and TACOCAT use `/vsisubfile/` byte
 ranges, while FOLDER uses paths below `DATA/`.
 
-This skill describes **taco-eo 0.10.2** (spec 3.0.0, C API 2, DuckDB 1.5.5, cozip
+This skill describes **taco-eo 0.11.0** (spec 3.0.0, C API 2, DuckDB 1.5.5, cozip
 2026.9.17). Check `taco.__version__`. If it differs, trust the installed source,
 `docs/spec/SPEC.md` and `CHANGELOG.md` over this file.
 
@@ -182,7 +182,7 @@ and only ZIP metadata carries the byte offsets that make random access possible.
 ## Reference map
 
 Read only the reference the current task needs. Each names its sources in the
-repository, and its examples were run against taco-eo 0.10.2.
+repository, and its examples target taco-eo 0.11.0.
 
 | Task | Read |
 | --- | --- |

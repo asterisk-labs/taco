@@ -160,7 +160,7 @@ def test_profiles_require_canonical_nullability() -> None:
     fields = {
         "spatial:geometry": {"type": "binary", "nullable": True},
         "spatial:bbox": {"type": "list<double>", "nullable": False},
-        "spatial:centroid": {"type": "binary", "nullable": False},
+        "spatial:centroid": {"type": "struct<lon: float, lat: float>", "nullable": False},
         "spatial:proj_code": {"type": "string", "nullable": True},
         "spatial:proj_shape": {"type": "list<int64>", "nullable": True},
         "spatial:proj_transform": {"type": "list<double>", "nullable": True},
@@ -174,7 +174,6 @@ def test_passive_profile_validates_canonical_required_fields() -> None:
         structure=["a.bin"],
         metadata=[taco.Level("sample", stac=taco.metadata.sample.STAC)],
     )
-    # Without the extension nothing computes the footprint, so the producer must supply it.
     metadata = taco.Metadata(
         stac=taco.metadata.sample.STAC(
             proj_code="EPSG:4326",
@@ -183,8 +182,8 @@ def test_passive_profile_validates_canonical_required_fields() -> None:
             datetime=datetime(2025, 1, 1, tzinfo=timezone.utc),
         )
     )
-    with pytest.raises(SampleError, match="stac:geometry"):
-        contract.validate_sample(taco.Sample(id="missing-geometry", assets=b"x", metadata=metadata))
+    with pytest.raises(SampleError, match="stac:centroid"):
+        contract.validate_sample(taco.Sample(id="missing-centroid", assets=b"x", metadata=metadata))
 
 
 def test_scope_is_enforced() -> None:

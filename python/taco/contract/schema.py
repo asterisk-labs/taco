@@ -10,6 +10,7 @@ from typing import Annotated, Any, Literal, Union, get_args, get_origin
 import pyarrow as pa
 from pydantic import BaseModel
 
+from ..container.parquet import Encoding
 from ..errors import ContractError, SampleError
 from ..metadata._base import CollectionSummary, DerivedMetadata, Extension
 from .naming import validate_field_name
@@ -18,9 +19,9 @@ _NAMESPACE = re.compile(r"^[a-z][a-z0-9_]*$")
 _RESERVED_NAMESPACES = frozenset({"cozip", "internal", "taco"})
 _TIMESTAMP = "timestamp[us, UTC]"
 _LOCATION_FIELDS = {
-    "geometry": ("binary", False),
-    "bbox": ("list<double>", False),
-    "centroid": ("binary", False),
+    "geometry": ("binary", True),
+    "bbox": ("list<double>", True),
+    "centroid": ("struct<lon: float, lat: float>", False),
     "proj_code": ("string", True),
     "proj_shape": ("list<int64>", True),
     "proj_transform": ("list<double>", True),
@@ -143,6 +144,14 @@ def _pydantic_arrow_type(model_field: Any) -> pa.DataType:
     return _arrow_type(model_field.annotation)
 
 
+def _encoding_hint(model_field: Any) -> Encoding | None:
+    annotation, _ = _optional(model_field.annotation)
+    extras = list(model_field.metadata)
+    if get_origin(annotation) is Annotated:
+        extras.extend(get_args(annotation)[1:])
+    return next((item for item in extras if isinstance(item, Encoding)), None)
+
+
 def _model_fields(namespace: str, model: type[BaseModel], optional: bool) -> tuple[tuple[str, pa.Field], ...]:
     result = []
     for name, model_field in model.model_fields.items():
@@ -152,11 +161,14 @@ def _model_fields(namespace: str, model: type[BaseModel], optional: bool) -> tup
         _, nullable = _optional(annotation)
         qualified = f"{namespace}:{name}"
         validate_field_name(qualified, context="metadata")
-        metadata = None
+        metadata = {}
         if model_field.description:
-            metadata = {b"description": model_field.description.encode()}
+            metadata[b"description"] = model_field.description.encode()
+        hint = _encoding_hint(model_field)
+        if hint is not None:
+            metadata.update(hint.metadata)
         dtype = _pydantic_arrow_type(model_field)
-        result.append((name, pa.field(qualified, dtype, nullable=optional or nullable, metadata=metadata)))
+        result.append((name, pa.field(qualified, dtype, nullable=optional or nullable, metadata=metadata or None)))
     if not result:
         raise ContractError(f"metadata model {model.__name__} has no fields")
     return tuple(result)

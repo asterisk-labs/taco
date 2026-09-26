@@ -8,6 +8,9 @@ JavaScript reader are documented here. The format follows
 
 ### Changed
 
+- `pip install taco-eo` installs only the reader: cffi, DuckDB, Arrow and tqdm.
+  Writing, validation, export, consolidation and the built-in metadata models
+  need `pip install 'taco-eo[writer]'`.
 - Spatial and STAC store grids without derived `geometry` or `bbox`. `centroid` is a
   float32 `{lon, lat}` struct. Datasets using the previous profiles must be rebuilt.
 - Grid footprints use half-pixel edge precision. Invalid CRS domains and grids wider

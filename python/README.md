@@ -3,9 +3,16 @@
 Read and write TACO datasets in Python.
 
 ```bash
-pip install taco-eo
+pip install taco-eo            # read
+pip install 'taco-eo[writer]'  # read and write
 python examples/minimal.py
 ```
+
+`taco-eo` alone reads datasets with the native core, DuckDB and Arrow, like
+the R and Julia readers. Writing, `taco.validate`, `taco.export`,
+`taco.consolidate` and the built-in metadata models need the `[writer]` extra,
+which adds cozip, NumPy, Pydantic, pyproj and Shapely. Without it,
+`taco.open_writer` raises an `ImportError` that names the extra.
 
 Published wheels include the native TACO reader. Building from the source
 distribution requires a C++23 compiler, CMake, Ninja, pkg-config, libcurl

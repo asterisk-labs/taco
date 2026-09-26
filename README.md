@@ -28,7 +28,7 @@ learning frameworks, programming languages, and operating systems.
 
 | Language | Install | Role | Docs |
 |----------|---------|------|------|
-| Python | `pip install taco-eo` | read + write | [README](python/README.md) |
+| Python | `pip install taco-eo` | **reader**, **writer** with `[writer]` | [README](python/README.md) |
 | R | `install.packages("taco", repos = "https://asterisk-labs.r-universe.dev")` | **reader** | [README](r/README.md) |
 | Julia | `Pkg.Registry.add(url="https://github.com/asterisk-labs/AsteriskRegistry"); Pkg.add("Taco")` | **reader** | [README](julia/README.md) |
 | JavaScript | `npm install @asterisk-labs/taco` | **reader** | [README](javascript/README.md) |

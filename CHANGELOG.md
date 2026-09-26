@@ -4,22 +4,25 @@ All notable changes across the TACO core, language bindings, writer, and
 JavaScript reader are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## Unreleased
+## 0.12.0 - 2026-09-26
 
 ### Changed
 
-- Generated columns and level relations keep the structure path:
-  `before/B02.tif::location` and `"children/before"` replace
-  `before__B02.tif::location` and `children__before`. A relation with `/` needs
-  double quotes in SQL. Parquet filenames keep `__`, so existing datasets read
-  unchanged.
+- Spatial and STAC store grids without derived `geometry` or `bbox`. `centroid` is a
+  float32 `{lon, lat}` struct. Datasets using the previous profiles must be rebuilt.
+- Grid footprints use half-pixel edge precision. Invalid CRS domains and grids wider
+  than one turn are rejected.
+- Metadata uses stronger ZSTD compression and per-column encoding selection.
+- Generated columns and relations keep structure paths. Quote relations containing
+  `/` in SQL. Parquet filenames remain unchanged.
+
+### Added
+
+- `taco.Encoding` provides Parquet encoding hints for model and extension fields.
 
 ### Fixed
 
-- Folders, files and metadata fields whose names differ only in letter case
-  are rejected. They produced datasets that could not be opened on
-  case-insensitive file systems, and DuckDB read one field in place of the
-  other.
+- Names that differ only by case are rejected for portable reads.
 
 ## 0.11.0 - 2026-09-25
 

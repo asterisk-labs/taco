@@ -39,6 +39,12 @@ Trust the source and `docs/spec/SPEC.md` for current behavior.
 - **The writer is Python; the reader is C++.** `taco.open_writer` is the only
   conforming writer. Python, R and Julia all load `libtaco`, which generates DuckDB
   SQL; JavaScript has a separate pure-JS reader. A reader binding adds no semantics.
+- **`taco-eo` reads; `taco-eo[writer]` writes.** The base install is cffi, DuckDB,
+  Arrow and tqdm, like the R and Julia readers. `open_writer`, `validate`, `export`,
+  `consolidate`, `taco.metadata` and `taco.extensions` load on first use and need the
+  `[writer]` extra (cozip, NumPy, Pydantic, pyproj, Shapely); without it they raise an
+  `ImportError` naming the extra. Keep reader modules free of those imports:
+  `tests/test_read_only.py` blocks them and reads a dataset.
 - **Reading returns locations, not bytes.** A wide read carries one
   `{file}::location` column per structure leaf. A compatible payload reader then opens
   that path when the bytes are actually needed.

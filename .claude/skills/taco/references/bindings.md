@@ -4,7 +4,7 @@ Sources: `python/`, `r/`, `julia/`, `javascript/`, `docs/playground/`, SPEC 8.
 
 | Language | Install | Role |
 | --- | --- | --- |
-| Python | `pip install taco-eo`, imported as `taco` | read **and write** |
+| Python | `pip install taco-eo` to read, `pip install 'taco-eo[writer]'` to write; imported as `taco` | read **and write** |
 | R | `install.packages("taco", repos = "https://asterisk-labs.r-universe.dev")` | reader |
 | Julia | `Pkg.Registry.add(url=".../AsteriskRegistry"); Pkg.add("Taco")` | reader |
 | JavaScript | `npm install @asterisk-labs/taco` | reader |

@@ -249,13 +249,27 @@ def _offset_metres(off_lon: Any, off_lat: Any) -> Any:
     return np.hypot(off_lon, off_lat) * _METRES_PER_DEGREE
 
 
+def _transform(code: str, x: Any, y: Any, direction: str = "FORWARD") -> tuple[Any, Any]:
+    import numpy as np
+
+    x, y = np.asarray(x, dtype=np.float64), np.asarray(y, dtype=np.float64)
+    flat_x, flat_y = x.ravel(), y.ravel()
+    # pyproj before 3.8 warns on a one-element array under NumPy 2, so a single
+    # point goes in twice.
+    if flat_x.size == 1:
+        flat_x, flat_y = np.repeat(flat_x, 2), np.repeat(flat_y, 2)
+    out_x, out_y = _to_wgs84(code).transform(flat_x, flat_y, direction=direction)
+    out_x = np.asarray(out_x, dtype=np.float64)[: x.size].reshape(x.shape)
+    out_y = np.asarray(out_y, dtype=np.float64)[: x.size].reshape(x.shape)
+    return out_x, out_y
+
+
 def _project(code: str, x: Any, y: Any) -> tuple[Any, Any]:
     import numpy as np
 
     if code in _WGS84_CODES:
         return np.asarray(x, dtype=np.float64), np.asarray(y, dtype=np.float64)
-    longitudes, latitudes = _to_wgs84(code).transform(x, y)
-    return np.asarray(longitudes, dtype=np.float64), np.asarray(latitudes, dtype=np.float64)
+    return _transform(code, x, y)
 
 
 def _check_lonlat(code: str, longitudes: Any, latitudes: Any) -> None:
@@ -281,8 +295,8 @@ def _lonlat(code: str, x: Any, y: Any, slack: Any) -> tuple[Any, Any]:
     if _is_geographic(code):
         base = x * _degrees_per_unit(code)
         return base + (longitudes - base + 180) % 360 - 180, latitudes
-    back_x, back_y = _to_wgs84(code).transform(longitudes, latitudes, direction="INVERSE")
-    if not ((np.abs(np.asarray(back_x) - x) <= slack) & (np.abs(np.asarray(back_y) - y) <= slack)).all():
+    back_x, back_y = _transform(code, longitudes, latitudes, direction="INVERSE")
+    if not ((np.abs(back_x - x) <= slack) & (np.abs(back_y - y) <= slack)).all():
         raise ValueError(f"the grid in {code} extends beyond the area its CRS represents")
     return longitudes, latitudes
 

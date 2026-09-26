@@ -13,9 +13,10 @@ from typing import Any, ClassVar
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from ..container.parquet import Encoding
 from ..contract.naming import validate_field_name
 from ._base import DerivedMetadata
-from .spatiotemporal import point_from_wkb
+from .spatiotemporal import lonlat
 
 
 def _centroid_field(value: str) -> str:
@@ -204,7 +205,7 @@ class MajorTOM(DerivedMetadata):
         except ImportError as exc:
             raise ImportError("MajorTOM requires numpy") from exc
 
-        points = [point_from_wkb(value, field=self.centroid) for value in columns[self.centroid]]
+        points = [lonlat(value, field=self.centroid) for value in columns[self.centroid]]
         longitudes = np.asarray([point[0] for point in points])
         latitudes = np.asarray([point[1] for point in points])
         return {name: self._codes(longitudes, latitudes, distance) for name, distance in self._grids()}
@@ -423,7 +424,8 @@ class GeoEnrich(DerivedMetadata):
                 name,
                 pa.string() if name.startswith("admin_") else pa.float32(),
                 nullable=not name.startswith("admin_"),
-                metadata={b"description": self._PRODUCTS[name].description.encode()},
+                metadata={b"description": self._PRODUCTS[name].description.encode()}
+                | (Encoding("dictionary").metadata if name.startswith("admin_") else {}),
             )
             for name in self.variables
         )
@@ -508,9 +510,7 @@ class GeoEnrich(DerivedMetadata):
             raise ImportError("GeoEnrich requires earthengine-api; install taco-eo[geoenrich]") from exc
 
         count = len(columns[self.centroid])
-        points = [
-            (index, *point_from_wkb(value, field=self.centroid)) for index, value in enumerate(columns[self.centroid])
-        ]
+        points = [(index, *lonlat(value, field=self.centroid)) for index, value in enumerate(columns[self.centroid])]
         points.sort(key=lambda point: _morton_key(point[1], point[2]))
         groups: dict[str, list[tuple[str, Any]]] = {"mean": [], "mode": []}
         for name in self.variables:

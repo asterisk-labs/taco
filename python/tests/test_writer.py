@@ -61,8 +61,11 @@ def test_zip_layout_and_offsets(archive: Path) -> None:
     assert schema.metadata == {b"taco:level": b"sample"}
     assert schema.field("ml:cloud_cover").nullable
     assert schema.field("stac:geometry").type == pa.binary()
-    assert not schema.field("stac:geometry").nullable
+    assert schema.field("stac:geometry").nullable
     assert schema.field("stac:bbox").type == pa.list_(pa.field("item", pa.float64(), nullable=False))
+    point = pa.struct([pa.field("lon", pa.float32(), nullable=False), pa.field("lat", pa.float32(), nullable=False)])
+    assert schema.field("stac:centroid").type == point
+    assert not schema.field("stac:centroid").nullable
     assert schema.field("stac:proj_shape").type == pa.list_(pa.field("item", pa.int64(), nullable=False))
     assert schema.field("stac:proj_transform").type == pa.list_(pa.field("item", pa.float64(), nullable=False))
 
@@ -307,7 +310,7 @@ def test_extent_covers_footprints_across_the_antimeridian(tmp_path: Path) -> Non
         writer.run()
 
     dataset = open_view(tmp_path / "pacific.zip")
-    assert dataset.level("sample").column("stac:bbox").to_pylist()[0] == [179.5, -1, -179.5, 1]
+    assert dataset.level("sample").column("stac:bbox").to_pylist() == [None, None]
     assert dataset.collection.extent == taco.contract.Extent((170, -1, -179.5, 2), ("2024-01-01T00:00:00Z",) * 2)
     assert taco.validate(tmp_path / "pacific.zip").ok
 

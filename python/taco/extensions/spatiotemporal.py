@@ -9,14 +9,9 @@ import pyarrow as pa
 from ..metadata._base import Extension, ExtensionContext
 from ..metadata.spatiotemporal import STAC as STACMetadata
 from ..metadata.spatiotemporal import Spatial as SpatialMetadata
-from ..metadata.spatiotemporal import (
-    footprint_bbox,
-    footprint_center,
-    grid_center,
-    grid_footprint,
-    load_footprint,
-    point_wkb,
-)
+from ..metadata.spatiotemporal import footprint_center, grid_centers, to_float32
+
+_POINT = pa.struct([pa.field("lon", pa.float32(), nullable=False), pa.field("lat", pa.float32(), nullable=False)])
 
 
 def _column(context: ExtensionContext, name: str) -> Sequence[Any]:
@@ -26,60 +21,40 @@ def _column(context: ExtensionContext, name: str) -> Sequence[Any]:
         raise ValueError(f"extension input {name!r} is unavailable") from exc
 
 
-def _description(model: type[SpatialMetadata] | type[STACMetadata], name: str) -> dict[bytes, bytes]:
-    return {b"description": (model.model_fields[name].description or "").encode()}
+def _centroid_field(model: type[SpatialMetadata] | type[STACMetadata]) -> pa.Schema:
+    description = (model.model_fields["centroid"].description or "").encode()
+    return pa.schema([pa.field("centroid", _POINT, nullable=False, metadata={b"description": description})])
 
 
-def _location_fields(model: type[SpatialMetadata] | type[STACMetadata]) -> pa.Schema:
-    return pa.schema(
-        [
-            pa.field("geometry", pa.binary(), nullable=False, metadata=_description(model, "geometry")),
-            pa.field(
-                "bbox",
-                pa.list_(pa.field("item", pa.float64(), nullable=False)),
-                nullable=False,
-                metadata=_description(model, "bbox"),
-            ),
-            pa.field("centroid", pa.binary(), nullable=False, metadata=_description(model, "centroid")),
-        ]
-    )
+def _point(longitude: float, latitude: float) -> dict[str, float]:
+    return {"lon": to_float32(longitude), "lat": to_float32(latitude)}
 
 
-def _locate(context: ExtensionContext, namespace: str) -> dict[str, Sequence[Any]]:
-    geometries: list[bytes] = []
-    boxes: list[list[float]] = []
-    centroids: list[bytes] = []
-    for geometry, bbox, centroid, code, shape, transform in zip(
-        _column(context, f"{namespace}:geometry"),
-        _column(context, f"{namespace}:bbox"),
-        _column(context, f"{namespace}:centroid"),
-        _column(context, f"{namespace}:proj_code"),
-        _column(context, f"{namespace}:proj_shape"),
-        _column(context, f"{namespace}:proj_transform"),
-        strict=True,
-    ):
-        grid = code is not None and shape is not None and transform is not None
-        if geometry is None:
-            if not grid:
-                raise ValueError(f"{namespace}:geometry is required unless the proj_ fields are given")
-            geometry = grid_footprint(code, shape, transform)
-        if bbox is None:
-            bbox = footprint_bbox(load_footprint(geometry, field=f"{namespace}:geometry"))
+def _centroids(context: ExtensionContext, namespace: str) -> dict[str, Sequence[Any]]:
+    centroids = list(_column(context, f"{namespace}:centroid"))
+    geometries = _column(context, f"{namespace}:geometry")
+    codes = _column(context, f"{namespace}:proj_code")
+    shapes = _column(context, f"{namespace}:proj_shape")
+    transforms = _column(context, f"{namespace}:proj_transform")
+    grids = [
+        index
+        for index, centroid in enumerate(centroids)
+        if centroid is None and codes[index] is not None and shapes[index] is not None and transforms[index] is not None
+    ]
+    centers = grid_centers([codes[i] for i in grids], [shapes[i] for i in grids], [transforms[i] for i in grids])
+    for index, center in zip(grids, centers, strict=True):
+        centroids[index] = _point(*center)
+    for index, centroid in enumerate(centroids):
         if centroid is None:
-            # The grid center is exact; a footprint only approximates the grid.
-            if grid:
-                centroid = grid_center(code, shape, transform)
-            else:
-                centroid = point_wkb(*footprint_center(geometry, field=f"{namespace}:geometry"))
-        geometries.append(geometry)
-        boxes.append([float(value) for value in bbox])
-        centroids.append(centroid)
-    return {"geometry": geometries, "bbox": boxes, "centroid": centroids}
+            if geometries[index] is None:
+                raise ValueError(f"{namespace}:geometry is required unless the proj_ fields are given")
+            centroids[index] = _point(*footprint_center(geometries[index], field=f"{namespace}:geometry"))
+    return {"centroid": centroids}
 
 
 @dataclass(frozen=True)
 class Spatial(Extension):
-    """Complete the footprint and bounding box during ``writer.run()``."""
+    """Compute spatial centroids."""
 
     __taco_scopes__: ClassVar[frozenset[str]] = frozenset({"sample", "folder"})
     model: type[SpatialMetadata] = SpatialMetadata
@@ -94,19 +69,19 @@ class Spatial(Extension):
 
     @property
     def requires(self) -> tuple[str, ...]:
-        return ("spatial:proj_code", "spatial:proj_shape", "spatial:proj_transform")
+        return ("spatial:geometry", "spatial:proj_code", "spatial:proj_shape", "spatial:proj_transform")
 
     @property
     def fields(self) -> pa.Schema:
-        return _location_fields(self.model)
+        return _centroid_field(self.model)
 
     def run(self, context: ExtensionContext) -> Mapping[str, Sequence[Any]]:
-        return _locate(context, "spatial")
+        return _centroids(context, "spatial")
 
 
 @dataclass(frozen=True)
 class STAC(Extension):
-    """Complete the footprint and bounding box of a STAC group during ``writer.run()``."""
+    """Compute STAC centroids."""
 
     __taco_scopes__: ClassVar[frozenset[str]] = frozenset({"sample", "folder"})
     model: type[STACMetadata] = STACMetadata
@@ -121,14 +96,14 @@ class STAC(Extension):
 
     @property
     def requires(self) -> tuple[str, ...]:
-        return ("stac:proj_code", "stac:proj_shape", "stac:proj_transform")
+        return ("stac:geometry", "stac:proj_code", "stac:proj_shape", "stac:proj_transform")
 
     @property
     def fields(self) -> pa.Schema:
-        return _location_fields(self.model)
+        return _centroid_field(self.model)
 
     def run(self, context: ExtensionContext) -> Mapping[str, Sequence[Any]]:
-        return _locate(context, "stac")
+        return _centroids(context, "stac")
 
 
 __all__ = ["STAC", "Spatial"]

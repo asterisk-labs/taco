@@ -11,12 +11,14 @@ from datetime import datetime, timezone
 from typing import Annotated, Any, ClassVar, TypeAlias
 
 import pyarrow as pa
-from pydantic import Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from ..container.parquet import Encoding
 from ..contract.collection import Extent
 from ._base import CollectionSummary, SampleModel
 
 TimestampUTC = Annotated[datetime, pa.timestamp("us", tz="UTC")]
+Float32 = Annotated[float, pa.float32()]
 Geometry: TypeAlias = bytes
 BBox: TypeAlias = Annotated[
     tuple[float, float, float, float],
@@ -31,8 +33,8 @@ GridTransform: TypeAlias = Annotated[
 _PROJ_CODE = re.compile(r"[A-Z][A-Z0-9_]*:[A-Za-z0-9_.\-]+")
 _PROJ_FIELDS = ("proj_code", "proj_shape", "proj_transform")
 _WGS84_CODES = frozenset({"EPSG:4326", "OGC:CRS84"})
-# Retain sampled edges: straight edges in the source CRS can curve in WGS84.
-_EDGE_STEPS = 16
+_EDGE_DEPTH = 12
+_METRES_PER_DEGREE = math.pi * 6_371_008.8 / 180
 _CHUNK = 1_000_000
 _transformers = threading.local()
 
@@ -47,29 +49,43 @@ def _iso_utc(value: datetime) -> str:
     return _as_utc(value).isoformat().replace("+00:00", "Z")
 
 
-def point_from_wkb(wkb: bytes, *, field: str = "centroid") -> tuple[float, float]:
-    """Decode and validate an EPSG:4326 WKB point."""
-    if len(wkb) < 21 or wkb[0] not in (0, 1):
-        raise ValueError(f"{field} must be a WKB point")
-    order = "<" if wkb[0] == 1 else ">"
-    geometry_type = struct.unpack_from(order + "I", wkb, 1)[0]
-    offset = 5
-    if geometry_type & 0x20000000:
-        offset += 4
-    if geometry_type & 0xFF != 1:
-        raise ValueError(f"{field} must be a WKB point")
-    if len(wkb) < offset + 16:
-        raise ValueError(f"{field} contains incomplete WKB")
-    longitude, latitude = struct.unpack_from(order + "dd", wkb, offset)
-    valid = math.isfinite(longitude) and math.isfinite(latitude) and -180 <= longitude <= 180 and -90 <= latitude <= 90
-    if not valid:
-        raise ValueError(f"{field} is outside EPSG:4326 bounds")
-    return longitude, latitude
+def to_float32(value: float) -> float:
+    """Round a coordinate to the float32 value stored for it."""
+    rounded: float = struct.unpack("<f", struct.pack("<f", value))[0]
+    return rounded
 
 
-def point_wkb(longitude: float, latitude: float) -> bytes:
-    """Encode an EPSG:4326 point as little-endian WKB."""
-    return struct.pack("<BIdd", 1, 1, longitude, latitude)
+class Point(BaseModel):
+    """An EPSG:4326 float32 point."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    lon: Float32 = Field(description="Longitude in degrees")
+    lat: Float32 = Field(description="Latitude in degrees")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _pair(cls, value: Any) -> Any:
+        if isinstance(value, (tuple, list)) and len(value) == 2:
+            return {"lon": value[0], "lat": value[1]}
+        return value
+
+    @field_validator("lon", "lat")
+    @classmethod
+    def _coordinate(cls, value: float, info: Any) -> float:
+        limit = 180 if info.field_name == "lon" else 90
+        if not math.isfinite(value) or not -limit <= value <= limit:
+            raise ValueError(f"{info.field_name} is outside EPSG:4326 bounds")
+        return to_float32(value)
+
+
+def lonlat(value: Any, *, field: str = "centroid") -> tuple[float, float]:
+    """Return the ``(longitude, latitude)`` of a stored point."""
+    try:
+        point = value if isinstance(value, Point) else Point.model_validate(value)
+    except ValueError as exc:
+        raise ValueError(f"{field} must be a point with lon and lat in EPSG:4326") from exc
+    return point.lon, point.lat
 
 
 def longitude_cover(starts: Any, ends: Any) -> tuple[float, float]:
@@ -206,50 +222,171 @@ def _to_wgs84(code: str) -> Any:
     return cache[code]
 
 
-def grid_footprint(code: str, shape: Sequence[int], transform: Sequence[float]) -> bytes:
-    """Return the EPSG:4326 WKB footprint of a regular grid.
+def _degrees_per_unit(code: str) -> float:
+    if code in _WGS84_CODES:
+        return 1.0
+    return float(_to_wgs84(code).source_crs.axis_info[0].unit_conversion_factor) * 180 / math.pi
 
-    Edges are approximated by 16 segments per side after reprojection. Grids
-    crossing the antimeridian are split there; polar grids retain their curved
-    boundary and close through the enclosed pole.
-    """
+
+def _metres_per_unit(code: str) -> float:
+    if _is_geographic(code):
+        return _degrees_per_unit(code) * _METRES_PER_DEGREE
+    return float(_to_wgs84(code).source_crs.axis_info[0].unit_conversion_factor)
+
+
+def _half_pixel_units(transform: Any) -> Any:
+    import numpy as np
+
+    a, b, _, d, e, _ = np.moveaxis(np.asarray(transform, dtype=np.float64), -1, 0)
+    return np.sqrt(np.abs(a * e - b * d)) / 2
+
+
+def _offset_metres(off_lon: Any, off_lat: Any) -> Any:
+    import numpy as np
+
+    # Longitude is not scaled by latitude, so an edge along a pole, where the
+    # ring must still turn, is split like any other.
+    return np.hypot(off_lon, off_lat) * _METRES_PER_DEGREE
+
+
+def _project(code: str, x: Any, y: Any) -> tuple[Any, Any]:
+    import numpy as np
+
+    if code in _WGS84_CODES:
+        return np.asarray(x, dtype=np.float64), np.asarray(y, dtype=np.float64)
+    longitudes, latitudes = _to_wgs84(code).transform(x, y)
+    return np.asarray(longitudes, dtype=np.float64), np.asarray(latitudes, dtype=np.float64)
+
+
+def _check_lonlat(code: str, longitudes: Any, latitudes: Any) -> None:
+    import numpy as np
+
+    if not (np.isfinite(longitudes).all() and np.isfinite(latitudes).all()):
+        raise ValueError(f"the grid in {code} cannot be projected to EPSG:4326")
+    if latitudes.min() < -90 or latitudes.max() > 90:
+        raise ValueError(f"the grid in {code} extends beyond the poles")
+
+
+def _is_geographic(code: str) -> bool:
+    return code in _WGS84_CODES or bool(_to_wgs84(code).source_crs.is_geographic)
+
+
+def _lonlat(code: str, x: Any, y: Any, slack: Any) -> tuple[Any, Any]:
+    """Project to EPSG:4326 while preserving longitude turns."""
+    import numpy as np
+
+    x, y = np.asarray(x, dtype=np.float64), np.asarray(y, dtype=np.float64)
+    longitudes, latitudes = _project(code, x, y)
+    _check_lonlat(code, longitudes, latitudes)
+    if _is_geographic(code):
+        base = x * _degrees_per_unit(code)
+        return base + (longitudes - base + 180) % 360 - 180, latitudes
+    back_x, back_y = _to_wgs84(code).transform(longitudes, latitudes, direction="INVERSE")
+    if not ((np.abs(np.asarray(back_x) - x) <= slack) & (np.abs(np.asarray(back_y) - y) <= slack)).all():
+        raise ValueError(f"the grid in {code} extends beyond the area its CRS represents")
+    return longitudes, latitudes
+
+
+def _edge_offsets(start: tuple[Any, Any], end: tuple[Any, Any], middle: tuple[Any, Any], geographic: bool) -> Any:
+    step = end[0] - start[0]
+    off_lon = middle[0] - start[0] - step / 2
+    if not geographic:
+        # A projected longitude comes back wrapped to [-180, 180].
+        step = (step + 180) % 360 - 180
+        off_lon = (middle[0] - start[0] - step / 2 + 180) % 360 - 180
+    return _offset_metres(off_lon, middle[1] - (start[1] + end[1]) / 2)
+
+
+def _check_turns(code: str, longitudes: Any, tolerance: Any = 0.0) -> None:
+    if (longitudes.max(axis=-1) - longitudes.min(axis=-1) > 360 + tolerance + 1e-9).any():
+        raise ValueError(f"the grid in {code} wraps more than once around the earth")
+
+
+def _grid_ring(code: str, shape: Sequence[int], transform: Sequence[float]) -> tuple[Any, Any]:
+    import numpy as np
+
+    rows, columns = (int(value) for value in shape)
+    a, b, c, d, e, f = (float(value) for value in transform)
+    geographic = _is_geographic(code)
+    slack = _half_pixel_units(transform)
+    tolerance = slack * _metres_per_unit(code)
+
+    def lonlat(pixels: Any) -> tuple[Any, Any]:
+        return _lonlat(code, a * pixels[:, 0] + b * pixels[:, 1] + c, d * pixels[:, 0] + e * pixels[:, 1] + f, slack)
+
+    pixels = np.array([[0, 0], [columns, 0], [columns, rows], [0, rows], [0, 0]], dtype=np.float64)
+    if geographic:
+        # Turns are counted on the grid itself: a datum shift is not exactly periodic.
+        _check_turns(code, (a * pixels[:4, 0] + b * pixels[:4, 1] + c) * _degrees_per_unit(code))
+    longitudes, latitudes = lonlat(pixels)
+    for _ in range(_EDGE_DEPTH):
+        middle = (pixels[:-1] + pixels[1:]) / 2
+        mid_lon, mid_lat = lonlat(middle)
+        start, end = (longitudes[:-1], latitudes[:-1]), (longitudes[1:], latitudes[1:])
+        split = _edge_offsets(start, end, (mid_lon, mid_lat), geographic) > tolerance
+        if not split.any():
+            break
+        at = np.flatnonzero(split) + 1
+        pixels = np.insert(pixels, at, middle[split], axis=0)
+        longitudes = np.insert(longitudes, at, mid_lon[split])
+        latitudes = np.insert(latitudes, at, mid_lat[split])
+    longitudes, latitudes = longitudes[:-1], latitudes[:-1]
+    if not geographic:
+        longitudes = np.unwrap(longitudes, period=360)
+        _check_turns(code, longitudes, tolerance / _METRES_PER_DEGREE)
+    return longitudes, latitudes
+
+
+def _winding(longitudes: Any) -> Any:
+    closing = (longitudes[..., 0] - longitudes[..., -1] + 180) % 360 - 180
+    return longitudes[..., -1] - longitudes[..., 0] + closing
+
+
+def _ring_bboxes(longitudes: Any, latitudes: Any) -> list[tuple[float, float, float, float]]:
+    import numpy as np
+
+    south, north = latitudes.min(axis=1), latitudes.max(axis=1)
+    low, high = longitudes.min(axis=1), longitudes.max(axis=1)
+    shift = 360 * np.floor((low + 180) / 360)
+    west, east = low - shift, high - shift
+    east = np.where(east > 180, east - 360, east)
+    polar = np.abs(_winding(longitudes)) > 180
+    everywhere = polar | (high - low >= 360)
+    west, east = np.where(everywhere, -180.0, west), np.where(everywhere, 180.0, east)
+    northern = latitudes.mean(axis=1) >= 0
+    south = np.where(polar & ~northern, -90.0, south)
+    north = np.where(polar & northern, 90.0, north)
+    # Adding zero turns -0.0 into 0.0.
+    return [
+        (float(w) + 0.0, float(s) + 0.0, float(e) + 0.0, float(n) + 0.0)
+        for w, s, e, n in zip(west, south, east, north, strict=True)
+    ]
+
+
+def grid_footprint(code: str, shape: Sequence[int], transform: Sequence[float]) -> bytes:
+    """Return a grid's EPSG:4326 WKB footprint."""
     import numpy as np
     import shapely
     from shapely.affinity import translate
     from shapely.geometry import MultiPolygon, Polygon, box
     from shapely.geometry.polygon import orient
 
-    rows, columns = (int(value) for value in shape)
-    a, b, c, d, e, f = (float(value) for value in transform)
-    steps = np.linspace(0.0, 1.0, _EDGE_STEPS + 1)[:-1]
-    zeros, ones = np.zeros_like(steps), np.ones_like(steps)
-    # Clockwise from the top-left corner along the pixel edges.
-    column = np.concatenate((steps, ones, 1 - steps, zeros)) * columns
-    row = np.concatenate((zeros, steps, ones, 1 - steps)) * rows
-    x = a * column + b * row + c
-    y = d * column + e * row + f
-    if code in _WGS84_CODES:
-        longitudes, latitudes = x, y
-    else:
-        longitudes, latitudes = (np.asarray(value, dtype=np.float64) for value in _to_wgs84(code).transform(x, y))
-    if not (np.isfinite(longitudes).all() and np.isfinite(latitudes).all()):
-        raise ValueError(f"the grid in {code} cannot be projected to EPSG:4326")
-    if latitudes.min() < -90 or latitudes.max() > 90:
-        raise ValueError(f"the grid in {code} extends beyond the poles")
-
-    unwrapped = np.unwrap(longitudes, period=360)
-    closing = (longitudes[0] - longitudes[-1] + 180) % 360 - 180
-    winding = unwrapped[-1] - unwrapped[0] + closing
+    unwrapped, latitudes = _grid_ring(code, shape, transform)
+    winding = float(_winding(unwrapped))
     ring = list(zip(unwrapped.tolist(), latitudes.tolist(), strict=True))
     if abs(winding) > 180:
         pole = 90.0 if latitudes.mean() >= 0 else -90.0
         end = float(unwrapped[0] + winding)
         ring.extend([(end, float(latitudes[0])), (end, pole), (float(unwrapped[0]), pole)])
     polygon = Polygon(ring)
-    west, _, east, _ = polygon.bounds
-    if east - west > 360 + 1e-8:
-        raise ValueError(f"the grid in {code} wraps more than once around the earth")
-    if west >= -180 and east <= 180:
+    west, south, east, north = polygon.bounds
+    # Closing a polar ring through its pole must not add a turn either.
+    half_pixel = float(_half_pixel_units(transform)) * _metres_per_unit(code) / _METRES_PER_DEGREE
+    _check_turns(code, np.array([west, east]), half_pixel)
+    if abs(winding) <= 180 and east - west >= 360 - half_pixel:
+        # A band around the whole earth; a datum shift can leave its ends a hair apart.
+        footprint = orient(box(-180, south, 180, north))
+    elif west >= -180 and east <= 180:
         footprint = orient(polygon)
     else:
         pieces: list[Any] = []
@@ -272,24 +409,102 @@ def grid_footprint(code: str, shape: Sequence[int], transform: Sequence[float]) 
     return result
 
 
-def grid_center(code: str, shape: Sequence[int], transform: Sequence[float]) -> bytes:
-    """Return the center of a regular grid as an EPSG:4326 WKB point.
+def grid_bbox(code: str, shape: Sequence[int], transform: Sequence[float]) -> tuple[float, float, float, float]:
+    """Return ``(west, south, east, north)`` of a grid footprint without building the polygon."""
+    longitudes, latitudes = _grid_ring(code, shape, transform)
+    return _ring_bboxes(longitudes[None, :], latitudes[None, :])[0]
 
-    The center is taken in the grid CRS and reprojected alone, so it does not
-    depend on how the footprint approximates the grid edges.
-    """
-    rows, columns = (int(value) for value in shape)
-    a, b, c, d, e, f = (float(value) for value in transform)
-    x = a * columns / 2 + b * rows / 2 + c
-    y = d * columns / 2 + e * rows / 2 + f
-    if code in _WGS84_CODES:
-        longitude, latitude = x, y
-    else:
-        longitude, latitude = (float(value) for value in _to_wgs84(code).transform(x, y))
-    if not (math.isfinite(longitude) and math.isfinite(latitude)) or not -90 <= latitude <= 90:
-        raise ValueError(f"the grid center in {code} cannot be projected to EPSG:4326")
-    longitude = (longitude + 180) % 360 - 180 if not -180 <= longitude <= 180 else longitude
-    return point_wkb(longitude + 0.0, latitude + 0.0)
+
+def _by_code(codes: Sequence[str]) -> dict[str, list[int]]:
+    groups: dict[str, list[int]] = {}
+    for index, code in enumerate(codes):
+        groups.setdefault(code, []).append(index)
+    return groups
+
+
+def grid_bboxes(
+    codes: Sequence[str], shapes: Sequence[Sequence[int]], transforms: Sequence[Sequence[float]]
+) -> list[tuple[float, float, float, float]]:
+    """Return bounds for many grids."""
+    import numpy as np
+
+    result: list[tuple[float, float, float, float] | None] = [None] * len(codes)
+    unit = np.array([[0, 0], [1, 0], [1, 1], [0, 1], [0.5, 0], [1, 0.5], [0.5, 1], [0, 0.5]])
+    ahead = [1, 2, 3, 0]
+    for code, indices in _by_code(codes).items():
+        geographic = _is_geographic(code)
+        size = np.array([shapes[index] for index in indices], dtype=np.float64)
+        coefficients = np.array([transforms[index] for index in indices], dtype=np.float64)
+        slack = _half_pixel_units(coefficients)
+        column = unit[None, :, 0] * size[:, 1:2]
+        row = unit[None, :, 1] * size[:, 0:1]
+        a, b, c, d, e, f = (coefficients[:, index : index + 1] for index in range(6))
+        x, y = a * column + b * row + c, d * column + e * row + f
+        if geographic:
+            _check_turns(code, x[:, :4] * _degrees_per_unit(code))
+        longitudes, latitudes = _lonlat(code, x.ravel(), y.ravel(), np.repeat(slack, len(unit)))
+        longitudes, latitudes = longitudes.reshape(column.shape), latitudes.reshape(column.shape)
+        start = (longitudes[:, :4], latitudes[:, :4])
+        end = (longitudes[:, ahead], latitudes[:, ahead])
+        offsets = _edge_offsets(start, end, (longitudes[:, 4:], latitudes[:, 4:]), geographic)
+        half_pixel = slack * _metres_per_unit(code)
+        straight = (offsets <= half_pixel[:, None]).all(axis=1)
+        corners = start[0][straight]
+        if not geographic:
+            corners = np.unwrap(corners, period=360, axis=1)
+            _check_turns(code, corners, half_pixel[straight] / _METRES_PER_DEGREE)
+        boxes = iter(_ring_bboxes(corners, start[1][straight]))
+        for position, index in enumerate(indices):
+            result[index] = next(boxes) if straight[position] else grid_bbox(code, shapes[index], transforms[index])
+    return [box for box in result if box is not None]
+
+
+def grid_problems(
+    codes: Sequence[str], shapes: Sequence[Sequence[int]], transforms: Sequence[Sequence[float]]
+) -> list[tuple[int, str]]:
+    """Return the position and reason of each grid without a valid footprint."""
+    try:
+        grid_bboxes(codes, shapes, transforms)
+        return []
+    except ValueError:
+        pass
+    problems = []
+    for index, grid in enumerate(zip(codes, shapes, transforms, strict=True)):
+        try:
+            grid_bbox(*grid)
+        except ValueError as exc:
+            problems.append((index, str(exc)))
+    return problems
+
+
+def grid_centers(
+    codes: Sequence[str], shapes: Sequence[Sequence[int]], transforms: Sequence[Sequence[float]]
+) -> list[tuple[float, float]]:
+    """Return EPSG:4326 centers for many grids."""
+    import numpy as np
+
+    result: list[tuple[float, float] | None] = [None] * len(codes)
+    for code, indices in _by_code(codes).items():
+        size = np.array([shapes[index] for index in indices], dtype=np.float64)
+        coefficients = np.array([transforms[index] for index in indices], dtype=np.float64)
+        a, b, c, d, e, f = coefficients.T
+        column, row = size[:, 1] / 2, size[:, 0] / 2
+        try:
+            longitudes, latitudes = _lonlat(
+                code, a * column + b * row + c, d * column + e * row + f, _half_pixel_units(coefficients)
+            )
+        except ValueError as exc:
+            raise ValueError(f"the grid center in {code} cannot be projected to EPSG:4326: {exc}") from exc
+        for index, longitude, latitude in zip(indices, longitudes.tolist(), latitudes.tolist(), strict=True):
+            if not -180 <= longitude <= 180:
+                longitude = (longitude + 180) % 360 - 180
+            result[index] = (longitude + 0.0, latitude + 0.0)
+    return [center for center in result if center is not None]
+
+
+def grid_center(code: str, shape: Sequence[int], transform: Sequence[float]) -> tuple[float, float]:
+    """Return the ``(longitude, latitude)`` center of one grid, as in ``grid_centers``."""
+    return grid_centers([code], [shape], [transform])[0]
 
 
 def check_location(values: Mapping[str, Any]) -> None:
@@ -323,23 +538,16 @@ class _Location(SampleModel):
 
     geometry: Geometry | None = Field(
         default=None,
-        description="Footprint in EPSG:4326 as WKB",
+        description="Footprint in EPSG:4326 as WKB, when the producer supplies one",
     )
     bbox: BBox | None = Field(
         default=None,
-        description="Footprint bounds [west, south, east, north]; west > east crosses the antimeridian",
+        description="Bounds of geometry [west, south, east, north]; west > east crosses the antimeridian",
     )
-    centroid: bytes | None = Field(
+    centroid: Point | None = Field(
         default=None,
-        description="Center of the grid, or of the footprint without a grid, as an EPSG:4326 WKB point",
+        description="Center of the grid, or of the footprint without a grid, in EPSG:4326",
     )
-
-    @field_validator("centroid")
-    @classmethod
-    def _centroid(cls, value: bytes | None) -> bytes | None:
-        if value is not None:
-            point_from_wkb(value)
-        return value
 
     @field_validator("geometry")
     @classmethod
@@ -400,10 +608,8 @@ class Temporal(SampleModel):
 
 
 class _SpatialExtent(CollectionSummary):
-    """Incrementally summarize sample bounding boxes."""
-
     field = "extent"
-    requires: ClassVar[tuple[str, ...]] = ("bbox",)
+    requires: ClassVar[tuple[str, ...]] = ("geometry", "bbox", "proj_code", "proj_shape", "proj_transform")
 
     def __init__(self) -> None:
         self._intervals = tempfile.TemporaryFile()  # noqa: SIM115
@@ -413,11 +619,32 @@ class _SpatialExtent(CollectionSummary):
         self._result: dict[str, Any] | None = None
         self._finished = False
 
+    @staticmethod
+    def _boxes(columns: Mapping[str, Sequence[Any]]) -> list[Sequence[float]]:
+        boxes: list[Sequence[float]] = []
+        grids: list[tuple[str, Sequence[int], Sequence[float]]] = []
+        for geometry, bbox, code, shape, transform in zip(
+            columns["geometry"],
+            columns["bbox"],
+            columns["proj_code"],
+            columns["proj_shape"],
+            columns["proj_transform"],
+            strict=True,
+        ):
+            if bbox is not None:
+                boxes.append(bbox)
+            elif geometry is not None:
+                boxes.append(footprint_bbox(load_footprint(geometry)))
+            elif code is not None and shape is not None and transform is not None:
+                grids.append((code, shape, transform))
+        if grids:
+            codes, shapes, transforms = zip(*grids, strict=True)
+            boxes.extend(grid_bboxes(codes, shapes, transforms))
+        return boxes
+
     def update(self, columns: Mapping[str, Sequence[Any]]) -> None:
         intervals = array("d")
-        for bbox in columns["bbox"]:
-            if bbox is None:
-                continue
+        for bbox in self._boxes(columns):
             west, south, east, north = (float(value) for value in bbox)
             if west <= east:
                 intervals.extend((west, east))
@@ -464,7 +691,7 @@ class _SpatialExtent(CollectionSummary):
 class _SpatioTemporalExtent(_SpatialExtent):
     """Incrementally summarize sample bounding boxes and times."""
 
-    requires: ClassVar[tuple[str, ...]] = ("bbox", "datetime", "start_datetime", "end_datetime")
+    requires: ClassVar[tuple[str, ...]] = (*_SpatialExtent.requires, "datetime", "start_datetime", "end_datetime")
 
     def __init__(self) -> None:
         super().__init__()
@@ -499,12 +726,14 @@ class _SpatioTemporalExtent(_SpatialExtent):
 
 
 class Spatial(_Location):
-    """Where the sample is, as an EPSG:4326 footprint and an optional grid."""
+    """Where the sample is, as a grid, an EPSG:4326 footprint, or both."""
 
     __taco_namespace__ = "spatial"
     __taco_summaries__ = (_SpatialExtent,)
 
-    proj_code: str | None = Field(default=None, description="CRS of the grid as AUTHORITY:CODE, e.g. EPSG:32718")
+    proj_code: Annotated[str, Encoding("dictionary")] | None = Field(
+        default=None, description="CRS of the grid as AUTHORITY:CODE, e.g. EPSG:32718"
+    )
     proj_shape: GridShape | None = Field(default=None, description="Grid size in pixels as [height, width]")
     proj_transform: GridTransform | None = Field(
         default=None,
@@ -535,7 +764,9 @@ class STAC(_Location):
         default=None,
         description="Last time covered by the observation, inclusive",
     )
-    proj_code: str | None = Field(default=None, description="CRS of the grid as AUTHORITY:CODE, e.g. EPSG:32718")
+    proj_code: Annotated[str, Encoding("dictionary")] | None = Field(
+        default=None, description="CRS of the grid as AUTHORITY:CODE, e.g. EPSG:32718"
+    )
     proj_shape: GridShape | None = Field(default=None, description="Grid size in pixels as [height, width]")
     proj_transform: GridTransform | None = Field(
         default=None,
@@ -551,16 +782,21 @@ class STAC(_Location):
 
 __all__ = [
     "STAC",
+    "Point",
     "Spatial",
     "Temporal",
     "check_location",
     "check_times",
     "footprint_bbox",
     "footprint_center",
+    "grid_bbox",
+    "grid_bboxes",
     "grid_center",
+    "grid_centers",
     "grid_footprint",
+    "grid_problems",
     "load_footprint",
     "longitude_cover",
-    "point_from_wkb",
-    "point_wkb",
+    "lonlat",
+    "to_float32",
 ]

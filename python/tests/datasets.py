@@ -10,7 +10,6 @@ import pyarrow as pa
 from pydantic import BaseModel
 
 import taco
-from taco.metadata.spatiotemporal import point_wkb
 
 
 class SampleInfo(BaseModel):
@@ -88,12 +87,11 @@ def stac(
     with_bbox: bool = True,
     **values: object,
 ) -> taco.metadata.sample.STAC:
-    """A STAC group from a grid, or from a footprint and, when no extension computes them, its bbox and centroid."""
     x = -76.0 + index
     moment = datetime(2024, 1, index + 1, tzinfo=timezone.utc)
     if footprint:
         bounds = (x - 0.125, -12.125, x + 0.125, -11.875)
-        derived = {"bbox": bounds, "centroid": point_wkb(x, -12.0)} if with_bbox else {}
+        derived = {"bbox": bounds, "centroid": (x, -12.0)} if with_bbox else {}
         return model(geometry=polygon(*bounds), datetime=moment, **derived, **values)
     return model(
         proj_code="EPSG:4326",

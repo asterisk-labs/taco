@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 import shapely
 from shapely.geometry import Point, Polygon
@@ -12,10 +14,11 @@ from taco.container.view import open_view
 from taco.metadata.spatiotemporal import (
     footprint_bbox,
     footprint_center,
+    grid_bbox,
+    grid_bboxes,
     grid_center,
     grid_footprint,
-    point_from_wkb,
-    point_wkb,
+    to_float32,
 )
 
 START = datetime(2024, 1, 1, tzinfo=timezone.utc)
@@ -58,8 +61,7 @@ def test_extension_dependencies_ignore_declaration_order(tmp_path: Path) -> None
     output = write(tmp_path, contract, taco.Sample(id="u15", assets=b"x", metadata=taco.Metadata(stac=stac)))
 
     row = open_view(output).level("sample").to_pylist()[0]
-    assert shapely.from_wkb(row["stac:geometry"]).equals(shapely.box(-1.25, -1.25, 1.25, 1.25))
-    assert row["stac:bbox"] == [-1.25, -1.25, 1.25, 1.25]
+    assert row["stac:centroid"] == {"lon": 0.0, "lat": 0.0}
     assert row["stac:datetime"] is None
     assert row["stac:start_datetime"] == START
     assert row["majortom:code"].startswith("MT10km_")
@@ -82,8 +84,8 @@ def test_spatial_composes_with_majortom_and_summarizes_boxes(tmp_path: Path) -> 
 
     dataset = open_view(output)
     row = dataset.level("sample").to_pylist()[0]
-    assert row["spatial:bbox"] == [-1.25, -1.25, 1.25, 1.25]
-    assert row["spatial:centroid"] == point_wkb(0, 0)
+    assert (row["spatial:geometry"], row["spatial:bbox"]) == (None, None)
+    assert row["spatial:centroid"] == {"lon": 0.0, "lat": 0.0}
     assert row["majortom:code"].startswith("MT100km_")
     assert not any(name.startswith(("stac:", "temporal:")) for name in row)
     assert dataset.collection.extent == taco.contract.Extent((-1.25, -1.25, 1.25, 1.25))
@@ -118,7 +120,7 @@ def test_stac_keeps_a_supplied_footprint(tmp_path: Path) -> None:
     dataset = open_view(output)
     row = dataset.level("sample").to_pylist()[0]
     assert row["stac:geometry"] == footprint.wkb
-    assert row["stac:bbox"] == [-77, -13, -75, -11]
+    assert row["stac:bbox"] is None
     assert row["stac:proj_code"] is None
     assert dataset.collection.extent == taco.contract.Extent(
         (-77, -13, -75, -11),
@@ -140,7 +142,7 @@ def test_stac_extension_runs_on_folder_metadata(tmp_path: Path) -> None:
     output = write(tmp_path, contract, sample)
 
     row = open_view(output).level("children").to_pylist()[0]
-    assert row["stac:bbox"] == [-1.25, -1.25, 1.25, 1.25]
+    assert row["stac:centroid"] == {"lon": 0.0, "lat": 0.0}
 
 
 def test_grid_footprint_uses_the_complete_affine_transform() -> None:
@@ -188,7 +190,7 @@ def test_centroid_is_the_exact_grid_center() -> None:
     from pyproj import Transformer
 
     # A 264-pixel UTM chip: the center is reprojected alone, not taken from the footprint.
-    center = point_from_wkb(grid_center("EPSG:32718", (264, 264), (10, 0, 277000, 0, -10, 8667000)))
+    center = grid_center("EPSG:32718", (264, 264), (10, 0, 277000, 0, -10, 8667000))
     expected = Transformer.from_crs("EPSG:32718", "EPSG:4326", always_xy=True).transform(278320, 8665680)
     assert center == expected
 
@@ -204,10 +206,8 @@ def test_centroid_without_a_grid_comes_from_the_footprint(tmp_path: Path) -> Non
 
     row = open_view(output).level("sample").to_pylist()[0]
     # The two halves are joined across the antimeridian before the centroid is taken.
-    assert point_from_wkb(row["stac:centroid"]) == pytest.approx((180, 0.5))
-    assert (
-        row["majortom:code"] == taco.extensions.MajorTOM().compute({"stac:centroid": [Point(180, 0.5).wkb]})["code"][0]
-    )
+    assert row["stac:centroid"] == {"lon": 180.0, "lat": 0.5}
+    assert row["majortom:code"] == taco.extensions.MajorTOM().compute({"stac:centroid": [(180, 0.5)]})["code"][0]
 
 
 def test_supplied_centroid_is_kept(tmp_path: Path) -> None:
@@ -215,9 +215,38 @@ def test_supplied_centroid_is_kept(tmp_path: Path) -> None:
         structure=["data.bin"],
         metadata=[taco.Level("sample", stac=taco.extensions.STAC())],
     )
-    stac = taco.metadata.sample.STAC(**GRID, centroid=point_wkb(1, 1), datetime=START)
+    stac = taco.metadata.sample.STAC(**GRID, centroid=(1, 1), datetime=START)
     output = write(tmp_path, contract, taco.Sample(id="u20", assets=b"x", metadata=taco.Metadata(stac=stac)))
-    assert open_view(output).level("sample").to_pylist()[0]["stac:centroid"] == point_wkb(1, 1)
+    assert open_view(output).level("sample").to_pylist()[0]["stac:centroid"] == {"lon": 1.0, "lat": 1.0}
+
+
+def test_centroid_is_stored_as_float32(tmp_path: Path) -> None:
+    contract = taco.Contract(
+        structure=["data.bin"],
+        metadata=[
+            taco.Level(
+                "sample",
+                spatial=taco.extensions.Spatial(),
+                majortom=taco.extensions.MajorTOM(10, centroid="spatial:centroid"),
+            )
+        ],
+    )
+    grid = {"proj_code": "EPSG:32718", "proj_shape": (264, 264), "proj_transform": (10, 0, 277000, 0, -10, 8667000)}
+    spatial = taco.metadata.sample.Spatial(**grid)
+    output = write(tmp_path, contract, taco.Sample(id="u21", assets=b"x", metadata=taco.Metadata(spatial=spatial)))
+
+    row = open_view(output).level("sample").to_pylist()[0]
+    longitude, latitude = grid_center(grid["proj_code"], grid["proj_shape"], grid["proj_transform"])
+    assert row["spatial:centroid"] == {"lon": to_float32(longitude), "lat": to_float32(latitude)}
+    assert abs(row["spatial:centroid"]["lon"] - longitude) < 1e-5
+    majortom = taco.extensions.MajorTOM(10, centroid="spatial:centroid")
+    expected = majortom.compute({"spatial:centroid": [row["spatial:centroid"]]})["code"][0]
+    assert row["majortom:code"] == expected
+
+
+def test_centroid_must_be_a_valid_point() -> None:
+    with pytest.raises(ValueError, match="outside EPSG:4326 bounds"):
+        taco.metadata.sample.STAC(**GRID, centroid=(181, 0), datetime=START)
 
 
 def test_projected_footprint_retains_curved_edges() -> None:
@@ -247,3 +276,126 @@ def test_self_intersecting_footprint_is_rejected() -> None:
     footprint = Polygon([(0, 0), (1, 1), (1, 0), (0, 1), (0, 0)])
     with pytest.raises(ValueError, match="not a valid geometry"):
         taco.metadata.sample.STAC(geometry=footprint.wkb, datetime=START)
+
+
+def test_small_projected_grid_keeps_its_corners() -> None:
+    footprint = shapely.from_wkb(grid_footprint("EPSG:32718", (352, 352), (30, 0, 277000, 0, -30, 8667000)))
+    assert len(footprint.exterior.coords) == 5
+
+
+@pytest.mark.parametrize(
+    ("code", "shape", "transform"),
+    [
+        ("EPSG:4326", (10, 10), (0.25, 0, -1.25, 0, -0.25, 1.25)),
+        ("EPSG:32718", (352, 352), (30, 0, 277000, 0, -30, 8667000)),
+        ("EPSG:32631", (100, 100), (10_000, 0, 0, 0, -10_000, 8_000_000)),
+        ("EPSG:4326", (10, 10), (0.1, 0, 179.5, 0, -0.1, 1)),
+        ("EPSG:3413", (200, 200), (10_000, 0, -1_000_000, 0, -10_000, 1_000_000)),
+    ],
+)
+def test_grid_bbox_bounds_the_grid_footprint(code: str, shape: tuple[int, int], transform: tuple[float, ...]) -> None:
+    box = grid_bbox(code, shape, transform)
+    assert box == pytest.approx(footprint_bbox(shapely.from_wkb(grid_footprint(code, shape, transform))))
+    assert grid_bboxes([code, code], [shape, shape], [transform, transform]) == [box, box]
+
+
+def test_grid_bboxes_keep_the_row_order() -> None:
+    codes = ["EPSG:4326", "EPSG:32718", "EPSG:4326"]
+    shapes = [(10, 10), (352, 352), (10, 10)]
+    transforms = [(0.25, 0, -1.25, 0, -0.25, 1.25), (30, 0, 277000, 0, -30, 8667000), (0.1, 0, 179.5, 0, -0.1, 1)]
+    expected = [grid_bbox(*grid) for grid in zip(codes, shapes, transforms, strict=True)]
+    assert grid_bboxes(codes, shapes, transforms) == expected
+
+
+BEYOND = [
+    ("EPSG:4326", (100, 360), (2, 0, -180, 0, -0.01, 1), "wraps more than once around the earth"),
+    ("EPSG:3857", (10, 10), (4_000_000, 0, 15_000_000, 0, -1000, 0), "extends beyond the area its CRS represents"),
+]
+
+
+@pytest.mark.parametrize(("code", "shape", "transform", "message"), BEYOND)
+def test_grids_beyond_one_earth_are_rejected_everywhere(
+    code: str, shape: tuple[int, int], transform: tuple[float, ...], message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        grid_bbox(code, shape, transform)
+    with pytest.raises(ValueError, match=message):
+        grid_bboxes([code], [shape], [transform])
+    with pytest.raises(ValueError, match=message):
+        grid_footprint(code, shape, transform)
+
+
+def test_a_grid_past_180_degrees_that_fits_one_earth_is_kept() -> None:
+    assert grid_bbox("EPSG:4326", (10, 10), (1, 0, 200, 0, -1, 10)) == (-160, 0, -150, 10)
+
+
+def test_the_writer_and_validate_reject_a_grid_that_wraps_twice(tmp_path: Path) -> None:
+    code, shape, transform, message = BEYOND[0]
+    contract = taco.Contract(structure=["data.bin"], metadata=[taco.Level("sample", spatial=taco.extensions.Spatial())])
+    spatial = taco.metadata.sample.Spatial(proj_code=code, proj_shape=shape, proj_transform=transform)
+    with pytest.raises(Exception, match=message):
+        write(tmp_path, contract, taco.Sample(id="twice", assets=b"x", metadata=taco.Metadata(spatial=spatial)))
+
+    output = write(
+        tmp_path / "edited",
+        contract,
+        taco.Sample(id="once", assets=b"x", metadata=taco.Metadata(spatial=taco.metadata.sample.Spatial(**GRID))),
+    )
+    path = output / "METADATA" / "sample.parquet"
+    table = pq.read_table(path)
+    index = table.schema.get_field_index("spatial:proj_transform")
+    edited = pa.array([list(transform)], table.schema.field(index).type)
+    table = table.set_column(index, table.schema.field(index), edited)
+    table = table.set_column(
+        table.schema.get_field_index("spatial:proj_shape"),
+        "spatial:proj_shape",
+        pa.array([list(shape)], table.schema.field("spatial:proj_shape").type),
+    )
+    pq.write_table(table, path)
+    report = taco.validate(output)
+    assert not report.ok
+    assert message in str(report)
+
+
+def test_the_writer_checks_a_grid_even_when_bbox_and_geometry_are_given(tmp_path: Path) -> None:
+    code, shape, transform, message = BEYOND[0]
+    contract = taco.Contract(structure=["data.bin"], metadata=[taco.Level("sample", spatial=taco.extensions.Spatial())])
+    spatial = taco.metadata.sample.Spatial(
+        geometry=shapely.box(0, 0, 1, 1).wkb,
+        bbox=(0, 0, 1, 1),
+        proj_code=code,
+        proj_shape=shape,
+        proj_transform=transform,
+    )
+    with pytest.raises(taco.errors.SampleError, match=message):
+        write(tmp_path, contract, taco.Sample(id="both", assets=b"x", metadata=taco.Metadata(spatial=spatial)))
+
+
+def test_the_writer_checks_grids_on_levels_that_do_not_own_the_extent(tmp_path: Path) -> None:
+    code, shape, transform, message = BEYOND[0]
+    contract = taco.Contract(
+        structure=["scene/dem.bin"],
+        metadata=[
+            taco.Level("sample", stac=taco.extensions.STAC()),
+            taco.Level("children", stac=taco.extensions.STAC(model=taco.metadata.folder.STAC)),
+        ],
+    )
+    folder = taco.metadata.folder.STAC(proj_code=code, proj_shape=shape, proj_transform=transform, datetime=START)
+    sample = taco.Sample(
+        id="s0",
+        metadata=taco.Metadata(stac=taco.metadata.sample.STAC(**GRID, datetime=START)),
+        folders=[taco.Folder("scene", metadata=taco.Metadata(stac=folder))],
+        assets=[taco.Asset(b"x", path="scene/dem.bin")],
+    )
+    with pytest.raises(taco.errors.SampleError, match=message):
+        write(tmp_path, contract, sample)
+
+
+def test_turns_are_counted_in_the_units_of_a_geographic_crs() -> None:
+    one_turn = ("EPSG:4807", (10, 400), (1, 0, -200, 0, -1, 10))
+    west, _, east, _ = grid_bbox(*one_turn)
+    assert (west, east) == (-180, 180)
+    assert grid_bboxes(*([value] for value in one_turn)) == [grid_bbox(*one_turn)]
+    assert shapely.from_wkb(grid_footprint(*one_turn)).is_valid
+    with pytest.raises(ValueError, match="wraps more than once"):
+        grid_bbox("EPSG:4807", (10, 401), (1, 0, -200, 0, -1, 10))

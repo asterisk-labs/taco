@@ -131,7 +131,6 @@ with taco.open_writer(collection, "stac-segmentation.zip", overwrite=True) as wr
         dominant_land_cover = class_names[int(np.bincount(label.ravel()).argmax())]
         easting, northing = chip["origin"]
 
-        # The grid is enough: the writer computes the footprint and bbox from it.
         stac = taco.metadata.sample.STAC(
             proj_code=chip["crs"],
             proj_shape=image.shape[-2:],
@@ -180,6 +179,7 @@ samples = taco.read(dataset)
 assert samples.num_rows == 3
 assert dataset.sql('SELECT * FROM dataset ORDER BY "taco:sample_index"').equals(samples)
 assert "majortom:code" in samples.column_names
-assert samples.column("stac:bbox").null_count == 0
+assert samples.column("stac:centroid").null_count == 0
+assert samples.column("stac:geometry").null_count == samples.num_rows
 assert dataset.collection.to_dict()["labels:num_classes"] == 3
 assert taco.validate("stac-segmentation.zip").ok

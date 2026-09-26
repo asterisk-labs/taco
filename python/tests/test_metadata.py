@@ -23,6 +23,10 @@ def point(x: float, y: float) -> bytes:
     return struct.pack("<BIdd", 1, 1, x, y)
 
 
+def centroid(x: float, y: float) -> dict[str, float]:
+    return {"lon": x, "lat": y}
+
+
 def test_sample_metadata_facade_keeps_public_imports() -> None:
     assert taco.metadata.sample.Spatial is taco.metadata.spatiotemporal.Spatial
     assert taco.metadata.sample.Temporal is taco.metadata.spatiotemporal.Temporal
@@ -177,7 +181,7 @@ def test_collection_models() -> None:
 
 def test_major_tom_vector_batch() -> None:
     extension = taco.extensions.MajorTOM(dist_km=100)
-    result = extension.compute({"stac:centroid": [point(-76, -12), point(0, 0), point(100, 40)]})
+    result = extension.compute({"stac:centroid": [centroid(-76, -12), centroid(0, 0), centroid(100, 40)]})
     codes = result["code"]
     assert len(codes) == 3
     assert all(code.startswith("MT100km_") for code in codes)
@@ -195,7 +199,7 @@ def test_major_tom_preserves_fractional_grid_distances() -> None:
         "MajorTOM spherical grid cell identifier at 320.5 km",
         "MajorTOM spherical grid cell identifier at 320.9 km",
     ]
-    result = taco.extensions.MajorTOM(dist_km=100.4).compute({"stac:centroid": [point(-76, -12)]})
+    result = taco.extensions.MajorTOM(dist_km=100.4).compute({"stac:centroid": [centroid(-76, -12)]})
     assert result["code"][0].startswith("MT100.4km_")
 
 
@@ -214,7 +218,7 @@ def test_major_tom_configuration(kwargs) -> None:
 
 
 def test_major_tom_rejects_non_point() -> None:
-    with pytest.raises(ValueError, match="WKB point"):
+    with pytest.raises(ValueError, match="must be a point"):
         taco.extensions.MajorTOM().compute({"stac:centroid": [b"bad"]})
 
 
@@ -276,7 +280,7 @@ def test_geoenrich_batches_requests(monkeypatch: pytest.MonkeyPatch) -> None:
         batch_size=1,
         max_concurrency=1,
     )
-    result = extension.compute({"stac:centroid": [point(0, 0), point(1, 1)]})
+    result = extension.compute({"stac:centroid": [centroid(0, 0), centroid(1, 1)]})
     assert result == {
         "elevation": [0.5, 1.5],
         "admin_countries": ["Afghanistan", "Ocean/Sea/Lakes"],
@@ -304,7 +308,7 @@ def test_geoenrich_replaces_missing_admin_name(monkeypatch: pytest.MonkeyPatch) 
 
     monkeypatch.setattr(FakeImage, "reduceRegions", reduce_regions)
     extension = taco.metadata.sample.GeoEnrich(["admin_districts"], backend="earthengine")
-    result = extension.compute({"stac:centroid": [point(63.794370059438705, 36.06268468013294)]})
+    result = extension.compute({"stac:centroid": [centroid(63.794370059438705, 36.06268468013294)]})
 
     assert result == {"admin_districts": ["Unknown"]}
 
@@ -328,7 +332,7 @@ def test_geoenrich_converts_units_and_keeps_missing_values(monkeypatch: pytest.M
 
     monkeypatch.setattr(FakeImage, "reduceRegions", reduce_regions)
     extension = taco.metadata.sample.GeoEnrich(["temperature", "soil_ph", "population"], backend="earthengine")
-    result = extension.compute({"stac:centroid": [point(0, 0), point(1, 1)]})
+    result = extension.compute({"stac:centroid": [centroid(0, 0), centroid(1, 1)]})
 
     assert result["temperature"] == [pytest.approx(26.85, abs=1e-5), None]
     assert result["soil_ph"] == [6.5, None]
@@ -352,7 +356,7 @@ def test_geoenrich_retries_failed_requests(monkeypatch: pytest.MonkeyPatch) -> N
 
     monkeypatch.setattr(FakeImage, "reduceRegions", reduce_regions)
     result = taco.metadata.sample.GeoEnrich(["elevation"], backend="earthengine").compute(
-        {"stac:centroid": [point(0, 0)]}
+        {"stac:centroid": [centroid(0, 0)]}
     )
 
     assert result == {"elevation": [12.0]}

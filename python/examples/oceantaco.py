@@ -285,7 +285,8 @@ samples = taco.read(dataset)
 assert samples.num_rows == 2
 assert dataset.sql('SELECT * FROM dataset ORDER BY "taco:sample_index"').equals(samples)
 assert samples.column("stac:proj_code").null_count == samples.num_rows
-assert samples.column("stac:bbox").null_count == 0
+assert samples.column("stac:geometry").null_count == 0
+assert samples.column("stac:centroid").null_count == 0
 assert dataset.collection.extent is not None
 assert dataset.collection.to_dict()["origin:project"] == "OceanTACO"
 assert taco.validate("oceantaco.zip").ok

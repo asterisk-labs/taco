@@ -352,11 +352,16 @@ jobs:
       - name: Test installed wheel (Unix)
         if: runner.os != 'Windows'
         run: |
-          python -m pip install wheelhouse/*.whl
+          wheel="$(ls wheelhouse/*.whl | head -n 1)"
+          python -m pip install "$wheel"
           cp core/tests/data/taco_flat.zip "${RUNNER_TEMP}/taco.zip"
-          cd "${RUNNER_TEMP}"
+          pushd "${RUNNER_TEMP}"
           python -c "import taco; table = taco.read('taco.zip'); assert table.num_rows > 0; print(taco.__version__)"
           python -c "import taco; table = taco.read('https://raw.githubusercontent.com/asterisk-labs/taco/${{ github.ref_name }}/core/tests/data/taco_flat.zip'); assert table.num_rows > 0"
+          python -c "import sys, taco; taco.read('taco.zip'); loaded = {'cozip', 'numpy', 'pydantic', 'pyproj', 'shapely'} & set(sys.modules); assert not loaded, loaded"
+          popd
+          python -m pip install "${wheel}[writer]"
+          python -c "import taco; assert callable(taco.open_writer); assert taco.metadata.sample.STAC"
 
       - name: Test installed wheel (Windows)
         if: runner.os == 'Windows'
@@ -368,7 +373,10 @@ jobs:
           try {
             python -c "import taco; table = taco.read('taco.zip'); assert table.num_rows > 0; print(taco.__version__)"
             python -c "import taco; table = taco.read('https://raw.githubusercontent.com/asterisk-labs/taco/${{ github.ref_name }}/core/tests/data/taco_flat.zip'); assert table.num_rows > 0"
+            python -c "import sys, taco; taco.read('taco.zip'); loaded = {'cozip', 'numpy', 'pydantic', 'pyproj', 'shapely'} & set(sys.modules); assert not loaded, loaded"
           } finally { Pop-Location }
+          python -m pip install "$wheel[writer]"
+          python -c "import taco; assert callable(taco.open_writer); assert taco.metadata.sample.STAC"
 
       - uses: actions/upload-artifact@v7
         with:

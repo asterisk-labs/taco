@@ -4,7 +4,7 @@ import { extendRandomRowIndexes, randomRowIndexes } from "./sampling.js?v=2";
 
 const FIXTURE_ROOT = "https://huggingface.co/datasets/asterisk-labs/taco-api-fixtures/resolve/main";
 const MANIFEST_URL = `${FIXTURE_ROOT}/manifest.json`;
-const CENTROID_PROFILES = new Set(["spatial", "ispacial", "ispatial", "stac", "stac-interval", "shared-stac", "istac"]);
+const CENTROID_PROFILES = new Set(["spatial", "ispacial", "ispatial", "stac", "stac-interval", "shared-stac", "stac-footprint", "istac"]);
 const CENTROID_FIELDS = ["stac:centroid", "spatial:centroid"];
 // Columns that locate a sample; they are not shown as metadata or offered for coloring.
 const LOCATION_FIELDS = new Set([...CENTROID_FIELDS, "stac:geometry", "spatial:geometry", "stac:bbox", "spatial:bbox"]);
@@ -553,7 +553,7 @@ async function changeDisplayedPointCount(targetSize) {
 function pointsFromMetadata(rows, centroidField, rowIndexes = null) {
   return rows.flatMap((metadata, position) => {
     const row = sampleRowFromMetadata(metadata);
-    const centroid = decodeWkbPoint(row[centroidField]);
+    const centroid = decodePoint(row[centroidField]);
     if (!centroid) return [];
     const identity = { "taco:sample_index": row["taco:sample_index"] };
     if (row.source_file !== undefined) identity.source_file = row.source_file;
@@ -1697,7 +1697,11 @@ function clearMarkers() {
   element.plotLegend.hidden = true;
 }
 
-function decodeWkbPoint(value) {
+function decodePoint(value) {
+  // Keep old WKB fixtures readable.
+  if (value && typeof value === "object" && "lon" in value && "lat" in value) {
+    return lonLatOrNull(Number(value.lon), Number(value.lat));
+  }
   let bytes;
   if (value instanceof Uint8Array) bytes = value;
   else if (value instanceof ArrayBuffer) bytes = new Uint8Array(value);
@@ -1711,8 +1715,10 @@ function decodeWkbPoint(value) {
   if (type !== 1) return null;
   const coordinateOffset = 5 + ((rawType & 0x20000000) === 0 ? 0 : 4);
   if (bytes.byteLength < coordinateOffset + 16) return null;
-  const longitude = view.getFloat64(coordinateOffset, littleEndian);
-  const latitude = view.getFloat64(coordinateOffset + 8, littleEndian);
+  return lonLatOrNull(view.getFloat64(coordinateOffset, littleEndian), view.getFloat64(coordinateOffset + 8, littleEndian));
+}
+
+function lonLatOrNull(longitude, latitude) {
   return Number.isFinite(longitude) && Number.isFinite(latitude)
     && longitude >= -180 && longitude <= 180 && latitude >= -90 && latitude <= 90
     ? [longitude, latitude]

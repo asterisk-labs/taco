@@ -5,15 +5,17 @@ import types
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Annotated, Any, Literal, Union, get_args, get_origin
+from typing import TYPE_CHECKING, Annotated, Any, Literal, Union, get_args, get_origin
 
 import pyarrow as pa
-from pydantic import BaseModel
 
 from ..container.parquet import Encoding
 from ..errors import ContractError, SampleError
-from ..metadata._base import CollectionSummary, DerivedMetadata, Extension
+from .extension import CollectionSummary, DerivedMetadata, Extension
 from .naming import validate_field_name
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from pydantic import BaseModel
 
 _NAMESPACE = re.compile(r"^[a-z][a-z0-9_]*$")
 _RESERVED_NAMESPACES = frozenset({"cozip", "internal", "taco"})
@@ -37,6 +39,17 @@ PROFILE_FIELDS: dict[str, dict[str, tuple[str, bool]]] = {
     "temporal": _TIME_FIELDS,
     "stac": {**_LOCATION_FIELDS, **_TIME_FIELDS},
 }
+
+
+def _pydantic() -> Any:
+    # Keep Pydantic out of reader imports.
+    import pydantic
+
+    return pydantic
+
+
+def _is_model_type(value: Any) -> bool:
+    return isinstance(value, type) and issubclass(value, _pydantic().BaseModel)
 
 
 @dataclass(frozen=True)
@@ -125,7 +138,7 @@ def _arrow_type(annotation: Any) -> pa.DataType:
             raise ContractError("map keys cannot be optional")
         item, item_nullable = _optional(args[1])
         return pa.map_(_arrow_type(key), pa.field("value", _arrow_type(item), nullable=item_nullable))
-    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+    if _is_model_type(annotation):
         return pa.struct(
             pa.field(
                 name,
@@ -194,7 +207,7 @@ def _summary_types(
 
 def _model_binding(namespace: str, value: Any) -> Group:
     annotation, optional = _optional(value)
-    if not isinstance(annotation, type) or not issubclass(annotation, BaseModel):
+    if not _is_model_type(annotation):
         raise ContractError(f"metadata group {namespace!r} must be a Pydantic model, Model | None, or derived group")
     expected_namespace = getattr(annotation, "__taco_namespace__", None)
     if expected_namespace is not None and namespace != expected_namespace:
@@ -224,7 +237,7 @@ def _extension_binding(namespace: str, value: Extension) -> Group:
     input_fields: tuple[tuple[str, pa.Field], ...] = ()
     summaries: tuple[type[CollectionSummary], ...] = ()
     if model is not None:
-        if not isinstance(model, type) or not issubclass(model, BaseModel):
+        if not _is_model_type(model):
             raise ContractError(f"extension {type(value).__name__}.input_model must be a Pydantic model or None")
         expected_namespace = getattr(model, "__taco_namespace__", None)
         if expected_namespace is not None and namespace != expected_namespace:
@@ -300,7 +313,7 @@ class Metadata:
     def __init__(self, **groups: BaseModel) -> None:
         for namespace, model in groups.items():
             _namespace(namespace)
-            if not isinstance(model, BaseModel):
+            if not isinstance(model, _pydantic().BaseModel):
                 raise SampleError(f"metadata group {namespace!r} must be a Pydantic model instance")
         object.__setattr__(self, "groups", dict(groups))
 

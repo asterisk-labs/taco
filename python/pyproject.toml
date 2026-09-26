@@ -44,22 +44,24 @@ classifiers = [
 ]
 dependencies = [
     "cffi>=1.17",
-    "cozip>=2026.9.4",
     "duckdb>=1.5.5",
-    "numpy>=1.24",
-    "tqdm>=4.66",
     "pyarrow>=14",
+    "tqdm>=4.66",
+]
+
+[project.optional-dependencies]
+writer = [
+    "cozip>=2026.9.4",
+    "numpy>=1.24",
     "pydantic>=2.8",
     "pyproj>=3.6",
     "shapely>=2",
 ]
-
-[project.optional-dependencies]
-test = ["pytest>=8", "pytest-cov>=5"]
-dev = ["pytest>=8", "pytest-cov>=5", "ruff>=0.5", "mypy>=1.8"]
-test-eo = ["rumi-eo[write]>=0.19"]
-geoenrich = ["earthengine-api>=1"]
-rumi = ["rumi-eo[write]>=0.19"]
+test = ["taco-eo[writer]", "pytest>=8", "pytest-cov>=5"]
+dev = ["taco-eo[writer]", "pytest>=8", "pytest-cov>=5", "ruff>=0.5", "mypy>=1.8"]
+test-eo = ["taco-eo[writer]", "rumi-eo[write]>=0.19"]
+geoenrich = ["taco-eo[writer]", "earthengine-api>=1"]
+rumi = ["taco-eo[writer]", "rumi-eo[write]>=0.19"]
 
 [project.urls]
 Homepage = "https://asterisk.coop/taco"
@@ -78,6 +80,7 @@ path = "hatch_build.py"
 include = ["taco/**", "tests/**", "examples/**", "hatch_build.py", "LICENSE", "README.md", "pyproject.toml"]
 
 [tool.hatch.build.targets.sdist.force-include]
+"../core/tests/data/taco_flat.zip" = "tests/data/taco_flat.zip"
 "../core/CMakeLists.txt" = "native/core/CMakeLists.txt"
 "../core/include" = "native/core/include"
 "../core/src" = "native/core/src"

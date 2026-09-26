@@ -9,7 +9,7 @@ from typing import Any, cast
 import pyarrow as pa
 
 from ..errors import ContractError, SampleError
-from ..metadata._base import ExtensionContext
+from .extension import ExtensionContext
 from .naming import level_folder
 from .sample import Asset, Folder, Sample, _PreparedAsset, _PreparedNode, _PreparedSample
 from .schema import PROFILE_FIELDS, Field, Group, Level, Metadata, validate_qualified_field

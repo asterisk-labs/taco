@@ -3,12 +3,11 @@ from __future__ import annotations
 import difflib
 import json
 import math
+import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
-
-from pydantic import BaseModel
 
 from ..errors import CollectionError, ContractError
 from .contract import Contract
@@ -275,7 +274,10 @@ _PARAMETERS = (
 
 def _group_values(namespace: str, value: object) -> dict[str, Any]:
     """Check one collection metadata group and return its values as JSON."""
-    if isinstance(value, BaseModel):
+    # Mapping-only collections should not import Pydantic.
+    pydantic = sys.modules.get("pydantic")
+    model = pydantic.BaseModel if pydantic is not None else None
+    if model is not None and isinstance(value, model):
         scopes: frozenset[str] = getattr(type(value), "__taco_scopes__", frozenset())
         if scopes and "collection" not in scopes:
             raise CollectionError(f"{type(value).__name__} is not collection metadata")
@@ -287,7 +289,7 @@ def _group_values(namespace: str, value: object) -> dict[str, Any]:
             raise CollectionError(f"collection metadata group {namespace!r} must serialize to a JSON object")
     elif isinstance(value, Mapping):
         values = dict(value)
-    elif isinstance(value, type) and issubclass(value, BaseModel):
+    elif model is not None and isinstance(value, type) and issubclass(value, model):
         raise CollectionError(
             f"collection metadata group {namespace!r} needs an instance, such as {value.__name__}(...)"
         )

@@ -118,17 +118,17 @@ nullability. A level may use at most one. STAC `proj:` fields are stored with a
 | Profile | Producer supplies | Writer adds | Declare it as |
 | --- | --- | --- | --- |
 | `temporal` | `datetime`, or `start_datetime` + `end_datetime` | nothing | `temporal=taco.metadata.sample.Temporal` |
-| `spatial` | `geometry`, or `proj_code` + `proj_shape` + `proj_transform` | `geometry`, `bbox`, `centroid` | `spatial=taco.extensions.Spatial()` |
-| `stac` | both of the above | `geometry`, `bbox`, `centroid` | `stac=taco.extensions.STAC()` |
+| `spatial` | `proj_code` + `proj_shape` + `proj_transform`, or `geometry` | `centroid` | `spatial=taco.extensions.Spatial()` |
+| `stac` | both of the above | `centroid` | `stac=taco.extensions.STAC()` |
 
 Canonical declarations, enforced by `Contract._check_profiles` from
 `contract/schema.py:PROFILE_FIELDS`:
 
 | Field | Type | Nullable |
 | --- | --- | --- |
-| `geometry` | `binary` | no |
-| `bbox` | `list<double>` | no |
-| `centroid` | `binary` (WKB Point, EPSG:4326) | no |
+| `geometry` | `binary` | yes |
+| `bbox` | `list<double>` | yes |
+| `centroid` | `struct<lon: float, lat: float>` | no |
 | `datetime`, `start_datetime`, `end_datetime` | `timestamp[us, UTC]` | yes |
 | `proj_code` | `string` | yes |
 | `proj_shape` | `list<int64>` | yes |
@@ -154,24 +154,16 @@ The row rules live in the model validators (`check_times`, `check_location` in
   (RFC 7946). An edge longer than 180 degrees is only allowed with both ends on the
   antimeridian or along a pole; otherwise it fails with `geometry crosses the
   antimeridian; split it at 180 degrees as RFC 7946 requires`.
-- **bbox**: `[west, south, east, north]`, west and east being the narrowest longitude
-  interval covering every part, so `west > east` across the antimeridian. A supplied
-  bbox must equal the computed one.
+- **bbox**: optional and only with `geometry`: `[west, south, east, north]`, west and
+  east being the narrowest longitude interval covering every part, so `west > east`
+  across the antimeridian. It must equal the bounds of `geometry`.
 
-`grid_footprint` reprojects 16 points per grid edge to EPSG:4326 and keeps them all,
-so a computed footprint has about 65 vertices (around 1 KB of WKB per row). A grid
-across the antimeridian becomes a MultiPolygon; a grid around a pole keeps its
-boundary and closes through that pole.
-A supplied `geometry` wins over the grid, so a footprint may trace valid data only.
-`centroid` is the one point that stands for the sample (MajorTOM and GeoEnrich read
-it). With a grid it is `grid_center`: the grid center in its own CRS, reprojected as a
-single point, so it never depends on how `geometry` samples the edges. Without a grid
-it is `footprint_center(geometry)`, which joins a footprint split at the antimeridian
-before taking the centroid. A supplied `centroid` is kept. It is TACO's own field; STAC
-has no equivalent in the core Item.
+`geometry` and `bbox` contain only producer input. Use `grid_footprint` or `grid_bbox`
+to derive them. `centroid` is a float32 `{lon, lat}` struct: the supplied value, grid
+center, or footprint centroid. It is a TACO field, not a STAC Item field.
 
 Binding `Spatial` or `STAC` as a plain model (no extension) means nothing computes the
-outputs: the producer must supply `geometry`, `bbox` and `centroid` on every row.
+output: the producer must supply `centroid` on every row.
 
 Profile mistakes have their own messages:
 
@@ -183,12 +175,9 @@ datetime is required unless start_datetime and end_datetime are given
 geometry is required unless proj_code, proj_shape and proj_transform are given
 ```
 
-A profile carries a **collection summary**: `Spatial` produces the spatial part of
-`extent`, `STAC` also the temporal part, and `Temporal` produces nothing. The summary
-streams: every bbox spills to a temporary file as one or two longitude intervals, and
-the extent leaves out the largest gap between them, so a dataset crossing the
-antimeridian gets `west > east` rather than a band around the whole globe. If a
-profile appears at several levels, the shallowest owns `extent`.
+`Spatial` summarizes spatial extent; `STAC` adds time. Bounds come from `bbox`,
+`geometry`, or the grid. The summary streams to disk and handles the antimeridian. If
+a profile appears at several levels, the shallowest owns `extent`.
 
 ## Collection metadata
 

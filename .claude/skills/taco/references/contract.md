@@ -163,6 +163,4 @@ That order becomes `internal:current_id` in the child tables.
 `Contract.from_dict` requires `taco:structure` and `taco:metadata`, and every
 serialized field to declare exactly `type`, `nullable` and `description`. It also
 requires `taco:metadata` to contain every level the structure implies, so a contract
-cannot silently lose a level. Readers accept the legacy `taco:derived` descriptor and
-re-validate its outputs, but the writer does not persist extension descriptors in new
-datasets.
+cannot silently lose a level. The writer does not persist extension descriptors.

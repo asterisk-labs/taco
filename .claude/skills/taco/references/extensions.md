@@ -13,18 +13,14 @@ in `taco:metadata` plus any semantic parameter promoted to collection metadata. 
 dataset read back therefore has `contract.extensions == {}` even though the columns
 are there.
 
-Readers still tolerate the legacy `taco:derived` object. The writer never emits it,
-and new datasets should not author extension descriptors under either `taco:derived`
-or `taco:extensions`. The latter is not a collection key: although the lower-level
-`Contract.from_dict` contains a compatibility branch for it, `Collection.from_dict`
-rejects it before that branch can run.
+Do not store extension descriptors in `COLLECTION.json`.
 
 ## Built-in extensions
 
 | Extension | Requires | Produces | Scopes |
 | --- | --- | --- | --- |
-| `Spatial(model=...)` | `spatial:proj_code`, `proj_shape`, `proj_transform` | `spatial:geometry`, `bbox`, `centroid` | sample, folder |
-| `STAC(model=...)` | `stac:proj_code`, `proj_shape`, `proj_transform` | `stac:geometry`, `bbox`, `centroid` | sample, folder |
+| `Spatial(model=...)` | `spatial:geometry`, `proj_code`, `proj_shape`, `proj_transform` | `spatial:centroid` | sample, folder |
+| `STAC(model=...)` | `stac:geometry`, `proj_code`, `proj_shape`, `proj_transform` | `stac:centroid` | sample, folder |
 | `Rumi(header=True, stats=False, nodata=None)` | nothing | `rumi:header` and/or `rumi:stats`, at least one | sample, asset |
 | `MajorTOM(dist_km=100, extra=(), latitude_range=(-85, 85), longitude_range=(-180, 180), sep="_", centroid="stac:centroid")` | the centroid field | `majortom:code` plus one per extra grid | sample |
 | `GeoEnrich(variables=None, backend="majortom-index", scale_m=5120, batch_size=250, max_concurrency=8, centroid="stac:centroid", code="majortom:code", index_url=...)` | the 10 km MajorTOM code by default; the centroid field for `earthengine` | one column per variable | sample |
@@ -47,21 +43,20 @@ The subclass must inherit the matching `taco.metadata.sample.*` model, and the
 namespace must be the canonical one: `STAC must use metadata namespace 'stac', got
 'st'`.
 
-### Footprints
+### Parquet encodings
 
-For a row without `geometry`, `grid_footprint(code, shape, transform)` walks 16
-points along each grid edge in pixel space, reprojects them with pyproj (skipped for
-`EPSG:4326` and `OGC:CRS84`), unwraps the longitudes and keeps the sampled ring: a
-Polygon, a MultiPolygon split at 180 degrees, or a ring closed through the pole when
-the edges wind around it. It re-checks its own output with `load_footprint`.
-Transformers are cached per thread. An unknown code fails with `proj_code 'EPSG:99999'
-is not a known CRS`. `footprint_bbox` then derives `bbox`, and `centroid` is
-`grid_center` (the grid center reprojected alone) or, without a grid,
-`footprint_center(geometry)`. A `geometry`, `bbox` or `centroid` supplied by the
-producer is kept (the model already checked that the bbox matches), so that part of the
-computation is skipped for the row. All of this lives in
-`metadata/spatiotemporal.py`; the extensions in `extensions/spatiotemporal.py` only
-apply it per row.
+Use `Annotated[T, taco.Encoding(name)]` on model fields or
+`taco.Encoding(name).metadata` on extension fields. Names are `dictionary`, `plain`,
+`byte_stream_split`, and `delta`. Without a hint, the writer tests 10,000 rows. The
+choice is per file and not stored. Explicit encoding options take precedence. ZSTD
+defaults to level 9; strings use `DELTA_LENGTH_BYTE_ARRAY` for hyparquet compatibility.
+
+### Centroids and footprints
+
+The extensions derive only a float32 `centroid`. `grid_footprint`, `grid_bbox`, and
+`grid_bboxes` derive footprints or bounds on demand with half-pixel edge precision.
+The writer and validator reject unknown CRSs, grids wider than one turn, and grids
+outside their CRS domain.
 
 ### Rumi
 
@@ -98,10 +93,8 @@ Both extensions default to `centroid="stac:centroid"`; point them at
 `spatial:centroid` when the level uses the Spatial profile. The value must match
 `[a-z][a-z0-9_]*:centroid`.
 
-`GeoEnrich` sets `__taco_complete_level__`, so its level is buffered whole rather
-than flushed per batch. The index backend and source URL are recorded in collection
-metadata; Earth Engine keeps the collection metadata written by TACO 0.10.2 so
-existing FOLDER datasets remain append-compatible.
+`GeoEnrich` buffers its complete level. The index backend and source URL are recorded
+in collection metadata.
 
 ## Writing an extension
 
@@ -158,8 +151,7 @@ Contract:
   in those rows, by qualified name) and `context.assets` (the local `Path` of each
   row's asset, or `None`). It must return exactly its declared field names, each a
   sequence of the same length as the batch.
-- `DerivedMetadata` is the older column-only base: implement `compute(columns)` and it
-  is adapted to `run`. New extensions should implement `Extension`.
+- `DerivedMetadata` adapts `compute(columns)` to `run`; new code should use `Extension`.
 - `__taco_complete_level__ = True` buffers the whole level instead of flushing per
   batch, for an operation that needs every row at once.
 
@@ -215,10 +207,6 @@ A `CollectionSummary` is a streaming reducer attached to a metadata model throug
 rows copied during an append, and writes `finish()` into the collection; returning
 `None` removes the key.
 
-`_SpatialExtent` and `_SpatioTemporalExtent` in `metadata/spatiotemporal.py` are the
-built-ins behind `extent`. They read `bbox` (and, for STAC, the three datetimes) and
-keep only what a summary needs: latitudes reduce to a running min and max, and each
-bbox spills to a temporary file as one longitude interval, or two when it crosses the
-antimeridian. At the end the intervals are sorted in place in a memmap and
-`longitude_cover` leaves out the widest gap, which gives the antimeridian-aware west
-and east without holding the table in memory.
+`_SpatialExtent` and `_SpatioTemporalExtent` use each row's `bbox`, `geometry`, or grid.
+They stream longitude intervals to disk; `longitude_cover` omits the widest gap to
+handle the antimeridian without loading the table.

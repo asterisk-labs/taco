@@ -25,9 +25,7 @@ metadata, and points to the ZIP partitions that hold the payloads. Readers compu
 file locations without extracting payloads: ZIP and TACOCAT use `/vsisubfile/` byte
 ranges, while FOLDER uses paths below `DATA/`.
 
-This skill describes **taco-eo 0.11.0** (spec 3.0.0, C API 2, DuckDB 1.5.5, cozip
-2026.9.17). Check `taco.__version__`. If it differs, trust the installed source,
-`docs/spec/SPEC.md` and `CHANGELOG.md` over this file.
+Trust the source and `docs/spec/SPEC.md` for current behavior.
 
 ## Mental model
 
@@ -86,7 +84,7 @@ with taco.open_writer(collection, "tiny.zip", overwrite=True) as writer:
             id="lima-0001",                          # stable identity, never the index
             assets=[taco.Asset(data, path=name) for name, data in payloads.items()],
             metadata=taco.Metadata(
-                stac=taco.metadata.sample.STAC(      # geometry, bbox and centroid are derived
+                stac=taco.metadata.sample.STAC(      # the grid is stored; centroid is derived
                     proj_code="EPSG:4326",
                     proj_shape=(256, 256),           # [height, width]
                     proj_transform=(0.2 / 256, 0, -76.6, 0, -0.2 / 256, -12.0),
@@ -159,12 +157,10 @@ and only ZIP metadata carries the byte offsets that make random access possible.
   Operational settings such as `batch_size` and `workers` are never stored.
 - **A level has at most one spatial or temporal profile, with STAC fields.**
   `temporal` holds `datetime` or an inclusive `start_datetime`/`end_datetime` range;
-  `spatial` holds an EPSG:4326 WKB `geometry` and its `bbox`; `stac` holds both. A
-  sample gives its footprint or its grid (`proj_code`, `proj_shape` as
-  `[height, width]`, `proj_transform` in STAC/rasterio order, **not** GDAL order) and
-  the extension computes `geometry`, `bbox` and `centroid` (the exact grid center,
-  which MajorTOM uses). Mixing profiles, or using
-  `timestamp[ms]`, is a `ContractError`; `temporal` is a plain model, not an extension.
+  `spatial` holds location; `stac` holds both. Supply a grid in STAC/rasterio order or
+  an EPSG:4326 WKB `geometry`. The writer derives only the float32 `{lon, lat}`
+  `centroid`; grid footprints are computed on demand. Mixing profiles or using
+  `timestamp[ms]` is a `ContractError`; `temporal` is not an extension.
 - **Names are deliberately restricted.** The `taco`, `internal` and `cozip`
   namespaces and `__` in names are reserved. Path components reject `<>:"\|?` and a
   trailing space or dot. `*`, `[` and `]` are allowed only in the final component of a
@@ -183,7 +179,7 @@ and only ZIP metadata carries the byte offsets that make random access possible.
 ## Reference map
 
 Read only the reference the current task needs. Each names its sources in the
-repository, and its examples target taco-eo 0.11.0.
+repository.
 
 | Task | Read |
 | --- | --- |
@@ -196,5 +192,5 @@ repository, and its examples target taco-eo 0.11.0.
 | Physical layout, internal columns, ZIP and CoZIP profile, FOLDER, TACOCAT, VSI | [references/format.md](references/format.md) |
 | The C++ core: C API, container detection, SQL generation, cache, transport, build | [references/core.md](references/core.md) |
 | R, Julia and JavaScript readers: coverage, library loading, the viewer | [references/bindings.md](references/bindings.md) |
-| Spec version, migration from v2, release process across five packages | [references/compatibility.md](references/compatibility.md) |
+| Spec and implementation versions, release process across five packages | [references/compatibility.md](references/compatibility.md) |
 | Error message lookup, library loading, remote failures, repository and test layout | [references/debugging.md](references/debugging.md) |

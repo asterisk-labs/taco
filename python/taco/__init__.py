@@ -3,6 +3,7 @@ from __future__ import annotations
 from importlib.metadata import PackageNotFoundError, version
 
 from . import extensions, metadata
+from .container.parquet import Encoding
 from .contract import Asset, Collection, Contract, Folder, Sample
 from .contract.schema import DerivedMetadata, Extension, Level, Metadata
 from .errors import TacoError
@@ -25,6 +26,7 @@ __all__ = [
     "Contract",
     "Dataset",
     "DerivedMetadata",
+    "Encoding",
     "Extension",
     "ExtensionContext",
     "Folder",

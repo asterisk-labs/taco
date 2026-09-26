@@ -30,7 +30,7 @@ from ..contract.naming import (
 )
 from ..errors import ConsolidationError, ContractError
 from .identity import IdentifierIndex
-from .metadata import table_schema
+from .metadata import level_hints, table_schema
 
 __all__ = ["consolidate"]
 
@@ -116,13 +116,14 @@ def consolidate(
 
     reference = open_view(paths[0])
     _check_partition(reference, reference)
-    writer_options = parquet_writer_options(parquet_options)
+    parquet_writer_options(parquet_options)
     output_schemas = {
         level: table_schema(reference.contract, level, with_offsets=True).append(
             pa.field(SOURCE_FILE, pa.string(), nullable=False)
         )
         for level in reference.levels
     }
+    hints = {level: level_hints(reference.contract, level) | {SOURCE_FILE: "dictionary"} for level in reference.levels}
     collection = dict(reference.collection_json)
     extents: list[Extent] = []
     sources: list[dict[str, Any]] = []
@@ -136,10 +137,17 @@ def consolidate(
         with ExitStack() as stack:
             sample_ids = IdentifierIndex(Path(temporary) / "sample-ids.sqlite")
             stack.callback(sample_ids.close)
-            writers = {
-                level: stack.enter_context(pq.ParquetWriter(build / level_to_filename(level), schema, **writer_options))
-                for level, schema in output_schemas.items()
-            }
+            writers: dict[str, pq.ParquetWriter] = {}
+
+            def writer_for(level: str, sample: pa.Table | None) -> pq.ParquetWriter:
+                if level not in writers:
+                    schema = output_schemas[level]
+                    options = parquet_writer_options(parquet_options, schema, sample, hints[level])
+                    writers[level] = stack.enter_context(
+                        pq.ParquetWriter(build / level_to_filename(level), schema, **options)
+                    )
+                return writers[level]
+
             for index, path in enumerate(paths):
                 dataset = reference if index == 0 else open_view(path)
                 _check_partition(dataset, reference)
@@ -180,9 +188,9 @@ def consolidate(
                     table = table.append_column(output_schemas[level].field(SOURCE_FILE), source)
                     table = pa.Table.from_arrays(table.columns, schema=output_schemas[level])
                     if table.num_rows:
-                        writers[level].write_table(table, row_group_size=row_group_size)
+                        writer_for(level, table).write_table(table, row_group_size=row_group_size)
                     else:
-                        writers[level].write_table(table)
+                        writer_for(level, None).write_table(table)
                     level_offsets[level] += table.num_rows
 
         merged_extent = Extent.union(extents)

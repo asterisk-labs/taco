@@ -9,7 +9,7 @@ from typing import Any
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from ..container.parquet import parquet_writer_options
+from ..container.parquet import encoding_hints, parquet_writer_options
 from ..contract.contract import SAMPLE_ID, SAMPLE_LEVEL, Contract
 from ..contract.naming import (
     CURRENT_ID,
@@ -24,9 +24,11 @@ from ..contract.naming import (
     level_to_filename,
 )
 from ..contract.sample import _PreparedSample
+from ..errors import SampleError
 from ..metadata._base import CollectionSummary, SampleModel
-from ..metadata.spatiotemporal import STAC, Spatial, Temporal
+from ..metadata.spatiotemporal import STAC, Spatial, Temporal, grid_problems
 
+_GRID_NAMESPACES = ("spatial", "stac")
 _PROFILES: dict[str, type[SampleModel]] = {
     "spatial": Spatial,
     "temporal": Temporal,
@@ -116,6 +118,10 @@ def table_schema(contract: Contract, level: str, *, with_offsets: bool) -> pa.Sc
     return pa.schema(fields, metadata={b"taco:level": level.encode()})
 
 
+def level_hints(contract: Contract, level: str) -> dict[str, str]:
+    return encoding_hints(field for group in contract._groups[level] for _, field in group.fields)
+
+
 class MetadataTableWriter:
     def __init__(
         self,
@@ -132,7 +138,8 @@ class MetadataTableWriter:
         self.with_offsets = with_offsets
         self.row_group_size = row_group_size
         self.batch_size = batch_size
-        self._writer_options = parquet_writer_options(parquet_options)
+        parquet_writer_options(parquet_options)
+        self._parquet_options = parquet_options
         self._schemas = {level: table_schema(contract, level, with_offsets=with_offsets) for level in contract.levels}
 
         # Rows from one sample can land in several levels. Each level keeps its
@@ -164,7 +171,7 @@ class MetadataTableWriter:
             if summary.level == level:
                 summary.update_table(table)
         if table.num_rows:
-            self._parquet_writer(level).write_table(table, row_group_size=self.row_group_size)
+            self._parquet_writer(level, table).write_table(table, row_group_size=self.row_group_size)
         self._next_id[level] = table.num_rows
 
     def add_sample(
@@ -225,12 +232,33 @@ class MetadataTableWriter:
         if level not in self._complete_levels and len(self._buffers[level]) >= self.batch_size:
             self._flush(level)
 
-    def _parquet_writer(self, level: str) -> pq.ParquetWriter:
+    def _parquet_writer(self, level: str, sample: pa.Table | None = None) -> pq.ParquetWriter:
         writer = self._writers.get(level)
         if writer is None:
-            writer = pq.ParquetWriter(self.paths[level], self._schemas[level], **self._writer_options)
+            options = parquet_writer_options(
+                self._parquet_options, self._schemas[level], sample, level_hints(self.contract, level)
+            )
+            writer = pq.ParquetWriter(self.paths[level], self._schemas[level], **options)
             self._writers[level] = writer
         return writer
+
+    def _check_grids(self, level: str, rows: list[dict[str, Any]]) -> None:
+        for namespace in _GRID_NAMESPACES:
+            code = f"{namespace}:proj_code"
+            if code not in self._schemas[level].names:
+                continue
+            grids = [row for row in rows if row.get(code) is not None]
+            problems = grid_problems(
+                [row[code] for row in grids],
+                [row[f"{namespace}:proj_shape"] for row in grids],
+                [row[f"{namespace}:proj_transform"] for row in grids],
+            )
+            if problems:
+                index, message = problems[0]
+                row = grids[index]
+                raise SampleError(
+                    f"{namespace} grid of {row.get(SAMPLE_ID, row[RELATIVE_PATH])!r} at {level!r}: {message}"
+                )
 
     def _flush(self, level: str) -> None:
         rows = self._buffers[level]
@@ -238,6 +266,7 @@ class MetadataTableWriter:
         if not rows:
             return
 
+        self._check_grids(level, rows)
         # Extension outputs must be row-local; otherwise changing batch_size
         # would change the dataset. Check that once, on the first useful batch,
         # because the verification computes the derived values again per row.
@@ -248,7 +277,7 @@ class MetadataTableWriter:
             if summary.level == level:
                 summary.update_rows(rows)
         table = pa.Table.from_pylist(rows, schema=self._schemas[level])
-        self._parquet_writer(level).write_table(table, row_group_size=self.row_group_size)
+        self._parquet_writer(level, table).write_table(table, row_group_size=self.row_group_size)
         self._buffers[level] = []
         self._asset_buffers[level] = []
 

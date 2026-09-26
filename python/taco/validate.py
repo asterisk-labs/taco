@@ -7,7 +7,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field
 from os import PathLike
 from pathlib import Path
-from typing import BinaryIO, Literal
+from typing import Any, BinaryIO, Literal
 
 import pyarrow as pa
 
@@ -32,7 +32,7 @@ from .contract.naming import (
 from .contract.schema import PROFILE_FIELDS
 from .contract.types import type_name
 from .errors import TacoError, ValidationFailed
-from .metadata.spatiotemporal import STAC, Spatial, Temporal
+from .metadata.spatiotemporal import STAC, Spatial, Temporal, grid_problems
 from .writer.metadata import table_schema
 
 __all__ = ["Issue", "ValidationReport", "validate"]
@@ -148,11 +148,9 @@ def _check_sample_ids(dataset: DatasetView, collector: _Collector) -> None:
 
 def _profile_problem(values: dict[str, object]) -> str | None:
     try:
-        if "geometry" in values:
-            if values["geometry"] is None:
-                return "geometry is null"
-            if values["bbox"] is None:
-                return "bbox is null"
+        if "centroid" in values:
+            if values["centroid"] is None:
+                return "centroid is null"
             model = STAC if "datetime" in values else Spatial
             model.model_validate(values)
         else:
@@ -160,6 +158,15 @@ def _profile_problem(values: dict[str, object]) -> str | None:
     except ValueError as exc:
         return str(exc)
     return None
+
+
+def _grid_problems(grids: list[tuple[int, dict[str, Any]]]) -> list[tuple[int, str]]:
+    problems = grid_problems(
+        [values["proj_code"] for _, values in grids],
+        [values["proj_shape"] for _, values in grids],
+        [values["proj_transform"] for _, values in grids],
+    )
+    return [(grids[index][0], message) for index, message in problems]
 
 
 def _check_profile_rows(dataset: DatasetView, collector: _Collector) -> None:
@@ -179,15 +186,22 @@ def _check_profile_rows(dataset: DatasetView, collector: _Collector) -> None:
             offset = 0
             for batch in selected.to_batches(max_chunksize=8192):
                 columns = [column.to_pylist() for column in batch.columns]
+                problems: list[tuple[int, str]] = []
+                grids: list[tuple[int, dict[str, Any]]] = []
                 for row, values in enumerate(zip(*columns, strict=True), start=offset):
                     # An optional group may be absent from a row as a whole.
                     if all(value is None for value in values):
                         continue
-                    problem = _profile_problem(dict(zip(names, values, strict=True)))
+                    named = dict(zip(names, values, strict=True))
+                    problem = _profile_problem(named)
                     if problem is not None:
-                        problem_count += 1
-                        if first_problem is None:
-                            first_problem = (row, problem)
+                        problems.append((row, problem))
+                    elif named.get("proj_code") is not None:
+                        grids.append((row, named))
+                problems.extend(_grid_problems(grids))
+                problem_count += len(problems)
+                if problems and first_problem is None:
+                    first_problem = min(problems)
                 offset += batch.num_rows
             if first_problem is not None:
                 row, problem = first_problem

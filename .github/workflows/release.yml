@@ -611,7 +611,7 @@ jobs:
           name: release-archives
           path: release-files/
 
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: release-files/*
           generate_release_notes: true
@@ -694,7 +694,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           generate_release_notes: true
           draft: false

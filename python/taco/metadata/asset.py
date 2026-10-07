@@ -6,6 +6,7 @@ import pyarrow as pa
 from pydantic import Field, field_validator
 
 from ._base import AssetModel
+from .ml import Calibration, ProcessingLevel
 
 
 class Scaling(AssetModel):
@@ -18,6 +19,19 @@ class Scaling(AssetModel):
     padding: Annotated[list[int], pa.list_(pa.int32())] | None = Field(
         default=None, description="Padding as top, right, bottom, left"
     )
+    calibration: Annotated[Calibration, pa.string()] | None = Field(
+        default=None,
+        description="Whether the stored values convert back to a physical quantity",
+    )
+    processing_level: Annotated[ProcessingLevel, pa.string()] | None = Field(
+        default=None, description="Top-of-atmosphere, bottom-of-atmosphere, derived, or unknown"
+    )
+    approx_scale_factor: float | None = Field(
+        default=None,
+        description="Approximate multiplicative factor, where no exact conversion is published",
+    )
+    approx_scale_offset: float | None = Field(
+        default=None, description="Offset paired with `approx_scale_factor`")
 
     @field_validator("scale_factor", "scale_offset", mode="before")
     @classmethod

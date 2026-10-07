@@ -77,6 +77,19 @@ _CSS = """
  line-height:1.35;white-space:normal}
 #ID .taco-derived{background:rgba(139,92,246,.12);border-color:rgba(139,92,246,.25)}
 #ID .taco-empty{opacity:.48;font-style:italic}
+#ID .taco-description p{margin:0 0 6px}
+#ID .taco-description p:last-child{margin-bottom:0}
+#ID .taco-description ul{margin:0 0 6px;padding-left:18px}
+#ID .taco-description li{margin:1px 0}
+#ID .taco-description code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+ font-size:.92em;background:rgba(128,128,128,.12);border-radius:3px;padding:0 3px}
+#ID .taco-slots{border-collapse:collapse;width:100%;font-size:12px}
+#ID .taco-slots th{text-align:left;font-weight:700;opacity:.52;padding:0 12px 4px 0;
+ border-bottom:1px solid rgba(128,128,128,.22);white-space:nowrap}
+#ID .taco-slots td{padding:3px 12px 3px 0;vertical-align:top;overflow-wrap:anywhere}
+#ID .taco-slots tr.taco-target td{border-top:1px solid rgba(128,128,128,.12)}
+#ID .taco-role{opacity:.52}
+#ID .taco-slot-name{font-weight:700}
 @media(max-width:560px){
  #ID .taco-head{grid-template-columns:1fr}
  #ID .taco-store{display:none}
@@ -91,9 +104,10 @@ def dataset_html(dataset: Dataset) -> str:
     css = _CSS.replace("#ID", f"#{uid}")
     collection = dataset.collection
     title = escape(collection.title or collection.id)
-    description = escape(collection.description)
+    description = _markdown(collection.description)
     kind = _kind(dataset)
     facts = _facts(dataset, kind)
+    contract = _ml_contract(dataset)
     return (
         f'<div id="{uid}" class="taco-dataset-repr"><style>{css}</style>'
         '<div class="taco-frame">'
@@ -104,7 +118,12 @@ def dataset_html(dataset: Dataset) -> str:
         "</div>"
         f'<div class="taco-store">{_storage(kind, _source_count(dataset), uid)}</div>'
         "</div>"
-        f"{_section('Structure', _structure_count(dataset), _structure(dataset), open_=True)}"
+        + (
+            _section("Contract", _slot_count(contract), _slots(contract), open_=True)
+            if contract is not None
+            else ""
+        )
+        + f"{_section('Structure', _structure_count(dataset), _structure(dataset), open_=True)}"
         f"{_section('Metadata', _metadata_count(dataset), _metadata(dataset))}"
         f"{_section('Collection', collection.id, _collection(dataset))}"
         f"{_section('Sources', _source_label(dataset), _sources(dataset), open_=len(dataset.sources) > 1)}"
@@ -252,6 +271,134 @@ def _sources(dataset: Dataset) -> str:
     if len(rows) > len(shown):
         content += f'<div class="taco-empty">and {len(rows) - len(shown)} more</div>'
     return content
+
+
+def _ml_contract(dataset: Dataset):
+    """The collection's ML contract, or None where it declares none.
+
+    Read through the model rather than off the raw dictionary, so a contract
+    this version cannot parse is left out instead of half drawn.
+    """
+    document = (dataset.collection.metadata.get("ml") or {}).get("contract")
+    if not isinstance(document, dict):
+        return None
+    try:
+        from .metadata.ml import MLContract
+
+        return MLContract.model_validate(document)
+    except Exception:
+        return None
+
+
+def _slot_count(contract) -> str:
+    total = len(contract.inputs) + len(contract.targets)
+    return f"{len(contract.inputs)} in / {len(contract.targets)} out" if total else "empty"
+
+
+def _slots(contract) -> str:
+    """The contract as a table: what a model is handed, and what it predicts."""
+    rows = "".join(
+        f'<tr class="taco-{role}">'
+        f'<td class="taco-role">{role}</td>'
+        f'<td class="taco-slot-name">{escape(slot.name)}</td>'
+        f"<td><code>{escape(str(slot.kind.value))}</code></td>"
+        f"<td>{escape(str(slot.modality.value) if slot.modality else '')}</td>"
+        f"<td>{escape(_slot_detail(slot))}</td>"
+        f"<td><code>{escape(_slot_storage(slot))}</code></td></tr>"
+        for role, slots in (("input", contract.inputs), ("target", contract.targets))
+        for slot in slots
+    )
+    tasks = ", ".join(str(task) for task in contract.tasks)
+    header = (
+        '<table class="taco-slots"><tr><th>role</th><th>slot</th><th>kind</th>'
+        "<th>modality</th><th>detail</th><th>stored as</th></tr>"
+    )
+    footer = f'<div class="taco-row" style="margin-top:7px"><div class="taco-key">tasks</div><div class="taco-value">{escape(tasks)}</div></div>' if tasks else ""
+    return f"{header}{rows}</table>{footer}"
+
+
+def _slot_detail(slot) -> str:
+    """The facts about a slot that are worth a column: shape, legend, unit."""
+    bits: list[str] = []
+    if slot.bands:
+        polarisations = [band.polarisation for band in slot.bands if getattr(band, "polarisation", None)]
+        bits.append(
+            f"{len(slot.bands)} band{'s' if len(slot.bands) != 1 else ''}"
+            + (f" ({'/'.join(polarisations)})" if polarisations else "")
+        )
+    if slot.classes:
+        bits.append(f"{len(slot.classes)} classes")
+        if slot.class_scheme:
+            bits.append(f"-> {slot.class_scheme}")
+    if slot.ignore_index is not None:
+        bits.append(f"ignore={slot.ignore_index}")
+    if slot.units:
+        bits.append(f"unit={slot.units}")
+    if slot.counts_field:
+        bits.append(f"grouped by {slot.counts_field}")
+    if slot.members_field:
+        bits.append(f"members named by {slot.members_field}")
+    if slot.optional:
+        bits.append("optional")
+    return ", ".join(bits)
+
+
+def _slot_storage(slot) -> str:
+    """Where the slot's payload lives: a leaf of the structure, or a column."""
+    if isinstance(slot.path, str):
+        return slot.path
+    if slot.path:
+        return ", ".join(slot.path)
+    return f"{slot.field} (metadata)" if slot.field else ""
+
+
+def _markdown(text: str) -> str:
+    """The small part of Markdown a collection description uses.
+
+    Descriptions are paragraphs, bullet lists, `code`, **bold** and *italic*.
+    Anything else is left as written. Escaped first, so the description cannot
+    inject markup into the repr.
+    """
+    import re
+
+    def inline(line: str) -> str:
+        line = escape(line)
+        line = re.sub(r"`([^`]+)`", r"<code>\1</code>", line)
+        line = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", line)
+        return re.sub(r"(?<![*\w])\*([^*]+)\*(?!\w)", r"<em>\1</em>", line)
+
+    html: list[str] = []
+    paragraph: list[str] = []
+    bullets: list[str] = []
+
+    def flush() -> None:
+        if paragraph:
+            html.append(f"<p>{' '.join(paragraph)}</p>")
+            paragraph.clear()
+        if bullets:
+            html.append("<ul>" + "".join(f"<li>{item}</li>" for item in bullets) + "</ul>")
+            bullets.clear()
+
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+        if not line:
+            flush()
+            continue
+        if line.startswith(("- ", "* ")):
+            if paragraph:
+                html.append(f"<p>{' '.join(paragraph)}</p>")
+                paragraph.clear()
+            bullets.append(inline(line[2:]))
+            continue
+        if bullets:
+            # A wrapped bullet, indented under the one before it.
+            if raw.startswith((" ", "\t")):
+                bullets[-1] += " " + inline(line)
+                continue
+            flush()
+        paragraph.append(inline(line))
+    flush()
+    return "".join(html)
 
 
 def _short(value: Any) -> str:

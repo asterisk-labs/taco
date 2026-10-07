@@ -174,7 +174,14 @@ def flat_assets() -> DatasetCase:
     samples = tuple(
         taco.Sample(
             id=f"s{index}",
-            metadata=taco.Metadata(ml=taco.metadata.sample.Split(split="train" if index == 0 else "validation")),
+            metadata=taco.Metadata(
+                ml=taco.metadata.sample.Split(
+                    split="train" if index == 0 else "validation",
+                    split_original="train" if index == 0 else "valid",
+                    split_noleak="train" if index == 0 else "validation",
+                    split_noleak_rule="example/inherit-v1",
+                ),
+            ),
             assets=[asset("flat", index, "image.tif"), asset("flat", index, "label.tif")],
         )
         for index in range(2)

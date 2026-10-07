@@ -186,6 +186,9 @@ def consolidate(
                         table = table.set_column(table.schema.get_field_index(PARENT_ID), PARENT_ID, parent_ids)
                     source = pa.array([source_entry["file"]] * table.num_rows, type=pa.string())
                     table = table.append_column(output_schemas[level].field(SOURCE_FILE), source)
+                    # By name: the writer stores user columns before the internal ones,
+                    # and `table_schema` lists the internal ones first.
+                    table = table.select(output_schemas[level].names)
                     table = pa.Table.from_arrays(table.columns, schema=output_schemas[level])
                     if table.num_rows:
                         writer_for(level, table).write_table(table, row_group_size=row_group_size)

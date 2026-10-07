@@ -12,6 +12,7 @@ from typing import Any
 from ..errors import CollectionError, ContractError
 from .contract import Contract
 from .schema import validate_qualified_field
+from .structure import LEGACY_READ
 
 TACO_VERSION = "3.0.0"
 KNOWN_TASKS = frozenset(
@@ -256,6 +257,9 @@ class Extent:
         return Extent((west, south, east, north), temporal)
 
 
+# Top-level keys of older collections that reading accepts and drops.
+_LEGACY_KEYS = frozenset({"dataset_version"})
+
 # Keyword arguments of Collection other than these are collection metadata groups.
 _PARAMETERS = (
     "contract",
@@ -270,6 +274,17 @@ _PARAMETERS = (
     "extent",
     "sources",
 )
+
+
+def _read_contract(data: Mapping[str, Any]) -> Contract:
+    """The contract of a stored collection, read under the rules it was written with."""
+    if not any(key in data for key in _LEGACY_KEYS):
+        return Contract.from_dict(data)
+    token = LEGACY_READ.set(True)
+    try:
+        return Contract.from_dict(data)
+    finally:
+        LEGACY_READ.reset(token)
 
 
 def _group_values(namespace: str, value: object) -> dict[str, Any]:
@@ -511,7 +526,9 @@ class Collection:
         )
         if unknown_reserved:
             raise CollectionError(f"COLLECTION.json uses unknown reserved keys {unknown_reserved}")
-        extra = {key: value for key, value in data.items() if key not in _CORE_KEYS}
+        # `dataset_version` is how collections written before taco 0.14 were
+        # versioned. Reading one ignores it; the reader derives their sample ids.
+        extra = {key: value for key, value in data.items() if key not in _CORE_KEYS and key not in _LEGACY_KEYS}
         unqualified = sorted(key for key in extra if ":" not in key)
         if unqualified:
             raise CollectionError(f"COLLECTION.json has unknown unqualified fields {unqualified}")
@@ -520,7 +537,7 @@ class Collection:
             namespace, _, name = key.partition(":")
             groups.setdefault(namespace, {})[name] = value
         parameters = {
-            "contract": Contract.from_dict(data),
+            "contract": _read_contract(data),
             "id": data["id"],
             "description": data["description"],
             "licenses": data["licenses"],

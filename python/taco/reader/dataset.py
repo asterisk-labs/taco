@@ -18,6 +18,10 @@ def _identifier(value: str) -> str:
     return '"' + value.replace('"', '""') + '"'
 
 
+def _literal(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
 def _output_name(declaration: str, *, variable: bool) -> str:
     # Generated columns keep the structure path, or the prefix of a variable sequence.
     return declaration.partition("*")[0] if variable else declaration
@@ -50,6 +54,31 @@ class Dataset:
     def read(self, *, files: str | Sequence[str] | None = None) -> pa.Table:
         """Read all samples, optionally selecting structural file columns."""
         return self.sql(self._read_query(normalize_files(files)))
+
+    def level(self, name: str) -> pa.Table:
+        """Return the rows of one metadata level, such as ``"sample"`` or ``"children"``.
+
+        The table has that level's own columns and nothing from other levels, so
+        it works even when a field name is reused with a different type at
+        another level (a list here, a single value there).
+
+        Rows come in the order they are stored. When the dataset is split into
+        several archives, rows are grouped by archive and a ``source_file`` column
+        says which archive each row came from; this is needed because row ids
+        (``internal:current_id``) start again from 0 in every archive.
+        """
+        if name not in self.contract.levels:
+            raise ContainerError(f"taco: no metadata level {name!r}; have {list(self.contract.levels)}")
+        opened = [native.NativeDataset(source) for source in self.sources]
+        query = native.sql(opened, idx=None, level=name, pivoted=False, files=None, location=False)
+        order = ("source_file, " if len(self.sources) > 1 else "") + '"internal:current_id"'
+        if self.collection.sources is not None:
+            # A TACOCAT keeps each partition's own ids, so rows are ordered by the
+            # partition's position in `taco:sources`, then by id within it.
+            files = [entry["file"] for entry in self.collection.sources.get("partitions", ())]
+            rank = " ".join(f"WHEN {_literal(file)} THEN {position}" for position, file in enumerate(files))
+            order = f'CASE "internal:source_file" {rank} END, "internal:current_id"'
+        return engine.open_reader().execute(f"SELECT * FROM ({query}) ORDER BY {order}").to_arrow_table()
 
     def sql(self, query: str) -> pa.Table:
         """Query the public ``dataset`` view or a raw metadata level."""

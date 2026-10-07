@@ -53,7 +53,8 @@ std::size_t level_depth(std::string_view level) {
     return level == "sample" ? 0 : 1 + static_cast<std::size_t>(std::count(level.begin(), level.end(), '/'));
 }
 
-void validate_structure_leaf(const std::string& declaration, const std::string& source) {
+// legacy: a collection written before taco 0.14, whose sequences may hold no file.
+void validate_structure_leaf(const std::string& declaration, const std::string& source, bool legacy) {
     const auto star = declaration.find('*');
     if (star == std::string::npos) {
         if (declaration.find_first_of("[]") != std::string::npos)
@@ -86,7 +87,7 @@ void validate_structure_leaf(const std::string& declaration, const std::string& 
 
     const auto minimum = parse_bound(std::string_view(declaration).substr(open + 1, comma - open - 1));
     const auto maximum = parse_bound(std::string_view(declaration).substr(comma + 1, close - comma - 1));
-    if (minimum < 1)
+    if (minimum < 1 && !legacy)
         fail("COLLECTION.json: variable leaf '" + declaration + "' must require at least one file: " + source);
     if (minimum > maximum)
         fail("COLLECTION.json: variable leaf '" + declaration + "' has min > max: " + source);
@@ -601,6 +602,7 @@ Contract read_contract(const Dataset& dataset) {
     if (version->string != supported_version)
         fail("unsupported TACO version '" + version->string + "' in " + source + "; expected " +
              std::string(supported_version));
+    contract.legacy_ids = root.find("dataset_version") != nullptr;
 
     const json::Value* structure = root.find("taco:structure");
     if (!structure)
@@ -610,7 +612,7 @@ Contract read_contract(const Dataset& dataset) {
     for (const auto& item : structure->items) {
         if (!item.is_string())
             fail("COLLECTION.json: taco:structure must contain strings: " + source);
-        validate_structure_leaf(item.string, source);
+        validate_structure_leaf(item.string, source, contract.legacy_ids);
         contract.structure.push_back(item.string);
     }
 

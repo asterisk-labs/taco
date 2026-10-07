@@ -94,6 +94,24 @@ def test_open_partitions(tmp_path: Path, collection: taco.Collection, make_sampl
         assert str(tmp_path / row["source_file"]) in row["before/B02.tif::location"]
 
 
+def test_consolidate_takes_columns_by_name(tmp_path: Path, collection: taco.Collection, make_sample,
+                                          monkeypatch: pytest.MonkeyPatch) -> None:
+    # Partitions written by earlier writers store their user columns before the
+    # internal ones; the consolidated schema lists the internal ones first.
+    parts = [
+        build(tmp_path / "a.zip", collection, [make_sample(0)]),
+        build(tmp_path / "b.zip", collection, [make_sample(1)]),
+    ]
+    expected = open_view(taco.consolidate(parts, tmp_path / "plain")).level("sample")
+    from taco.container.view import DatasetView
+    stored = DatasetView.level
+    monkeypatch.setattr(DatasetView, "level",
+                        lambda self, level: (table := stored(self, level)).select(table.column_names[::-1]))
+    output = taco.consolidate(parts, tmp_path / "reordered")
+    monkeypatch.undo()
+    assert open_view(output).level("sample").equals(expected)
+
+
 def test_consolidate_preserves_schema_metadata(tmp_path: Path, collection: taco.Collection, make_sample) -> None:
     parts = [
         build(tmp_path / "a.zip", collection, [make_sample(0)]),
@@ -163,3 +181,20 @@ def test_source_paths_must_be_normalized_zip_paths(
     report = taco.validate(output)
     assert not report.ok
     assert any(issue.code == "sources" for issue in report.errors)
+
+
+def test_level_reads_one_level_across_partitions(tmp_path: Path, collection: taco.Collection, make_sample) -> None:
+    parts = [
+        build(tmp_path / "a.zip", collection, [make_sample(0), make_sample(1)]),
+        build(tmp_path / "b.zip", collection, [make_sample(2)]),
+    ]
+    dataset = taco.open_dataset(parts)
+    sample = dataset.level("sample")
+    assert sample.num_rows == 3
+    assert sample.column("source_file").to_pylist() == ["a.zip", "a.zip", "b.zip"]
+    assert sample.column("internal:current_id").to_pylist() == [0, 1, 0]
+    children = dataset.level("children")
+    assert "internal:offset" in children.column_names
+    assert set(children.column("source_file").to_pylist()) == {"a.zip", "b.zip"}
+    with pytest.raises(ContainerError, match="no metadata level"):
+        dataset.level("nope")

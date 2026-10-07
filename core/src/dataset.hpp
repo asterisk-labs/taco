@@ -25,6 +25,9 @@ struct Contract {
     std::vector<std::pair<std::string, std::vector<std::string>>> fields;
     std::vector<FileScope> file_scopes;
     bool has_derived = false;
+    // Written before the `id` column existed (COLLECTION.json still carries
+    // `dataset_version`): the reader derives each sample's id from its row.
+    bool legacy_ids = false;
     std::string derived;
 
     [[nodiscard]] const std::vector<std::string>* fields_of(std::string_view level) const;

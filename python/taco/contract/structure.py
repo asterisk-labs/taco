@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from pathlib import PurePosixPath
 from typing import Any
@@ -9,6 +10,10 @@ from ..errors import ContractError
 from .naming import normalize_relative_path, validate_component, variable_sequences_overlap
 from .sample import Asset
 from .schema import Metadata
+
+# Set while reading a collection written before taco 0.14, whose variable
+# sequences may hold no file.
+LEGACY_READ: ContextVar[bool] = ContextVar("taco_legacy_read", default=False)
 
 _VARIABLE_LEAF = re.compile(
     r"^(?P<prefix>[^*\[\]]+)\*\[(?P<minimum>\d+)\s*,\s*(?P<maximum>\d+)\](?P<suffix>[^*\[\]]*)$"
@@ -77,7 +82,7 @@ def parse_leaf(declaration: str) -> Leaf:
         validate_component("x" + suffix, context="variable leaf suffix")
     if minimum > maximum:
         raise ContractError(f"variable leaf {declaration!r} has min > max")
-    if minimum < 1:
+    if minimum < 1 and not LEGACY_READ.get():
         raise ContractError(f"variable leaf {declaration!r} must require at least one file")
     return Leaf(declaration, folder, basename, prefix, minimum, maximum, suffix)
 

@@ -35,7 +35,13 @@ def test_collection_metadata_models(collection: taco.Collection) -> None:
     assert values["labels:num_classes"] == 2
     assert values["optical:num_bands"] == 1
     assert values["split:strategy"] == "stratified"
-    assert collection.metadata["split"] == {"strategy": "stratified"}
+    assert collection.metadata["split"] == {
+        "strategy": "stratified",
+        "rule": None,
+        "group_key": None,
+        "noleak_rule": None,
+        "description": None,
+    }
 
 
 class POI(BaseModel):

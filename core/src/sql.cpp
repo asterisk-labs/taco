@@ -127,9 +127,7 @@ class QueryBuilder {
           has_offsets_(dataset.container != Container::folder) {}
 
     [[nodiscard]] std::string level_query() const {
-        const auto level = dataset_.level_index(options_.level);
-        return "SELECT " + metadata_projection() + " FROM read_parquet(" +
-               sql_literal(dataset_.level_paths[level]) + ")";
+        return level_scan(dataset_.level_index(options_.level));
     }
 
     [[nodiscard]] std::string flat_query() const {
@@ -177,8 +175,7 @@ class QueryBuilder {
                            sql_identifier(column.name);
                 }
             }
-            out += " FROM (SELECT " + metadata_projection() + " FROM read_parquet(" +
-                   sql_literal(dataset_.level_paths[0]) + ")) AS " + alias(0);
+            out += " FROM (" + level_scan(0) + ") AS " + alias(0);
             const auto idx = idx_filter(alias(0));
             if (!idx.empty())
                 out += " WHERE " + idx;
@@ -260,6 +257,20 @@ class QueryBuilder {
         return ", list(" + sql_identifier(column) + " ORDER BY TRY_CAST(regexp_extract(path, " + sql_literal(pattern) +
                ", 1) AS BIGINT)) FILTER (WHERE regexp_matches(path, " + sql_literal(pattern) + ")) AS " +
                sql_identifier(name);
+    }
+
+    // The stored rows of one level. A collection written before the `id`
+    // column existed gets one from the row: its position, prefixed in a
+    // TACOCAT by its partition, whose positions each start again at 0.
+    [[nodiscard]] std::string level_scan(std::size_t level) const {
+        std::string out = "SELECT " + metadata_projection() + " FROM read_parquet(" +
+                          sql_literal(dataset_.level_paths[level]) + ")";
+        if (level != 0 || !dataset_.contract.legacy_ids)
+            return out;
+        std::string id = "CAST(" + sql_identifier(id_current) + " AS VARCHAR)";
+        if (tacocat_)
+            id = sql_identifier(id_source) + " || '/' || " + id;
+        return "SELECT *, " + id + " AS " + sql_identifier(logical_id) + " FROM (" + out + ")";
     }
 
     static std::string metadata_projection() {
@@ -388,8 +399,7 @@ class QueryBuilder {
         // DuckDB plan all Parquet scans as one statement.
         std::string out = "WITH ";
         for (std::size_t i = 0; i < dataset_.level_paths.size(); ++i) {
-            out += (i ? ", " : "") + alias(i) + " AS (SELECT " + metadata_projection() + " FROM read_parquet(" +
-                   sql_literal(dataset_.level_paths[i]) + "))";
+            out += (i ? ", " : "") + alias(i) + " AS (" + level_scan(i) + ")";
         }
         return out;
     }

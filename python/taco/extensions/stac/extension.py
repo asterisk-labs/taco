@@ -6,10 +6,10 @@ from typing import Any, ClassVar
 
 import pyarrow as pa
 
-from ..metadata._base import Extension, ExtensionContext
-from ..metadata.spatiotemporal import STAC as STACMetadata
-from ..metadata.spatiotemporal import Spatial as SpatialMetadata
-from ..metadata.spatiotemporal import footprint_center, grid_centers, to_float32
+from ...contract.extension import Extension, ExtensionContext
+from .models import STAC as STACMetadata
+from .models import Spatial as SpatialMetadata
+from .models import footprint_center, grid_centers, to_float32
 
 _POINT = pa.struct([pa.field("lon", pa.float32(), nullable=False), pa.field("lat", pa.float32(), nullable=False)])
 
@@ -62,7 +62,7 @@ class Spatial(Extension):
 
     def __post_init__(self) -> None:
         if not isinstance(self.model, type) or not issubclass(self.model, SpatialMetadata):
-            raise TypeError("Spatial model must inherit taco.metadata.sample.Spatial")
+            raise TypeError("Spatial model must inherit taco.extensions.stac.Spatial")
 
     @property
     def input_model(self) -> type[SpatialMetadata]:
@@ -90,7 +90,7 @@ class STAC(Extension):
 
     def __post_init__(self) -> None:
         if not isinstance(self.model, type) or not issubclass(self.model, STACMetadata):
-            raise TypeError("STAC model must inherit taco.metadata.sample.STAC")
+            raise TypeError("STAC model must inherit taco.extensions.stac.STAC")
 
     @property
     def input_model(self) -> type[STACMetadata]:

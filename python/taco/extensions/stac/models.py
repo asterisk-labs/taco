@@ -13,9 +13,9 @@ from typing import Annotated, Any, ClassVar, TypeAlias
 import pyarrow as pa
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from ..container.parquet import Encoding
-from ..contract.collection import Extent
-from ._base import CollectionSummary, SampleModel
+from ...container.parquet import Encoding
+from ...contract.collection import Extent
+from ...contract.extension import CollectionSummary
 
 TimestampUTC = Annotated[datetime, pa.timestamp("us", tz="UTC")]
 Float32 = Annotated[float, pa.float32()]
@@ -77,6 +77,13 @@ class Point(BaseModel):
         if not math.isfinite(value) or not -limit <= value <= limit:
             raise ValueError(f"{info.field_name} is outside EPSG:4326 bounds")
         return to_float32(value)
+
+
+def centroid_field(value: str) -> str:
+    """Validate a centroid field name."""
+    if not isinstance(value, str) or re.fullmatch(r"[a-z][a-z0-9_]*:centroid", value) is None:
+        raise ValueError("centroid must be a qualified metadata field ending in ':centroid'")
+    return value
 
 
 def lonlat(value: Any, *, field: str = "centroid") -> tuple[float, float]:
@@ -547,7 +554,15 @@ def check_times(values: Mapping[str, Any]) -> None:
         raise ValueError("start_datetime must not be after end_datetime")
 
 
-class _Location(SampleModel):
+class _Profile(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    __taco_scopes__: ClassVar[frozenset[str]] = frozenset({"sample"})
+    __taco_namespace__: ClassVar[str | None] = None
+    __taco_summaries__: ClassVar[tuple[type[CollectionSummary], ...]] = ()
+
+
+class _Location(_Profile):
     """Fields and checks shared by Spatial and STAC."""
 
     geometry: Geometry | None = Field(
@@ -597,7 +612,7 @@ class _Location(SampleModel):
         return value
 
 
-class Temporal(SampleModel):
+class Temporal(_Profile):
     """When the sample was observed, as a STAC datetime or datetime range."""
 
     __taco_namespace__ = "temporal"
@@ -799,6 +814,7 @@ __all__ = [
     "Point",
     "Spatial",
     "Temporal",
+    "centroid_field",
     "check_location",
     "check_times",
     "footprint_bbox",

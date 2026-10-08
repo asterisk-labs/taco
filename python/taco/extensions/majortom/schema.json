@@ -1,0 +1,146 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://asterisk.coop/taco/spec/extensions/majortom/v1.0.0/schema.json",
+  "title": "MajorTOM",
+  "description": "MajorTOM grid cells of each sample centroid.",
+  "type": "object",
+  "required": [
+    "taco:extensions",
+    "taco:metadata",
+    "majortom:centroid",
+    "majortom:dist_km",
+    "majortom:extra",
+    "majortom:latitude_range",
+    "majortom:longitude_range",
+    "majortom:sep"
+  ],
+  "properties": {
+    "taco:extensions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "allOf": [
+        {
+          "contains": {
+            "const": "https://asterisk.coop/taco/spec/extensions/majortom/v1.0.0/schema.json"
+          }
+        },
+        {
+          "contains": {
+            "type": "string",
+            "pattern": "^https://asterisk[.]coop/taco/spec/extensions/stac/v1[.][0-9]+[.][0-9]+/schema[.]json$"
+          }
+        }
+      ]
+    },
+    "taco:metadata": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/level"
+      }
+    },
+    "majortom:dist_km": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "majortom:extra": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^(?!code$)(?!.*__)[^:/]+$"
+      },
+      "additionalProperties": {
+        "type": "number",
+        "exclusiveMinimum": 0
+      }
+    },
+    "majortom:latitude_range": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "type": "number",
+          "minimum": -90,
+          "maximum": 90
+        },
+        {
+          "type": "number",
+          "minimum": -90,
+          "maximum": 90
+        }
+      ],
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "majortom:longitude_range": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "type": "number",
+          "minimum": -180,
+          "maximum": 180
+        },
+        {
+          "type": "number",
+          "minimum": -180,
+          "maximum": 180
+        }
+      ],
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "majortom:sep": {
+      "type": "string",
+      "pattern": "^[^A-Za-z0-9]+$"
+    },
+    "majortom:centroid": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*:centroid$"
+    }
+  },
+  "propertyNames": {
+    "anyOf": [
+      {
+        "not": {
+          "pattern": "^(majortom):"
+        }
+      },
+      {
+        "enum": [
+          "majortom:centroid",
+          "majortom:dist_km",
+          "majortom:extra",
+          "majortom:latitude_range",
+          "majortom:longitude_range",
+          "majortom:sep"
+        ]
+      }
+    ]
+  },
+  "$defs": {
+    "level": {
+      "type": "object",
+      "patternProperties": {
+        "^majortom:": {
+          "type": "object",
+          "required": [
+            "type",
+            "nullable",
+            "description"
+          ],
+          "properties": {
+            "type": {
+              "const": "string"
+            },
+            "nullable": {
+              "const": false
+            },
+            "description": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  }
+}

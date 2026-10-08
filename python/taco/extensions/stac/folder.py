@@ -1,9 +1,9 @@
 from typing import ClassVar
 
-from .sample import STAC as _SampleSTAC
-from .sample import Point
-from .sample import Spatial as _SampleSpatial
-from .sample import Temporal as _SampleTemporal
+from .models import STAC as _SampleSTAC
+from .models import Point
+from .models import Spatial as _SampleSpatial
+from .models import Temporal as _SampleTemporal
 
 
 class Spatial(_SampleSpatial):

@@ -10,10 +10,10 @@ from typing import Any, ClassVar, TypeGuard
 import numpy as np
 import pyarrow as pa
 
-from ..contract.extension import Extension, ExtensionContext
-from ..contract.naming import RUMI_NAMESPACE, RUMI_STATISTIC
-from ..contract.structure import Leaf, parse_leaf
-from ..errors import SampleError
+from ...contract.extension import Extension, ExtensionContext
+from ...contract.naming import RUMI_NAMESPACE, RUMI_STATISTIC
+from ...contract.structure import Leaf, parse_leaf
+from ...errors import SampleError
 
 # Statistics included by stats=True.
 STATISTICS = ("minimum", "maximum", "mean", "stddev", "p2", "p98")

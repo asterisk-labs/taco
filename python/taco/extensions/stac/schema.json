@@ -1,0 +1,801 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://asterisk.coop/taco/spec/extensions/stac/v1.0.0/schema.json",
+  "title": "STAC",
+  "description": "Temporal, spatial and STAC metadata profiles.",
+  "type": "object",
+  "required": [
+    "taco:extensions",
+    "taco:metadata"
+  ],
+  "properties": {
+    "taco:extensions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "allOf": [
+        {
+          "contains": {
+            "const": "https://asterisk.coop/taco/spec/extensions/stac/v1.0.0/schema.json"
+          }
+        }
+      ]
+    },
+    "taco:metadata": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/level"
+      }
+    }
+  },
+  "propertyNames": {
+    "anyOf": [
+      {
+        "not": {
+          "pattern": "^(temporal|spatial|stac):"
+        }
+      }
+    ]
+  },
+  "$defs": {
+    "level": {
+      "type": "object",
+      "propertyNames": {
+        "anyOf": [
+          {
+            "not": {
+              "pattern": "^(temporal|spatial|stac):"
+            }
+          },
+          {
+            "enum": [
+              "spatial:bbox",
+              "spatial:centroid",
+              "spatial:geometry",
+              "spatial:proj_code",
+              "spatial:proj_shape",
+              "spatial:proj_transform",
+              "stac:bbox",
+              "stac:centroid",
+              "stac:datetime",
+              "stac:end_datetime",
+              "stac:geometry",
+              "stac:proj_code",
+              "stac:proj_shape",
+              "stac:proj_transform",
+              "stac:start_datetime",
+              "temporal:datetime",
+              "temporal:end_datetime",
+              "temporal:start_datetime"
+            ]
+          }
+        ]
+      },
+      "properties": {
+        "temporal:datetime": {
+          "type": "object",
+          "required": [
+            "type",
+            "nullable",
+            "description"
+          ],
+          "properties": {
+            "type": {
+              "const": "timestamp[us, UTC]"
+            },
+            "nullable": {
+              "const": true
+            },
+            "description": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        "temporal:start_datetime": {
+          "type": "object",
+          "required": [
+            "type",
+            "nullable",
+            "description"
+          ],
+          "properties": {
+            "type": {
+              "const": "timestamp[us, UTC]"
+            },
+            "nullable": {
+              "const": true
+            },
+            "description": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        "temporal:end_datetime": {
+          "type": "object",
+          "required": [
+            "type",
+            "nullable",
+            "description"
+          ],
+          "properties": {
+            "type": {
+              "const": "timestamp[us, UTC]"
+            },
+            "nullable": {
+              "const": true
+            },
+            "description": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        "spatial:geometry": {
+          "type": "object",
+          "required": [
+            "type",
+            "nullable",
+            "description"
+          ],
+          "properties": {
+            "type": {
+              "const": "binary"
+            },
+            "nullable": {
+              "const": true
+            },
+            "description": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        "spatial:bbox": {
+          "type": "object",
+          "required": [
+            "type",
+            "nullable",
+            "description"
+          ],
+          "properties": {
+            "type": {
+              "const": "list<double>"
+            },
+            "nullable": {
+              "const": true
+            },
+            "description": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        "spatial:centroid": {
+          "type": "object",
+          "required": [
+            "type",
+            "nullable",
+            "description"
+          ],
+          "properties": {
+            "type": {
+              "const": "struct<lon: float, lat: float>"
+            },
+            "nullable": {
+              "type": "boolean"
+            },
+            "description": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        "spatial:proj_code": {
+          "type": "object",
+          "required": [
+            "type",
+            "nullable",
+            "description"
+          ],
+          "properties": {
+            "type": {
+              "const": "string"
+            },
+            "nullable": {
+              "const": true
+            },
+            "description": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        "spatial:proj_shape": {
+          "type": "object",
+          "required": [
+            "type",
+            "nullable",
+            "description"
+          ],
+          "properties": {
+            "type": {
+              "const": "list<int64>"
+            },
+            "nullable": {
+              "const": true
+            },
+            "description": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        "spatial:proj_transform": {
+          "type": "object",
+          "required": [
+            "type",
+            "nullable",
+            "description"
+          ],
+          "properties": {
+            "type": {
+              "const": "list<double>"
+            },
+            "nullable": {
+              "const": true
+            },
+            "description": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        "stac:geometry": {
+          "type": "object",
+          "required": [
+            "type",
+            "nullable",
+            "description"
+          ],
+          "properties": {
+            "type": {
+              "const": "binary"
+            },
+            "nullable": {
+              "const": true
+            },
+            "description": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        "stac:bbox": {
+          "type": "object",
+          "required": [
+            "type",
+            "nullable",
+            "description"
+          ],
+          "properties": {
+            "type": {
+              "const": "list<double>"
+            },
+            "nullable": {
+              "const": true
+            },
+            "description": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        "stac:centroid": {
+          "type": "object",
+          "required": [
+            "type",
+            "nullable",
+            "description"
+          ],
+          "properties": {
+            "type": {
+              "const": "struct<lon: float, lat: float>"
+            },
+            "nullable": {
+              "type": "boolean"
+            },
+            "description": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        "stac:proj_code": {
+          "type": "object",
+          "required": [
+            "type",
+            "nullable",
+            "description"
+          ],
+          "properties": {
+            "type": {
+              "const": "string"
+            },
+            "nullable": {
+              "const": true
+            },
+            "description": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        "stac:proj_shape": {
+          "type": "object",
+          "required": [
+            "type",
+            "nullable",
+            "description"
+          ],
+          "properties": {
+            "type": {
+              "const": "list<int64>"
+            },
+            "nullable": {
+              "const": true
+            },
+            "description": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        "stac:proj_transform": {
+          "type": "object",
+          "required": [
+            "type",
+            "nullable",
+            "description"
+          ],
+          "properties": {
+            "type": {
+              "const": "list<double>"
+            },
+            "nullable": {
+              "const": true
+            },
+            "description": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        "stac:datetime": {
+          "type": "object",
+          "required": [
+            "type",
+            "nullable",
+            "description"
+          ],
+          "properties": {
+            "type": {
+              "const": "timestamp[us, UTC]"
+            },
+            "nullable": {
+              "const": true
+            },
+            "description": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        "stac:start_datetime": {
+          "type": "object",
+          "required": [
+            "type",
+            "nullable",
+            "description"
+          ],
+          "properties": {
+            "type": {
+              "const": "timestamp[us, UTC]"
+            },
+            "nullable": {
+              "const": true
+            },
+            "description": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        "stac:end_datetime": {
+          "type": "object",
+          "required": [
+            "type",
+            "nullable",
+            "description"
+          ],
+          "properties": {
+            "type": {
+              "const": "timestamp[us, UTC]"
+            },
+            "nullable": {
+              "const": true
+            },
+            "description": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "anyOf": [
+              {
+                "required": [
+                  "temporal:datetime"
+                ]
+              },
+              {
+                "required": [
+                  "temporal:start_datetime"
+                ]
+              },
+              {
+                "required": [
+                  "temporal:end_datetime"
+                ]
+              }
+            ]
+          },
+          "then": {
+            "required": [
+              "temporal:datetime",
+              "temporal:start_datetime",
+              "temporal:end_datetime"
+            ]
+          }
+        },
+        {
+          "if": {
+            "anyOf": [
+              {
+                "required": [
+                  "spatial:geometry"
+                ]
+              },
+              {
+                "required": [
+                  "spatial:bbox"
+                ]
+              },
+              {
+                "required": [
+                  "spatial:centroid"
+                ]
+              },
+              {
+                "required": [
+                  "spatial:proj_code"
+                ]
+              },
+              {
+                "required": [
+                  "spatial:proj_shape"
+                ]
+              },
+              {
+                "required": [
+                  "spatial:proj_transform"
+                ]
+              }
+            ]
+          },
+          "then": {
+            "required": [
+              "spatial:geometry",
+              "spatial:bbox",
+              "spatial:centroid",
+              "spatial:proj_code",
+              "spatial:proj_shape",
+              "spatial:proj_transform"
+            ]
+          }
+        },
+        {
+          "if": {
+            "anyOf": [
+              {
+                "required": [
+                  "stac:geometry"
+                ]
+              },
+              {
+                "required": [
+                  "stac:bbox"
+                ]
+              },
+              {
+                "required": [
+                  "stac:centroid"
+                ]
+              },
+              {
+                "required": [
+                  "stac:proj_code"
+                ]
+              },
+              {
+                "required": [
+                  "stac:proj_shape"
+                ]
+              },
+              {
+                "required": [
+                  "stac:proj_transform"
+                ]
+              },
+              {
+                "required": [
+                  "stac:datetime"
+                ]
+              },
+              {
+                "required": [
+                  "stac:start_datetime"
+                ]
+              },
+              {
+                "required": [
+                  "stac:end_datetime"
+                ]
+              }
+            ]
+          },
+          "then": {
+            "required": [
+              "stac:geometry",
+              "stac:bbox",
+              "stac:centroid",
+              "stac:proj_code",
+              "stac:proj_shape",
+              "stac:proj_transform",
+              "stac:datetime",
+              "stac:start_datetime",
+              "stac:end_datetime"
+            ]
+          }
+        },
+        {
+          "not": {
+            "anyOf": [
+              {
+                "allOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "required": [
+                          "temporal:datetime"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "temporal:start_datetime"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "temporal:end_datetime"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "anyOf": [
+                      {
+                        "required": [
+                          "spatial:geometry"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "spatial:bbox"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "spatial:centroid"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "spatial:proj_code"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "spatial:proj_shape"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "spatial:proj_transform"
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "allOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "required": [
+                          "temporal:datetime"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "temporal:start_datetime"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "temporal:end_datetime"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "anyOf": [
+                      {
+                        "required": [
+                          "stac:geometry"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "stac:bbox"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "stac:centroid"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "stac:proj_code"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "stac:proj_shape"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "stac:proj_transform"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "stac:datetime"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "stac:start_datetime"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "stac:end_datetime"
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "allOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "required": [
+                          "spatial:geometry"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "spatial:bbox"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "spatial:centroid"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "spatial:proj_code"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "spatial:proj_shape"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "spatial:proj_transform"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "anyOf": [
+                      {
+                        "required": [
+                          "stac:geometry"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "stac:bbox"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "stac:centroid"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "stac:proj_code"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "stac:proj_shape"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "stac:proj_transform"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "stac:datetime"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "stac:start_datetime"
+                        ]
+                      },
+                      {
+                        "required": [
+                          "stac:end_datetime"
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

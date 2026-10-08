@@ -1,7 +1,9 @@
-"""Explicit metadata operations executed during ``writer.run()``."""
+"""Built-in extensions, one module per extension in ``docs/spec/extensions``."""
 
-from ..metadata.derived import GeoEnrich, MajorTOM
+from . import geoenrich, majortom, rumi, stac
+from .geoenrich import GeoEnrich
+from .majortom import MajorTOM
 from .rumi import Rumi
-from .spatiotemporal import STAC, Spatial
+from .stac.extension import STAC, Spatial
 
-__all__ = ["STAC", "GeoEnrich", "MajorTOM", "Rumi", "Spatial"]
+__all__ = ["STAC", "GeoEnrich", "MajorTOM", "Rumi", "Spatial", "geoenrich", "majortom", "rumi", "stac"]

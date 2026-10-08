@@ -64,7 +64,6 @@ export class Dataset {
     this.contract = source.parsed.contract;
     this.structure = source.parsed.contract.structure;
     this.levels = [...source.parsed.levels];
-    this.derived = source.parsed.contract.derived;
     this.#source = source;
     this.#client = client;
     this.#parquets = new Map();

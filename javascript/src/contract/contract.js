@@ -6,7 +6,6 @@ import { deriveLevels, parseStructurePath } from "./structure.js";
  * @typedef {object} TacoContract
  * @property {string[]} structure
  * @property {Record<string, Record<string, any>>} metadata
- * @property {Record<string, any>} derived
  *
  * @typedef {import("./structure.js").TacoLeaf} TacoLeaf
  */
@@ -58,13 +57,10 @@ export function parseContract(collection) {
     }
   }
 
-  const derived = collection["taco:derived"] ?? {};
-  if (!object(derived)) fail("INVALID_CONTRACT", "taco:derived must be an object");
   return {
     contract: {
       structure: leaves.map((leaf) => leaf.declaration),
       metadata: /** @type {Record<string, Record<string, any>>} */ (metadataObject),
-      derived: /** @type {Record<string, any>} */ (derived),
     },
     leaves,
     levels,

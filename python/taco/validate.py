@@ -15,6 +15,7 @@ from .container.cozip import INDEX_NAME
 from .container.view import DatasetView, open_view
 from .contract.collection import KNOWN_TASKS
 from .contract.contract import CHILDREN_LEVEL, SAMPLE_ID, SAMPLE_LEVEL, Contract
+from .contract.extension_registry import OWNERS, builtin_name, used_namespaces
 from .contract.naming import (
     COLLECTION_FILENAME,
     CURRENT_ID,
@@ -32,7 +33,9 @@ from .contract.naming import (
 from .contract.schema import PROFILE_FIELDS
 from .contract.types import type_name
 from .errors import TacoError, ValidationFailed
-from .metadata.spatiotemporal import STAC, Spatial, Temporal, grid_problems
+from .extensions import majortom
+from .extensions._registry import SCOPES, schema
+from .extensions.stac.models import STAC, Spatial, Temporal, grid_problems
 from .writer.metadata import table_schema
 
 __all__ = ["Issue", "ValidationReport", "validate"]
@@ -107,6 +110,7 @@ def validate(path: str | PathLike[str], *, check_data: bool = True) -> Validatio
     collector.report.container = dataset.container
 
     _check_collection(dataset, collector)
+    _check_extensions(dataset, collector)
     _check_metadata_files(dataset, collector)
     _check_sample_ids(dataset, collector)
     _check_levels(dataset, dataset.tables, collector)
@@ -218,6 +222,89 @@ def _check_collection(dataset: DatasetView, collector: _Collector) -> None:
     unknown = [task for task in collection.tasks or () if task not in KNOWN_TASKS]
     if unknown:
         collector.warning("tasks", f"unrecognized task types {unknown}")
+
+
+def _check_extensions(dataset: DatasetView, collector: _Collector) -> None:
+    document = dataset.collection_json
+    if "taco:extensions" not in document:
+        collector.error("extensions", "COLLECTION.json must list the extensions it uses in taco:extensions")
+    listed = dataset.collection.extensions
+    by_name: dict[str, list[str]] = defaultdict(list)
+    for identifier in listed:
+        name = builtin_name(identifier)
+        if name is not None:
+            by_name[name].append(identifier)
+    for name, identifiers in sorted(by_name.items()):
+        if len(identifiers) > 1:
+            collector.error("extensions", f"taco:extensions lists {name} more than once: {identifiers}")
+    for namespace in sorted(used_namespaces(document)):
+        owner = OWNERS.get(namespace)
+        if owner is not None and builtin_name(owner) not in by_name:
+            collector.error("extensions", f"{namespace} fields need {owner} in taco:extensions")
+    unknown = [identifier for identifier in listed if schema(identifier) is None]
+    if unknown:
+        collector.warning("extensions", f"cannot check extensions this version does not know: {unknown}")
+
+    import jsonschema
+
+    for identifier in listed:
+        definition = schema(identifier)
+        if definition is None:
+            continue
+        errors = list(jsonschema.Draft202012Validator(definition).iter_errors(document))
+        if errors:
+            error = jsonschema.exceptions.best_match(errors)
+            where = "/".join(str(part) for part in error.absolute_path) or "COLLECTION.json"
+            message = error.message if len(error.message) <= 200 else error.message[:197] + "..."
+            collector.error("extensions", f"{where} breaks {identifier}: {message}")
+    if majortom.IDENTIFIER in listed:
+        _check_majortom(document, collector)
+    _check_extension_rows(dataset, listed, collector)
+
+
+def _check_majortom(document: dict[str, Any], collector: _Collector) -> None:
+    extra = document.get("majortom:extra")
+    if isinstance(extra, dict):
+        expected = {"majortom:code", *(f"majortom:{name}" for name in extra)}
+        stored = {name for name in document["taco:metadata"].get(SAMPLE_LEVEL, {}) if name.startswith("majortom:")}
+        if stored != expected:
+            collector.error("extensions", f"majortom columns {sorted(stored)} do not match majortom:extra")
+    for name in ("majortom:latitude_range", "majortom:longitude_range"):
+        value = document.get(name)
+        if isinstance(value, list) and len(value) == 2 and not value[0] < value[1]:
+            collector.error("extensions", f"{name} must increase, got {value}")
+
+
+def _check_extension_rows(dataset: DatasetView, listed: tuple[str, ...], collector: _Collector) -> None:
+    for level, fields in dataset.contract.metadata.items():
+        if level == SAMPLE_LEVEL:
+            continue
+        table = dataset.tables.get(level)
+        if table is None or RELATIVE_PATH not in table.column_names:
+            continue
+        owners = {name: OWNERS.get(name.partition(":")[0]) for name in fields}
+        owned = [(name, SCOPES[owner]) for name, owner in owners.items() if owner is not None and owner in listed]
+        if not owned:
+            continue
+        kinds = [
+            "asset" if dataset.is_leaf_level_row(level, path) else "folder"
+            for path in table.column(RELATIVE_PATH).to_pylist()
+        ]
+        for name, scopes in owned:
+            if name not in table.column_names:
+                continue
+            values = table.column(name).to_pylist()
+            rows = [
+                row
+                for row, (kind, value) in enumerate(zip(kinds, values, strict=True))
+                if value is not None and kind not in scopes
+            ]
+            if rows:
+                collector.error(
+                    "extensions",
+                    f"{level}: {name} has values on {len(rows)} {kinds[rows[0]]} rows its extension cannot describe "
+                    f"(first row {rows[0]})",
+                )
 
 
 def _expected_schema_names(contract: Contract, level: str, container: str) -> list[str]:

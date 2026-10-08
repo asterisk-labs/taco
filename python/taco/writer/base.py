@@ -9,6 +9,7 @@ from types import TracebackType
 from typing import Any
 
 from ..contract.collection import Collection
+from ..contract.extension_registry import declared
 from ..contract.sample import Sample, _PreparedAsset, _PreparedSample
 from ..errors import SampleError, WriterError
 from .identity import IdentifierIndex
@@ -28,6 +29,7 @@ class BuildResult:
 
 def render_collection(collection: Collection, summaries: Mapping[str, Any]) -> str:
     data = collection.to_dict()
+    data["taco:extensions"] = declared(data)
 
     # Recompute summaries instead of carrying stale collection values.
     data.pop("extent", None)

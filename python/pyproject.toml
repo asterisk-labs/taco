@@ -52,6 +52,7 @@ dependencies = [
 [project.optional-dependencies]
 writer = [
     "cozip>=2026.9.27",
+    "jsonschema>=4.18",
     "numpy>=1.24",
     "pydantic>=2.8",
     "pyproj>=3.6",
@@ -115,11 +116,11 @@ module = "taco.container.cozip"
 disable_error_code = ["import-untyped"]
 
 [[tool.mypy.overrides]]
-module = ["pyarrow", "pyarrow.*", "cffi", "shapely", "shapely.*", "tqdm", "tqdm.*"]
+module = ["pyarrow", "pyarrow.*", "cffi", "jsonschema", "jsonschema.*", "shapely", "shapely.*", "tqdm", "tqdm.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = ["taco.container.view", "taco.metadata.derived", "taco.writer.catalog", "taco.writer.metadata"]
+module = ["taco.container.view", "taco.extensions.geoenrich.extension", "taco.extensions.majortom.extension", "taco.writer.catalog", "taco.writer.metadata"]
 disable_error_code = ["no-untyped-call"]
 
 [tool.coverage.run]

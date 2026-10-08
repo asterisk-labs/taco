@@ -14,7 +14,7 @@ SCRIPT = textwrap.dedent(
     import importlib.abc
     import sys
 
-    WRITER = {"cozip", "numpy", "pydantic", "pydantic_core", "pyproj", "shapely"}
+    WRITER = {"cozip", "jsonschema", "numpy", "pydantic", "pydantic_core", "pyproj", "shapely"}
 
 
     class Missing(importlib.abc.MetaPathFinder):
@@ -28,6 +28,14 @@ SCRIPT = textwrap.dedent(
 
     import taco
 
+    collection = taco.Collection(
+        contract=taco.Contract(structure=["a.bin"]),
+        id="plain",
+        description="Plain",
+        licenses=["MIT"],
+        providers=["me"],
+    )
+    assert collection.extensions == ()
     dataset = taco.open_dataset(sys.argv[1])
     assert dataset.read().num_rows == 4
     assert dataset.sql("SELECT count(*) AS n FROM children").column("n").to_pylist()[0] > 0
@@ -38,7 +46,7 @@ SCRIPT = textwrap.dedent(
     assert namespace["read"] is taco.read
     assert "open_writer" not in namespace
     assert "__name__" in dir(taco)
-    for name in ("open_writer", "validate", "export", "consolidate", "metadata", "extensions"):
+    for name in ("open_writer", "validate", "export", "consolidate", "extensions"):
         try:
             getattr(taco, name)
         except ImportError as exc:
@@ -67,7 +75,7 @@ def test_writer_names_load_on_first_use() -> None:
     from taco.container import INDEX_NAME, cozip_plan, cozip_write
 
     assert callable(taco.open_writer)
-    assert taco.metadata.sample.STAC is taco.metadata.spatiotemporal.STAC
+    assert taco.extensions.stac.STAC is taco.extensions.stac.models.STAC
     assert "open_writer" in dir(taco)
     assert "open_writer" in taco.__all__
     assert INDEX_NAME == "__cozip__"

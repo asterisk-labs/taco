@@ -9,6 +9,8 @@ import taco
 from taco.contract import Curator, Extent, Provider
 from taco.errors import CollectionError
 
+from . import models
+
 
 def test_collection_round_trip(collection: taco.Collection) -> None:
     data = collection.to_dict()
@@ -24,12 +26,12 @@ def test_collection_round_trip(collection: taco.Collection) -> None:
 
 def test_collection_metadata_models(collection: taco.Collection) -> None:
     collection = collection.replace(
-        labels=taco.metadata.collection.Labels(classes=["cloud", "clear"]),
-        optical=taco.metadata.collection.Optical(
+        labels=models.Labels(classes=["cloud", "clear"]),
+        optical=models.Optical(
             sensor="sentinel2msi",
-            bands=[taco.metadata.collection.SpectralBand(name="B02", center_wavelength=490)],
+            bands=[models.SpectralBand(name="B02", center_wavelength=490)],
         ),
-        split=taco.metadata.collection.SplitStrategy(strategy="stratified"),
+        split=models.SplitStrategy(strategy="stratified"),
     )
     values = collection.to_dict()
     assert values["labels:num_classes"] == 2

@@ -9,6 +9,8 @@ import taco
 from taco.container.view import open_view
 from taco.errors import ConsolidationError, ContainerError
 
+from . import models
+
 
 def build(path: Path, collection: taco.Collection, samples: list[taco.Sample]) -> Path:
     with taco.open_writer(collection, path) as writer:
@@ -118,7 +120,7 @@ def test_consolidate_rejects_collection_metadata_mismatch(
     tmp_path: Path, collection: taco.Collection, make_sample
 ) -> None:
     first = build(tmp_path / "a.zip", collection, [make_sample(0)])
-    changed = collection.replace(labels=taco.metadata.collection.Labels(classes=["clear"]))
+    changed = collection.replace(labels=models.Labels(classes=["clear"]))
     second = build(tmp_path / "b.zip", changed, [make_sample(1)])
     with pytest.raises(ContainerError, match="same collection"):
         taco.open_dataset([first, second])

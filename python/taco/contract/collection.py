@@ -11,6 +11,7 @@ from typing import Any
 
 from ..errors import CollectionError, ContractError
 from .contract import Contract
+from .extension_registry import OWNERS, declared, used_namespaces
 from .schema import validate_qualified_field
 
 TACO_VERSION = "3.0.0"
@@ -55,7 +56,7 @@ _CORE_KEYS = frozenset(
         "extent",
         "taco:structure",
         "taco:metadata",
-        "taco:derived",
+        "taco:extensions",
         "taco:sources",
     }
 )
@@ -269,6 +270,7 @@ _PARAMETERS = (
     "keywords",
     "extent",
     "sources",
+    "extensions",
 )
 
 
@@ -324,9 +326,8 @@ class Collection:
     """Dataset description and metadata stored in COLLECTION.json.
 
     Keyword arguments other than the named parameters are collection metadata
-    groups, such as ``labels=taco.metadata.collection.Labels(...)`` or
-    ``poi={"category": "volcano"}``. Each field ``x`` of group ``g`` is stored
-    as ``g:x``. ``metadata`` contains the validated groups as dictionaries.
+    groups, such as ``poi={"category": "volcano"}`` or a Pydantic model
+    instance. Each field ``x`` of group ``g`` is stored as ``g:x``. ``metadata`` contains the validated groups as dictionaries.
     Collections read from disk also include the groups written by extensions.
     """
 
@@ -341,6 +342,7 @@ class Collection:
     keywords: tuple[str, ...] | None
     extent: Extent | None
     sources: dict[str, Any] | None
+    extensions: tuple[str, ...]
     metadata: dict[str, dict[str, Any]]
 
     def __init__(
@@ -357,6 +359,7 @@ class Collection:
         keywords: Sequence[str] | None = None,
         extent: Extent | Mapping[str, Any] | None = None,
         sources: dict[str, Any] | None = None,
+        extensions: Sequence[str] | None = None,
         **groups: Any,
     ) -> None:
         if "metadata" in groups:
@@ -375,8 +378,10 @@ class Collection:
             "keywords": keywords,
             "extent": extent,
             "sources": sources,
+            "extensions": extensions,
         }
         self._initialize(parameters, groups)
+        object.__setattr__(self, "extensions", tuple(declared(self.to_dict())))
 
     @classmethod
     def _from_parts(cls, parameters: Mapping[str, Any], groups: Mapping[str, Any]) -> Collection:
@@ -393,6 +398,10 @@ class Collection:
             namespace: _group_values(namespace, value) for namespace, value in groups.items() if value is not None
         }
         object.__setattr__(self, "metadata", metadata)
+        extensions = _string_list(parameters.get("extensions"), name="taco:extensions", required=False)
+        if len(set(extensions)) != len(extensions):
+            raise CollectionError("taco:extensions must not repeat an identifier")
+        object.__setattr__(self, "extensions", extensions)
 
         if not isinstance(self.contract, Contract):
             raise CollectionError("contract must be a Contract")
@@ -441,6 +450,16 @@ class Collection:
             raise CollectionError("replace collection metadata by group, such as labels=..., instead of metadata=")
         parameters = {name: getattr(self, name) for name in _PARAMETERS}
         groups: dict[str, Any] = dict(self.metadata)
+        if "contract" in changes:
+            parameters["extensions"] = ()
+            changed_contract = changes["contract"]
+            if isinstance(changed_contract, Contract):
+                namespaces = used_namespaces(changed_contract.to_dict())
+                groups = {
+                    namespace: values
+                    for namespace, values in groups.items()
+                    if namespace not in OWNERS or namespace in namespaces
+                }
         for name, value in changes.items():
             if name in _PARAMETERS:
                 parameters[name] = value
@@ -448,7 +467,9 @@ class Collection:
                 groups.pop(name, None)
             else:
                 groups[name] = value
-        return type(self)._from_parts(parameters, groups)
+        result = type(self)._from_parts(parameters, groups)
+        object.__setattr__(result, "extensions", tuple(declared(result.to_dict())))
+        return result
 
     def to_dict(self) -> dict[str, Any]:
         """Return an independent copy of the collection as JSON values."""
@@ -459,6 +480,7 @@ class Collection:
             "licenses": list(self.licenses),
             "providers": [provider.to_dict() for provider in self.providers],
             **self.contract.to_dict(),
+            "taco:extensions": list(self.extensions),
         }
         if self.tasks is not None:
             data["tasks"] = list(self.tasks)
@@ -531,6 +553,7 @@ class Collection:
             "keywords": data.get("keywords"),
             "extent": data.get("extent"),
             "sources": data.get("taco:sources"),
+            "extensions": data.get("taco:extensions"),
         }
         return cls._from_parts(parameters, groups)
 

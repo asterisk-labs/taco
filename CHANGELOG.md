@@ -18,6 +18,11 @@ JavaScript reader are documented here. The format follows
 - Built-ins reserve their namespaces. STAC profiles reject extra fields.
 - `jsonschema` is part of the `writer` extra.
 
+### Fixed
+
+- `consolidate` matches partition columns by name, so a partition that stores
+  its columns in another order no longer swaps or rejects their values.
+
 ### Removed
 
 - `taco.metadata`, with `Split`, `Scaling`, `Labels`, `Optical`, `Publications`

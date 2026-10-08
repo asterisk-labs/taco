@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 
+import pyarrow as pa
 import pytest
+from pydantic import BaseModel
 
 import taco
-from taco.container.view import open_view
+from taco.container.view import DatasetView, open_view
 from taco.errors import ConsolidationError, ContainerError
 
 from . import models
@@ -165,3 +168,48 @@ def test_source_paths_must_be_normalized_zip_paths(
     report = taco.validate(output)
     assert not report.ok
     assert any(issue.code == "sources" for issue in report.errors)
+
+
+class Place(BaseModel):
+    region: str
+    city: str
+
+
+@pytest.mark.parametrize(
+    "reorder",
+    [
+        # Two columns of one type trade places, which a positional rebuild swaps silently.
+        lambda names: [*names[:-3], names[-2], names[-3], names[-1]],
+        # User columns stored before the internal ones, as earlier writers did.
+        lambda names: names[::-1],
+    ],
+)
+def test_consolidate_takes_columns_by_name(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reorder: Callable[[list[str]], list[str]]
+) -> None:
+    collection = taco.Collection(
+        contract=taco.Contract(structure=["a.bin"], metadata=[taco.Level("sample", place=Place)]),
+        id="places",
+        description="Places",
+        licenses=["MIT"],
+        providers=["me"],
+    )
+    places = [("andes", "lima"), ("coast", "trujillo"), ("amazon", "iquitos")]
+    samples = [
+        taco.Sample(id=city, assets=b"x", metadata=taco.Metadata(place=Place(region=region, city=city)))
+        for region, city in places
+    ]
+    parts = [build(tmp_path / "a.zip", collection, samples[:2]), build(tmp_path / "b.zip", collection, samples[2:])]
+    stored = DatasetView.level
+
+    def reordered(self: DatasetView, level: str) -> pa.Table:
+        table = stored(self, level)
+        return table.select(reorder(table.column_names)) if level == "sample" else table
+
+    monkeypatch.setattr(DatasetView, "level", reordered)
+    output = taco.consolidate(parts, tmp_path / "places")
+    monkeypatch.undo()
+
+    table = open_view(output).level("sample")
+    assert table.column("place:region").to_pylist() == [region for region, _ in places]
+    assert table.column("place:city").to_pylist() == [city for _, city in places]

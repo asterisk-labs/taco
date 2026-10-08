@@ -10,9 +10,10 @@ dataset as `taco:version`, and a reader must reject a version it does not suppor
 The **implementations** share one release number and declare which specification they
 support.
 
-The C API has a third number, `TACO_API_VERSION`, currently `2`. The Python binding
-refuses a library reporting anything else: `the TACO core at <path> has C API 1,
-expected 2`.
+The C API is versioned separately by `TACO_API_VERSION`, currently `3`. Removing
+`taco_dataset_derived` bumped it from 2. Python, R and Julia reject a mismatched
+library: `the TACO core at <path> has C API 2, expected 3`. Any C API break also
+requires syncing the R vendored core and Julia artifacts.
 
 ## What a change costs
 

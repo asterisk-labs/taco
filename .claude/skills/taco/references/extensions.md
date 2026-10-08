@@ -1,19 +1,24 @@
 # Extensions: writer-time metadata operations
 
-Sources: `python/taco/contract/extension.py`, `python/taco/extensions/`,
-`python/taco/metadata/derived.py`, SPEC 5.4.
+Sources: `python/taco/contract/extension.py`, `python/taco/extensions/` (one package
+per extension: `stac`, `rumi`, `majortom`, `geoenrich`), SPEC 5.7 and
+`docs/spec/extensions/`.
 
 An **extension** is a metadata operation the writer runs during `run()`, after assets
 are local. It may take producer input, produce columns, or both.
 
-**Extensions are not persisted.** `Contract.to_dict()` emits `taco:structure` and
-`taco:metadata` only, as SPEC 8.1 requires: the dependency graph and the configuration
-live in the Python contract while writing, and what survives is the produced columns
-in `taco:metadata` plus any semantic parameter promoted to collection metadata. A
-dataset read back therefore has `contract.extensions == {}` even though the columns
-are there.
+`Collection.extensions` stores the JSON Schema URL of every extension in use.
+Built-ins are inferred from their namespaces (`stac`, `spatial`, `temporal`, `rumi`,
+`majortom`, `geoenrich`). Pass `extensions=[schema_url, ...]` for any other published
+extension. Rewriting preserves an explicitly declared built-in version.
 
-Do not store extension descriptors in `COLLECTION.json`.
+The dependency graph and runtime configuration exist only in the Python contract.
+`COLLECTION.json` stores the resulting columns and semantic collection metadata, not
+extension descriptors. A dataset read back therefore has `contract.extensions == {}`.
+
+Each built-in lives in `taco/extensions/<name>/` with `IDENTIFIER`, `NAMESPACES` and a
+copy of its `schema.json`; the published one is `docs/spec/extensions/<name>/v1.0.0/`,
+and `tests/test_extension_schemas.py` keeps them identical. Change both together.
 
 ## Built-in extensions
 
@@ -26,22 +31,25 @@ Do not store extension descriptors in `COLLECTION.json`.
 | `GeoEnrich(variables=None, backend="majortom-index", scale_m=5120, batch_size=250, max_concurrency=8, centroid="stac:centroid", code="majortom:code", index_url=...)` | the 10 km MajorTOM code by default; the centroid field for `earthengine` | one column per variable | sample |
 
 There is no `Temporal` extension: that profile computes nothing, so it is declared as
-a model, `temporal=taco.metadata.sample.Temporal`.
+a model, `temporal=taco.extensions.stac.Temporal`.
 
-The two profile extensions also carry the producer's input model, so
+The profile extensions also carry the producer's input model, so
 `taco.Level("sample", stac=taco.extensions.STAC())` declares the inputs and the
-outputs at once. Pass `model=` a subclass to add fields:
+outputs at once. `model=` takes a subclass of the matching `taco.extensions.stac.*`
+model, such as the folder variant. A profile namespace holds exactly the STAC
+fields, so extra fields go in your own namespace:
 
 ```python
-class CloudSTAC(taco.metadata.sample.STAC):
+class Quality(BaseModel):
     cloud_cover: float
 
-taco.Level("sample", stac=taco.extensions.STAC(model=CloudSTAC))
+taco.Level("sample", stac=taco.extensions.STAC(), quality=Quality)
 ```
 
-The subclass must inherit the matching `taco.metadata.sample.*` model, and the
-namespace must be the canonical one: `STAC must use metadata namespace 'stac', got
-'st'`.
+A subclass that adds a field fails with `STAC metadata at level 'sample' has fields
+the STAC extension does not define ['cloud_cover']; store them in your own
+namespace`. Every built-in must be bound to the namespace it owns: `STAC must use
+metadata namespace 'stac', got 'st'`, and likewise `majortom` and `geoenrich`.
 
 ### Parquet encodings
 
@@ -170,6 +178,9 @@ class Area(Extension):
 
 taco.Level("sample", stac=taco.extensions.STAC(), area=Area())
 ```
+
+If `area` is a published format extension rather than a private user namespace, pass
+its JSON Schema identifier to `Collection(extensions=[...])`.
 
 Contract:
 

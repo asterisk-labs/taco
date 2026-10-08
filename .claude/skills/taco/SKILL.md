@@ -41,10 +41,10 @@ Trust the source and `docs/spec/SPEC.md` for current behavior.
   SQL; JavaScript has a separate pure-JS reader. A reader binding adds no semantics.
 - **`taco-eo` reads; `taco-eo[writer]` writes.** The base install is cffi, DuckDB,
   Arrow and tqdm, like the R and Julia readers. `open_writer`, `validate`, `export`,
-  `consolidate`, `taco.metadata` and `taco.extensions` load on first use and need the
-  `[writer]` extra (cozip, NumPy, Pydantic, pyproj, Shapely); without it they raise an
-  `ImportError` naming the extra. Keep reader modules free of those imports:
-  `tests/test_read_only.py` blocks them and reads a dataset.
+  `consolidate` and `taco.extensions` load on first use and need the
+  `[writer]` extra (cozip, jsonschema, NumPy, Pydantic, pyproj, Shapely); without
+  it they raise an `ImportError` naming the extra. Keep reader modules free of
+  those imports: `tests/test_read_only.py` blocks them and reads a dataset.
 - **Reading returns locations, not bytes.** A wide read carries one
   `{file}::location` column per structure leaf. A compatible payload reader then opens
   that path when the bytes are actually needed.
@@ -90,7 +90,7 @@ with taco.open_writer(collection, "tiny.zip", overwrite=True) as writer:
             id="lima-0001",                          # stable identity, never the index
             assets=[taco.Asset(data, path=name) for name, data in payloads.items()],
             metadata=taco.Metadata(
-                stac=taco.metadata.sample.STAC(      # the grid is stored; centroid is derived
+                stac=taco.extensions.stac.STAC(      # the grid is stored; centroid is derived
                     proj_code="EPSG:4326",
                     proj_shape=(256, 256),           # [height, width]
                     proj_transform=(0.2 / 256, 0, -76.6, 0, -0.2 / 256, -12.0),
@@ -115,7 +115,7 @@ assert taco.validate("tiny.zip").ok
 | --- | --- | --- |
 | Building over time, adding samples later | FOLDER: `open_writer(c, "ds")`, then `append=True` | The only container that appends |
 | Publishing one finished dataset | ZIP: `open_writer(c, "ds.zip")` | Immutable, one object, byte-range reads |
-| Publishing more than one object holds | `partition_size="4GB"` or `partition_by="ml:split"` | Writes `ds_<label>.zip` beside a `.tacocat/` |
+| Publishing more than one object holds | `partition_size="4GB"`, `partition_by="ml:split"`, or both | Writes ZIP parts beside a `.tacocat/` |
 | Combining archives built separately | `taco.consolidate([...])` | Checks contract, collection metadata and `id` uniqueness |
 | A subset of an existing dataset | `taco.export(src, out, sql=...)` | Whole samples, new indices, `id` preserved |
 
@@ -187,7 +187,7 @@ and only ZIP metadata carries the byte offsets that make random access possible.
   index there too. On a server with a small home, set `TACO_CACHE_DIR`. An open
   `Dataset` is a snapshot.
 - **The core must be loadable.** Python looks for `taco/_lib/libtaco.dylib|so` or
-  `TACO_LIB`, and rejects a library whose C API is not 2. `make core` builds it and
+  `TACO_LIB`, and rejects a library whose C API is not 3. `make core` builds it and
   stages the copy Python uses.
 
 ## Reference map

@@ -231,7 +231,7 @@ Every field MUST declare the following properties. Its type MUST be representabl
 | `nullable` | boolean | Whether the stored column may contain null values |
 | `description` | string | Human-readable field description; MAY be empty |
 
-A Rumi statistic MAY also declare `files`, a non-empty list of distinct structure declarations at the same metadata level. The list limits that statistic to those files. No other field may declare `files`.
+A field MAY also declare `files`, a non-empty list of distinct structure declarations at the same metadata level, when its extension allows it (Section 5.7). The list limits that field to those files.
 
 | Type family | Canonical forms |
 | --- | --- |
@@ -277,149 +277,17 @@ Every user column MUST follow the type and nullability declared in the contract.
 
 Every user field MUST use the form `namespace:field`. Namespaces MUST match `[a-z][a-z0-9_]*`. Field names MUST be non-empty and MUST NOT contain `:`, `/`, or `__`. The qualified name MUST be unique within its level, ignoring letter case, because SQL does not distinguish `ml:split` from `ml:Split`.
 
-The same namespace MAY appear at multiple levels and MAY use a different schema at each level. The `internal`, `taco`, and `cozip` namespaces are reserved. Producers MUST NOT create fields in these namespaces.
+The same namespace MAY appear at multiple levels and MAY use a different schema at each level. The `internal`, `taco`, and `cozip` namespaces are reserved. Producers MUST NOT create fields in these namespaces. Other namespaces may belong to an extension (Section 5.7).
 
 The column names `cozip:location`, `taco:location`, and `taco:sample_index` are reserved for readers. A producer MUST NOT store them in a Parquet file under `METADATA/`.
 
 A reader MUST calculate locations from the payload offset, size, and containing file. It MUST ignore or remove stored values that use any reserved name.
 
-On disk, a namespace only qualifies a column name. It does not create a nested struct or identify a Python class. Contracts are equivalent when their structure, levels, qualified fields, types, nullability, descriptions, and Rumi file selections are the same.
-
-#### Spatial and temporal profiles
-
-TACO defines three metadata profiles built from the fields of a STAC Item and its projection extension. `Temporal` records when a sample was observed, `Spatial` where it is, and `STAC` both.
-
-A metadata level MUST choose at most one profile. A profile is a group of tabular fields, not a serialized STAC Item. Its fields keep their STAC names, except that the `proj:` prefix becomes `proj_` so that every column has a single namespace. For example, STAC `proj:code` is stored as `stac:proj_code`.
-
-| Profile | Producer inputs | Writer outputs |
-| --- | --- | --- |
-| `temporal` | `datetime`, or `start_datetime` and `end_datetime` | None |
-| `spatial` | `proj_code`, `proj_shape`, and `proj_transform`, or `geometry` | `centroid` |
-| `stac` | The inputs of both | `centroid` |
-
-Every profile MUST use the following canonical field declarations. A field is present in each profile listed under Applies to. When the complete profile group is optional, every stored column in that group is nullable. Its fields and types remain canonical.
-
-| Field | Applies to | Type | Nullable | STAC field | Meaning |
-| --- | --- | --- | --- | --- | --- |
-| `geometry` | `spatial`, `stac` | `binary` | Yes | `geometry` | Footprint in EPSG:4326 as WKB, when the producer supplies one |
-| `bbox` | `spatial`, `stac` | `list<double>` | Yes | `bbox` | `[west, south, east, north]` of `geometry`, when the producer supplies it |
-| `centroid` | `spatial`, `stac` | `struct<lon: float, lat: float>` | No | None | Center of the sample in EPSG:4326 |
-| `datetime` | `temporal`, `stac` | `timestamp[us, UTC]` | Yes | `datetime` | Acquisition time |
-| `start_datetime` | `temporal`, `stac` | `timestamp[us, UTC]` | Yes | `start_datetime` | First time covered by the observation |
-| `end_datetime` | `temporal`, `stac` | `timestamp[us, UTC]` | Yes | `end_datetime` | Last time covered by the observation |
-| `proj_code` | `spatial`, `stac` | `string` | Yes | `proj:code` | CRS of the grid |
-| `proj_shape` | `spatial`, `stac` | `list<int64>` | Yes | `proj:shape` | Grid height and width in pixels |
-| `proj_transform` | `spatial`, `stac` | `list<double>` | Yes | `proj:transform` | Affine transform of the grid |
-
-For example, a valid Temporal profile has exactly these three canonical columns:
-
-```
-{
-  "temporal:datetime": {"type": "timestamp[us, UTC]", "nullable": true, "description": "Acquisition time; null when only a range is known"},
-  "temporal:start_datetime": {"type": "timestamp[us, UTC]", "nullable": true, "description": "First time covered by the observation, inclusive"},
-  "temporal:end_datetime": {"type": "timestamp[us, UTC]", "nullable": true, "description": "Last time covered by the observation, inclusive"}
-}
-```
-
-Using `timestamp[ms]` or omitting `end_datetime` does not conform to the Temporal profile.
-
-**Time.** Every row MUST have a `datetime`, or both a `start_datetime` and an `end_datetime`. `start_datetime` and `end_datetime` MUST be given together, MUST NOT be reversed, and bound an inclusive range. A row MAY also carry a `datetime` inside its range. An observation without a single acquisition instant, such as a DEM or an annual composite, uses a range.
-
-**Footprint.** A supplied `geometry` MUST be a non-empty, valid, two-dimensional WKB geometry with longitude and latitude coordinates in EPSG:4326. It MUST NOT be a GeometryCollection. A footprint that crosses the antimeridian MUST be split into parts at 180 degrees, as RFC 7946 requires. Therefore no edge may span more than 180 degrees of longitude, except an edge whose two ends lie on the antimeridian or an edge along a pole.
-
-**Bounding box.** A producer MAY supply `bbox` together with `geometry`. It holds `[west, south, east, north]`. `south` and `north` are the latitude bounds of `geometry`. `west` and `east` bound the narrowest longitude interval that covers every part of `geometry`. When that interval crosses the antimeridian, `west` is greater than `east`. When two intervals are equally narrow, the one that does not cross is used.
-
-**Grid.** `proj_code`, `proj_shape`, and `proj_transform` MUST be given together or not at all. `proj_code` has the form `AUTHORITY:CODE`, such as `EPSG:32718`. `proj_shape` holds the positive height and width of the grid in pixels, in that order. `proj_transform` holds six finite coefficients `[a, b, c, d, e, f]` with a non-zero `a*e - b*d`. They map the corner of a pixel to CRS coordinates:
-
-```
-x = a * column + b * row + c
-y = d * column + e * row + f
-```
-
-This is the order of STAC `proj:transform` and of rasterio, not the order of the GDAL geotransform. A grid in `EPSG:4326` uses longitude as `x`.
-
-**Writer outputs.** A row MUST supply a complete grid, `geometry`, or both. The writer derives only `centroid`; `geometry` and `bbox` remain null unless supplied. A supplied `geometry` MAY differ from the grid. A supplied `bbox` MUST match it.
-
-**Grid footprint.** A grid footprint starts from its reprojected corners. Edges are subdivided to half-pixel precision. Antimeridian crossings are split at 180 degrees; polar footprints close through the enclosed pole.
-
-The writer and `taco.validate` MUST reject, on every level, a grid that wraps more than once in its CRS units or extends beyond its CRS domain.
-
-**Centroid.** `centroid` is a float32 EPSG:4326 `{lon, lat}` struct. It is the supplied value, the reprojected grid center, or the centroid of `geometry` after joining antimeridian-split parts. The writer rounds it before extensions run. It is not exported to STAC.
-
-The built-in extensions `spatial=taco.extensions.Spatial()` and `stac=taco.extensions.STAC()` compute `centroid` and MUST use their canonical namespaces. Temporal computes nothing, so it is declared as a model, as in `temporal=taco.metadata.sample.Temporal`. A level MAY bind the Spatial or STAC model without its extension; the producer then supplies `centroid`.
-
-Inputs use the matching model from `taco.metadata.sample` or `taco.metadata.folder`.
-
-#### Writer-time extensions
-
-A writer-time extension receives validated inputs and computes columns during `run()`. An extension may require a producer input or the output of another extension at the same level.
-
-The writer MUST resolve extension dependencies without relying on declaration order. A cycle, a missing requirement, or a duplicate output column makes the active writer contract invalid.
-
-The dependency graph and operational configuration exist only while writing. Parameters used only to control execution, such as batch size, worker count, credentials, and temporary paths, MUST NOT be stored in `COLLECTION.json`.
-
-An extension parameter that changes how a stored column is calculated or interpreted MUST be stored as collection metadata in the extension's namespace. The writer MUST add this metadata automatically and MUST reject an append when its value differs from the existing collection.
-
-For example, `MajorTOM(dist_km=100)` changes the meaning of `majortom:code`, so the collection stores the distance:
-
-```
-{
-  "majortom:dist_km": 100
-}
-```
-
-An append using `MajorTOM(dist_km=100)` is compatible. An append using `MajorTOM(dist_km=50)` MUST fail because it would place codes calculated with two grid sizes in the same column.
-
-Every produced column MUST appear in `taco:metadata` with its final type, nullability, and description.
-
-#### Rumi extension
-
-The Rumi extension operates on one local `.rumi` asset per row. It owns the `rumi` namespace: no other metadata group may use it. It stores `rumi:header` unless configured with `header=False`, and the statistics selected with `stats`. At least one of the two MUST be enabled. It MUST obtain `rumi:header` from `rumi.info(source=asset_path).header`. Producers MUST NOT construct this value themselves.
-
-The header is stored as Parquet `binary`. A reader can use it for selective access without parsing the payload first.
-
-Each statistic is a nullable `double` column named `rumi:<statistic>`, optionally followed by a selection.
-
-| Statistic | Value |
-| --- | --- |
-| `minimum`, `maximum` | Smallest and largest valid value |
-| `mean` | Arithmetic mean |
-| `stddev` | Population standard deviation |
-| `p2`, `p98` | 2nd and 98th percentiles, interpolated linearly between the closest ranks |
-
-Without a selection, a statistic covers every valid value of the array: all bands and, in a Cube, all time steps. `_b<band>` selects one band, `_t<time>` one time step of a Cube, and `_t<time>_b<band>` one band at one time step. Indexes start at zero and have no leading zeros, like variable sequences.
-
-`stats=True` stores the six statistics without a selection. `stats=["mean", "mean_b10", "p98_t0_b3"]` stores exactly those three columns for every Rumi file at the level.
-
-```
-rumi:minimum  rumi:maximum  rumi:mean  rumi:stddev  rumi:p2  rumi:p98
-```
-
-`stats` MAY instead map a complete structure declaration to its own selection. The mapping MUST be non-empty, and each value MUST be `True`, a statistic name, or a non-empty list of statistic names. A declaration omitted from the mapping gets no statistics; it MUST NOT be represented by `False` or an empty list. The mapping is declared at the metadata level that owns those assets. For a variable sequence, the key is the declaration itself, including `*[min,max]`.
-
-```python
-taco.extensions.Rumi(
-    stats={
-        "rumi/image.rumi": ["mean", "p98"],
-        "rumi/cube.rumi": ["mean_t0", "p98_t0_b3"],
-    }
-)
-```
-
-The level stores the union of the selected statistic columns. A row contains null for a statistic that does not apply to its file. In `taco:metadata`, each restricted statistic declares the structure declarations it applies to with `files`; readers use that list to expose only the columns that belong beside each file.
-
-```json
-"rumi:mean": {
-  "type": "double",
-  "nullable": true,
-  "description": "Mean of all valid values",
-  "files": ["rumi/image.rumi"]
-}
-```
-
-Statistics exclude non-finite values; booleans count as 0 and 1. The extension has no `nodata` option. Dataset-specific masking belongs outside this extension. A statistic is null when its selection holds no valid value. The writer MUST reject complex values, an asset that lacks a selected band or time step, and a time selection on an Image. A contract that declares any other field in the `rumi` namespace, declares `rumi:header` with a type other than `binary`, or declares a Rumi statistic with a type other than `double` is invalid.
+On disk, a namespace only qualifies a column name. It does not create a nested struct or identify a Python class. Contracts are equivalent when their structure, levels, qualified fields, types, nullability, descriptions, and `files` are the same.
 
 #### Examples
+
+Both examples use the `stac` profile of the [STAC extension](extensions/stac.md).
 
 **CloudSEN12.**
 
@@ -496,18 +364,15 @@ For this specification, `taco:version` MUST equal `3.0.0`. The `id` and `descrip
 | `title` | string | MAY | Human-readable title |
 | `curators` | list[object] | MAY | Dataset curators |
 | `keywords` | list[string] | MAY | Keywords for discovery |
-| `extent` | object | Spatial profiles | Writer-generated spatial and optional temporal summary |
+| `extent` | object | Extension | Writer-generated spatial and optional temporal summary |
+| `taco:extensions` | list[string] | MUST | Identifiers of the extensions the dataset uses (Section 5.7) |
 | `taco:sources` | object | TACOCAT | Source ZIP partitions |
 
 A provider MUST have a non-empty `name`. It MAY have `roles`, `url`, and `links`. A curator MUST have a `name` or `organization` and MAY have `email` and `role`.
 
 An extent contains `spatial` and MAY contain `temporal`. `spatial` is `[west, south, east, north]` in EPSG:4326. A value where west is greater than east crosses the antimeridian. `temporal` is either null or `[start, end]` using ISO 8601 timestamps in UTC.
 
-The writer produces `extent` from the shallowest metadata level that contains a spatial profile. If no level contains one, the writer MUST omit `extent`.
-
-The spatial interval covers the footprint bounds of every row at that level: its `bbox`, or else the bounds of its `geometry`, or else of its grid footprint. `south` and `north` are their extreme latitudes. `west` and `east` bound the narrowest longitude interval that covers every box, under the rule for `bbox` in Section 5.4.
-
-For STAC, the temporal interval starts at the earliest `start_datetime` or `datetime` and ends at the latest `end_datetime` or `datetime`.
+An extension produces `extent`. The [STAC extension](extensions/stac.md) defines how. If no extension produces one, the writer MUST omit `extent`.
 
 Each ZIP partition MUST summarize only its own rows. TACOCAT stores each partition extent in `taco:sources` and uses their union as its collection extent. A FOLDER append MUST summarize both the existing and appended rows.
 
@@ -536,6 +401,84 @@ A stored sample directory and a structure path identify every file. In a FOLDER,
 Any subset of samples may use the same contract. Each partition assigns its own local sample indices.
 
 Partitions with the same contract and collection metadata may be combined. A physical merge MUST either reindex every row and parent reference or retain the source partition as part of row identity.
+
+### 5.7. Extensions
+
+An extension gives a namespace a published meaning. It defines the fields of that namespace, where they may appear, and the rules their values follow. This specification defines the mechanism. Each extension is specified in its own document and versioned independently.
+
+| Extension | Namespaces | Scope |
+| --- | --- | --- |
+| [STAC](extensions/stac.md) | `temporal`, `spatial`, `stac` | Sample, Folder |
+| [Rumi](extensions/rumi.md) | `rumi` | Sample, Asset |
+| [MajorTOM](extensions/majortom.md) | `majortom` | Sample |
+| [GeoEnrich](extensions/geoenrich.md) | `geoenrich` | Sample |
+
+#### Identity
+
+An extension is identified by the URL of its JSON Schema. The URL contains the extension version, so a new version is a new identifier.
+
+```
+https://asterisk.coop/taco/spec/extensions/stac/v1.0.0/schema.json
+```
+
+An extension document starts with its title, identifier, namespaces, scope, maturity, and owner. Scope is one or more of Collection, Sample, Folder, and Asset.
+
+Scope belongs to each field, not to the extension. One extension MAY define fields with different scopes, and its document lists collection fields and level fields separately. The scope of a field follows from where it appears in `COLLECTION.json`.
+
+| Scope | Where the field appears |
+| --- | --- |
+| Collection | A qualified key at the root of `COLLECTION.json`, such as `majortom:dist_km` |
+| Sample | An entry of `taco:metadata.sample`, such as `majortom:code` |
+| Folder, Asset | An entry of a `children` level in `taco:metadata` |
+
+A `children` level may hold folder rows and file rows. Which kind a row is follows from `taco:structure`, so the JSON Schema cannot tell Folder from Asset. `taco.validate()` MUST check that a field appears only on rows its scope allows.
+
+#### Declaration
+
+`COLLECTION.json` lists the extensions a dataset uses in `taco:extensions`.
+
+```json
+"taco:extensions": [
+  "https://asterisk.coop/taco/spec/extensions/stac/v1.0.0/schema.json",
+  "https://asterisk.coop/taco/spec/extensions/majortom/v1.0.0/schema.json"
+]
+```
+
+A dataset MUST list an extension when any field in its namespaces appears in the collection or in any metadata level. The list MUST NOT contain the same identifier twice, nor two extensions that own the same namespace. When an extension requires fields of another, both MUST be listed. A dataset that uses no extension stores an empty list. A reader does not need `taco:extensions` to read a dataset.
+
+An extension owns its namespaces. Every field in an owned namespace MUST follow the extension, and no other extension or metadata group may use it. A namespace that no listed extension owns is a user namespace: its fields are valid but carry no published meaning. The `taco`, `internal`, and `cozip` namespaces cannot belong to an extension.
+
+#### Validation
+
+An extension's JSON Schema validates `COLLECTION.json`. It MUST require `taco:extensions` to contain its own identifier. It checks the collection fields in its namespaces and their entries in `taco:metadata`: names, types, nullability, and `files`. A field in an owned namespace that the schema does not define is invalid.
+
+Rules on stored values, such as a valid footprint or an ordered time range, cannot be checked against `COLLECTION.json`. The extension document states them, and `taco.validate()` MUST check them on every row.
+
+A validator MAY use a local copy of a schema instead of fetching its identifier.
+
+#### Versions and maturity
+
+Extensions follow Semantic Versioning, independent of this specification. A change to a field type, its nullability, its meaning, or its scope is a major version. A new optional field is a minor version.
+
+| Maturity | Published datasets | Stability |
+| --- | --- | --- |
+| Proposal | 0 | Breaking changes are expected |
+| Pilot | 1 | Breaking changes are not expected but may happen |
+| Candidate | 3 | Breaking changes need a new major version. The extension has a named owner |
+| Stable | 6 | Every change needs a new version and a review |
+| Deprecated | Any | Do not use |
+
+#### Writer-time computation
+
+An extension MAY compute columns while the writer runs. It receives validated inputs, and it may require a producer input or the output of another extension at the same level. The writer MUST resolve these dependencies without relying on declaration order. A cycle, a missing requirement, or a duplicate output column makes the active writer contract invalid.
+
+Every produced column MUST appear in `taco:metadata` with its final type, nullability, and description.
+
+The dependency graph and operational configuration exist only while writing. Parameters used only to control execution, such as batch size, worker count, credentials, and temporary paths, MUST NOT be stored in `COLLECTION.json`.
+
+An extension parameter that changes how a stored column is calculated or interpreted MUST be stored as collection metadata in the extension's namespace. The writer MUST add this metadata automatically and MUST reject an append when its value differs from the existing collection.
+
+An extension MAY produce the collection `extent` (Section 5.5) and MAY allow its fields to declare `files` (Section 5.4). It MAY also define columns that the reader generates beside a file in `read()` (Section 8.2). Only the extensions listed above define these behaviors.
 
 ## 6. Dataset Identity and Mutability
 
@@ -756,7 +699,9 @@ Complete validation MUST check the following conditions.
 
 8. TACOCAT source paths, sample counts, global identifiers, parent references, extents, and `internal:source_file` values match `taco:sources` and the referenced ZIP partitions.
 
-9. Every row of a Spatial, Temporal, or STAC profile follows the rules for time, footprint, bounding box, grid, and centroid in Section 5.4. A row where an optional profile group is absent as a whole is exempt.
+9. `taco:extensions` lists every extension the dataset uses, and `COLLECTION.json` validates against the JSON Schema of each one (Section 5.7).
+
+10. Every row follows the rules of the extensions it uses.
 
 For example, this contract declaration requires an `int64` Parquet column.
 
@@ -800,18 +745,9 @@ Metadata for the complete dataset is not a separate object. It is passed to `Col
 
 #### Metadata schema
 
-Built-in metadata groups are separated by scope.
+Built-in extensions live under `taco.extensions`, one module per extension: `taco.extensions.stac`, `taco.extensions.rumi`, `taco.extensions.majortom`, and `taco.extensions.geoenrich`. A dataset may use them or define Pydantic models and `taco.Extension` subclasses.
 
-| Scope | Module |
-| --- | --- |
-| Sample | `taco.metadata.sample` |
-| Folder | `taco.metadata.folder` |
-| Asset | `taco.metadata.asset` |
-| Collection | `taco.metadata.collection` |
-
-Writer-time operations live under `taco.extensions`. A dataset may use the built-in groups or define Pydantic models and `taco.Extension` subclasses.
-
-The writer rejects a built-in group used outside its declared scope.
+The writer rejects an extension group used outside its declared scope.
 
 ```
 import taco
@@ -837,7 +773,7 @@ contract = taco.Contract(
 
 The keyword passed to `Level` becomes the namespace. A Pydantic model defines fields, types, nullability, and descriptions. An extension also declares its required and produced fields. The writer stores qualified columns such as `stac:centroid`, `ml:split`, and `majortom:code`.
 
-Spatial, Temporal, and STAC MUST use their canonical namespaces.
+An extension that owns its namespace MUST be bound to it (Section 5.7).
 
 A model assigned directly to a level is required on every row. `Model | None` allows the complete group to be absent on some rows and makes its stored columns nullable. Within a model, `value: T | None` makes one field nullable. `Field(description=...)` supplies its description. Exact Arrow types may use `Annotated`.
 
@@ -857,7 +793,7 @@ The serialized contract contains the resulting columns, not Python class names, 
 
 #### Collection metadata
 
-Pass collection metadata as keyword groups. Each group accepts a mapping or a Pydantic model that serializes to a JSON object. For example, `source={"mission": "Sentinel-2"}` writes `"source:mission": "Sentinel-2"` to `COLLECTION.json`. The models in `taco.metadata.collection` provide common fields and validation.
+Pass collection metadata as keyword groups. Each group accepts a mapping or a Pydantic model that serializes to a JSON object. For example, `source={"mission": "Sentinel-2"}` writes `"source:mission": "Sentinel-2"` to `COLLECTION.json`.
 
 ```
 collection = taco.Collection(
@@ -866,23 +802,24 @@ collection = taco.Collection(
     description="Cloud segmentation dataset",
     licenses=["CC-BY-4.0"],
     providers=[{"name": "CSIC", "roles": ["producer"]}],
-    labels=taco.metadata.collection.Labels(
-        classes=["clear", "cloud", "shadow"],
-        description="Cloud mask classes",
-    ),
+    labels={"classes": ["clear", "cloud", "shadow"], "description": "Cloud mask classes"},
     source={"mission": "Sentinel-2", "level": "L1C"},
 )
 ```
+
+Pass `extensions=[schema_url, ...]` for published extensions outside the built-ins.
+`Collection` adds the built-in identifiers from the namespaces the contract uses and
+preserves an explicitly declared version when rewriting a dataset.
 
 Groups must be non-empty, use valid qualified field names, and contain JSON values. Models scoped to samples, folders, or assets are rejected, as are values that conflict with an active extension. Validation failures raise `CollectionError`.
 
 Group names cannot be `metadata` or a named parameter of `Collection`. Readers still preserve those namespaces when they occur in a file. `Collection.replace(poi={...})` replaces the entire `poi` group; `poi=None` removes it. `taco.export()` accepts the same overrides.
 
-`collection.metadata` holds the groups as JSON values. `to_dict()` returns an independent copy, so editing its nested lists or dictionaries does not change the collection. Collection groups are validated at construction and stored only in `COLLECTION.json`. The writer adds `taco:version` automatically.
+`collection.metadata` holds the groups as JSON values. `to_dict()` returns an independent copy, so editing its nested lists or dictionaries does not change the collection. Collection groups are validated at construction and stored only in `COLLECTION.json`. `to_dict()` includes `taco:version` and `taco:extensions`.
 
 #### Collection summaries
 
-Spatial produces the spatial part of `extent` from the bounding boxes. STAC additionally produces its temporal part. Temporal has no spatial coverage and therefore does not synthesize a collection `extent`.
+An extension may summarize its columns into collection metadata, as the [STAC extension](extensions/stac.md) does for `extent`.
 
 Summaries run independently for every output partition. They consume metadata in batches and retain only the values needed for the summary. They do not keep the complete metadata table in memory.
 
@@ -896,7 +833,7 @@ Assets are passed as a list. In a flat structure, the contract path is inferred 
 sample = taco.Sample(
     id="lima-0001",
     metadata=taco.Metadata(
-        stac=taco.metadata.sample.STAC(...),
+        stac=taco.extensions.stac.STAC(...),
         ml=ML(split="train"),
     ),
     assets=[
@@ -920,13 +857,13 @@ sample = taco.Sample(
 
 An extension declares the columns it requires and produces. It may also declare a Pydantic model for values supplied by the producer. The contract is invalid when a required column is missing.
 
-For example, Spatial receives a grid and produces `spatial:centroid`. `MajorTOM(centroid="spatial:centroid")` may require that column and produce `majortom:code`, the MajorTOM cell that contains the centroid.
+For example, `taco.extensions.MajorTOM` requires the centroid produced by `taco.extensions.STAC` and produces `majortom:code`.
 
 The writer computes extension outputs from batches of validated metadata during `run()`. Each context also contains the local asset associated with every row, allowing format extensions to inspect payloads without asking producers to duplicate file metadata.
 
-`taco.extensions.Rumi(stats=True)` requires a local `.rumi` asset. It produces the canonical binary `rumi:header` and one `double` column per statistic, such as `rumi:mean` or `rumi:mean_b10`; `header=False` omits the header. A `stats` mapping selects different columns for different structure declarations at the same level. `taco.extensions.GeoEnrich` attaches selected environmental variables through one of two backends. The default `majortom-index` backend joins a 10 km MajorTOM code against the public MajorTOM index on Source Cooperative without requiring an Earth Engine account; the explicitly selected `earthengine` backend samples a configurable centroid. The index backend and source URL are stored as collection metadata. The writer keeps a local copy of a remote index in the cache and revalidates it on each build.
+The built-in extensions are listed in Section 5.7 and specified in their own documents.
 
-Extension dependencies and operational settings remain in the active Python contract while writing. Semantic parameters are stored as collection metadata as defined in Section 5.4. The persisted contract contains only the resulting structure and metadata schema.
+Extension dependencies and operational settings remain in the active Python contract while writing. Semantic parameters are stored as collection metadata as defined in Section 5.7. The persisted contract contains only the resulting structure and metadata schema.
 
 #### Writer lifecycle
 
@@ -992,16 +929,13 @@ collection = taco.Collection(
     licenses=["CC-BY-4.0"],
     providers=[{"name": "CSIC", "roles": ["producer"]}],
     tasks=["segmentation"],
-    labels=taco.metadata.collection.Labels(
-        classes=["clear", "cloud"],
-        description="Cloud mask classes",
-    ),
+    labels={"classes": ["clear", "cloud"], "description": "Cloud mask classes"},
 )
 
 sample = taco.Sample(
     id="lima-0001",
     metadata=taco.Metadata(
-        stac=taco.metadata.sample.STAC(
+        stac=taco.extensions.stac.STAC(
             proj_code="EPSG:4326",
             proj_shape=(256, 256),
             proj_transform=(0.1 / 256, 0, -76.55, 0, -0.1 / 256, -9.15),
@@ -1053,7 +987,7 @@ Remote file locations use the VSI prefix of their storage, such as `/vsicurl/`, 
 
 The result includes the generated `taco:sample_index` and the stable logical `id`. TACOCAT also includes `source_file`, which identifies the ZIP containing each sample.
 
-Every selected file has a `{file}::location` column calculated by the reader. Location columns are not stored in metadata. A Rumi file also has a `{file}::header` column when its metadata level declares `rumi:header`, and one `{file}::<statistic>` column for every Rumi statistic that applies to that structure declaration, such as `{file}::mean_b10`. These generated columns do not modify the dataset.
+Every selected file has a `{file}::location` column calculated by the reader. Location columns are not stored in metadata. An extension may add generated columns after a file's location, such as `{file}::header` in the [Rumi extension](extensions/rumi.md). These generated columns do not modify the dataset.
 
 Collection metadata is not repeated in every result row. It is available through `Dataset.collection`.
 
@@ -1064,7 +998,7 @@ The `dataset` relation and `read()` use the following column order. `source_file
 | `dataset` | `source_file` when present, `taco:sample_index`, `id`, sample metadata in `sample.parquet` schema order, then generated file columns |
 | `read()` | The same columns as `dataset`, limited to the requested structure declarations when `files` is provided |
 
-Generated file columns follow the selected declarations in structure order. Each `{file}::location` column is immediately followed by the file's Rumi columns, in `taco:metadata` order. A variable sequence occupies one list column in the position of its declaration.
+Generated file columns follow the selected declarations in structure order. Each `{file}::location` column is immediately followed by the file's extension columns, in `taco:metadata` order. A variable sequence occupies one list column in the position of its declaration.
 
 ```
 read("cloudsen12.zip")
@@ -1074,16 +1008,11 @@ read("cloudsen12.zip")
 # Two selected files
 read("change_detection.zip", files=["before/B02.tif", "after/B02.tif"])
 # taco:sample_index | id | ml:split | before/B02.tif::location | after/B02.tif::location
-
-# Rumi assets carry their header and statistics
-read("multisensor.zip")
-# taco:sample_index | id       | optical.rumi::location | optical.rumi::header | optical.rumi::mean | radar.rumi::location | ...
-# 0            | lima-001 | /vsisubfile/...       | b"LOVE..."          | 1204.5             | /vsisubfile/...     | ...
 ```
 
-A generated column is named after its structure path, followed by `::location`, `::header` or a Rumi statistic, so `before/B02.tif` becomes `before/B02.tif::location`. The double `::` distinguishes generated columns from metadata fields, which contain exactly one `:`.
+A generated column is named after its structure path, followed by `::location` or an extension column, so `before/B02.tif` becomes `before/B02.tif::location`. The double `::` distinguishes generated columns from metadata fields, which contain exactly one `:`.
 
-A variable sequence uses the path to its prefix. `before/img*[1,16].tif` becomes the `LIST(VARCHAR)` column `before/img::location`. A Rumi sequence may also have a `LIST(BLOB)` column named `before/img::header` and applicable `LIST(DOUBLE)` statistic columns such as `before/img::mean`.
+A variable sequence uses the path to its prefix. `before/img*[1,16].tif` becomes the `LIST(VARCHAR)` column `before/img::location`. Extension columns of a sequence are lists too.
 
 ```
 read("multitemporal_s2.zip")

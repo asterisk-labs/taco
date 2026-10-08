@@ -151,7 +151,7 @@ structure`.
 | --- | --- |
 | `structure` | `list[str]` of declarations |
 | `levels` | `list[str]`, the core's order |
-| `contract` | Arrow table of `kind`/`value` rows: `structure`, `level`, `derived` |
+| `contract` | Arrow table of `kind`/`value` rows: `structure`, `level` |
 | `collection` | parsed `COLLECTION.json` as a dict |
 | `profile` | the CoZIP profile: `none`, `flat`, `taco`, or `unknown:<n>` |
 

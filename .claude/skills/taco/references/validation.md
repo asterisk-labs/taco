@@ -23,9 +23,8 @@ dataset produces a complete report.
 
 ## What runs
 
-`validate` opens a `DatasetView`, then runs, in order: the collection check, the
-metadata file check, the sample id check, the per-level checks, and one
-container-specific check.
+`validate` opens a `DatasetView`, then checks the collection, extensions, metadata
+files, sample ids, each level, and finally the container.
 
 `detect_container` decides by shape: a file is `zip`; a directory with
 `COLLECTION.json` and `METADATA/` is `folder`; a directory with `COLLECTION.json` and
@@ -67,6 +66,7 @@ bad (folder): 1 error(s), 0 warning(s)
 | `zip` | Empty comment, no duplicate entries, `__cozip__` first, priority block last and contiguous, STORE mode, no directory entries |
 | `data` | Every declared file exists, is non-empty, and nothing under `DATA/` is undeclared |
 | `source_file` | TACOCAT levels carry `internal:source_file` and only reference listed partitions |
+| `extensions` | `taco:extensions` present; built-in namespaces listed once; `COLLECTION.json` valid against each known schema; MajorTOM columns and ranges valid; extension fields used only at their allowed scope. An unknown identifier is a **warning** |
 
 Representative messages:
 

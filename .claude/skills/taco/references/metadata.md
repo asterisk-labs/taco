@@ -1,7 +1,7 @@
 # Metadata: levels, groups, types and profiles
 
 Sources: `python/taco/contract/schema.py`, `contract/types.py`,
-`python/taco/metadata/`, SPEC 5.4 to 5.6.
+`python/taco/extensions/stac/`, SPEC 5.4 to 5.6.
 
 Tabular metadata describes samples and the nodes inside them, one Parquet per level.
 Collection metadata describes the dataset once and lives in `COLLECTION.json`. The two
@@ -26,6 +26,9 @@ imply fails: `metadata has unknown levels ['children/nope']; valid levels are
 ['sample', 'children']`.
 
 A namespace matches `[a-z][a-z0-9_]*`; `taco`, `internal` and `cozip` are reserved.
+`stac`, `spatial`, `temporal`, `rumi`, `majortom` and `geoenrich` belong to the built-in
+extensions: a model or extension that declares no namespace cannot bind them
+(`metadata namespace 'majortom' is reserved for the majortom extension`).
 A field name must be non-empty and contain no `:`, `/`, `__` or NUL. The qualified
 name `namespace:field` must be unique in its level, ignoring case: `ml:split` and
 `ml:Split` are rejected because DuckDB would read one for the other. The same
@@ -54,22 +57,24 @@ A group is bound to what it can describe through `__taco_scopes__`:
 
 | Module | Scope | Contents |
 | --- | --- | --- |
-| `taco.metadata.sample` | `sample` | `Spatial`, `Temporal`, `STAC`, `Split`, `MajorTOM`, `GeoEnrich` |
-| `taco.metadata.folder` | `folder` | The three profiles, re-scoped |
-| `taco.metadata.asset` | `asset` | `Scaling` |
-| `taco.metadata.collection` | `collection` | `Labels`, `Optical`, `Publications`, `SplitStrategy` |
+| `taco.extensions.stac` | `sample` | `Spatial`, `Temporal`, `STAC` |
+| `taco.extensions.stac.folder` | `folder` | The three profiles, re-scoped |
+| `taco.extensions` | Per extension | `STAC`, `Spatial` (sample, folder), `Rumi` (sample, asset), `MajorTOM`, `GeoEnrich` (sample) |
+
+The library ships no split, label, band or scaling models. Define a Pydantic model
+in your own namespace, as the canonical workflow does with `ML`.
 
 The check runs at contract time against what the level can hold: `sample` holds a
 sample, a `children/...` level holds folders and files depending on the structure
 beneath it. A required group must cover every possibility; an optional one need only
-intersect. `Split cannot be used at metadata level 'children'` is this check.
+intersect. `STAC cannot be used at metadata level 'children'` is this check.
 
 A model with no `__taco_scopes__`, such as a plain `BaseModel` you define, fits
 anywhere. `flatten_metadata` re-checks per row, which matters when one level holds
 both kinds: with `structure=["x/y.tif", "z.tif"]`, `children` holds the folder `x` and
 the file `z.tif`, so an optional asset-scoped group passes the contract check and is
 refused only when it is attached to the folder:
-`SampleError: Scaling cannot describe a folder`.
+`SampleError: Scaling cannot describe a folder` for a model scoped to `asset`.
 
 ## Python types to Arrow
 
@@ -121,7 +126,7 @@ nullability. A level may use at most one. STAC `proj:` fields are stored with a
 
 | Profile | Producer supplies | Writer adds | Declare it as |
 | --- | --- | --- | --- |
-| `temporal` | `datetime`, or `start_datetime` + `end_datetime` | nothing | `temporal=taco.metadata.sample.Temporal` |
+| `temporal` | `datetime`, or `start_datetime` + `end_datetime` | nothing | `temporal=taco.extensions.stac.Temporal` |
 | `spatial` | `proj_code` + `proj_shape` + `proj_transform`, or `geometry` | `centroid` | `spatial=taco.extensions.Spatial()` |
 | `stac` | both of the above | `centroid` | `stac=taco.extensions.STAC()` |
 
@@ -143,7 +148,7 @@ Either match that nullability exactly, or make the **whole group** nullable with
 canonical nullability or make the complete optional group nullable`.
 
 The row rules live in the model validators (`check_times`, `check_location` in
-`metadata/spatiotemporal.py`) and `taco.validate()` re-applies them to every stored row:
+`extensions/stac/models.py`) and `taco.validate()` re-applies them to every stored row:
 
 - **Time**: `datetime`, or `start_datetime` and `end_datetime` together; the range is
   inclusive and must not be reversed; `datetime` may sit inside a range. A DEM or an
@@ -196,20 +201,23 @@ collection = taco.Collection(
     title="CloudSEN12",
     curators=[{"name": "Cesar Aybar", "email": "cesar@asterisk.coop"}],
     keywords=["clouds"],
-    labels=taco.metadata.collection.Labels(classes=["clear", "cloud", "shadow"]),
-    optical=taco.metadata.collection.Optical(sensor="Sentinel-2"),
+    extensions=["https://example.com/quality/v1.0.0/schema.json"],
+    labels={"classes": ["clear", "cloud", "shadow"]},
+    optical={"sensor": "Sentinel-2"},
     poi={"category": "volcano", "catalog": "Wikidata"},
 )
 ```
 
 Every keyword that is not a `Collection` parameter is a **group**, and each field `x`
 of group `g` is written to `COLLECTION.json` as `g:x` (`labels:classes`,
-`labels:num_classes`, `poi:category`). A group is a mapping or a Pydantic model
-instance; `Labels` and `Optical` add computed `num_classes` and `num_bands`. It never
-becomes a Parquet column and is never copied into a row. `collection.metadata` holds
-the groups as JSON values (`{"poi": {"category": "volcano", ...}}`); read back from
+`poi:category`). A group is a mapping or a Pydantic model instance; computed fields
+are stored too. Collection metadata never becomes a Parquet column or a row value.
+`collection.metadata` holds the groups as JSON values
+(`{"poi": {"category": "volcano", ...}}`); read back from
 `COLLECTION.json` it also holds the values extensions stored, such as `majortom`.
 There is no `CollectionMetadata` and no `metadata=` parameter.
+`extensions` lists third-party JSON Schema identifiers. Built-in identifiers are
+inferred from the contract and an explicitly declared version is preserved.
 
 The groups are checked when the collection is built, always as `CollectionError`:
 
@@ -220,7 +228,7 @@ collection metadata group 'poi' needs an instance, such as POI(...)
 collection metadata group 'poi' is empty
 metadata field 'poi:a:b' must be namespace:field
 collection metadata group 'poi' must be JSON serializable
-Split is not collection metadata
+STAC is not collection metadata
 collection metadata 'majortom:dist_km' conflicts with the active extension
 ```
 

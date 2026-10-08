@@ -46,7 +46,7 @@ Python looks at `$TACO_LIB` first, then `taco/_lib/libtaco.dylib` (macOS),
 which builds and copies the library there. A wheel already bundles it.
 
 ```
-ContainerError: the TACO core at <path> has C API 1, expected 2
+ContainerError: the TACO core at <path> has C API 2, expected 3
 ```
 
 A stale `TACO_LIB` or a leftover `_lib/` from another version. Rebuild, or unset
@@ -159,8 +159,8 @@ Python package structure:
 ```
 taco/contract/    Contract, Collection, Sample/Asset/Folder, schema, types, naming,
                   the Extension base
-taco/metadata/    scoped Pydantic groups, profiles, MajorTOM, GeoEnrich
-taco/extensions/  writer-time operations bound into a Level
+taco/extensions/  one package per extension: stac (profiles, footprints, extent),
+                  rumi, majortom, geoenrich
 taco/writer/      open_writer, archive and folder writers, metadata tables, partitions,
                   catalog (consolidate), export
 taco/reader/      open_dataset, read, Dataset.sql, inspect, the cffi binding

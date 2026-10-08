@@ -57,7 +57,6 @@ size_t       taco_dataset_level_count(const taco_dataset*);
 const char*  taco_dataset_level(const taco_dataset*, size_t);
 size_t       taco_dataset_structure_count(const taco_dataset*);
 const char*  taco_dataset_structure(const taco_dataset*, size_t);
-const char*  taco_dataset_derived(const taco_dataset*);      // NULL when absent
 
 taco_status  taco_sql(const taco_dataset* const* datasets, size_t count,
                       const taco_read_options* options, char** out_sql);

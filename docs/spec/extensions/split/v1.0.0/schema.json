@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://asterisk.coop/taco/spec/extensions/split/v1.0.0/schema.json",
+  "title": "Split",
+  "description": "The partition of each sample.",
+  "type": "object",
+  "required": [
+    "taco:extensions",
+    "taco:metadata",
+    "split:counts"
+  ],
+  "properties": {
+    "taco:extensions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "contains": {
+        "const": "https://asterisk.coop/taco/spec/extensions/split/v1.0.0/schema.json"
+      }
+    },
+    "taco:metadata": {
+      "type": "object",
+      "required": [
+        "sample"
+      ],
+      "properties": {
+        "sample": {
+          "$ref": "#/$defs/sample"
+        }
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/level"
+      }
+    },
+    "split:counts": {
+      "type": "object",
+      "required": [
+        "train",
+        "validation",
+        "test",
+        "excluded"
+      ],
+      "properties": {
+        "train": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "validation": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "test": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "excluded": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "propertyNames": {
+    "anyOf": [
+      {
+        "not": {
+          "pattern": "^split:"
+        }
+      },
+      {
+        "const": "split:counts"
+      }
+    ]
+  },
+  "$defs": {
+    "sample": {
+      "type": "object",
+      "required": [
+        "split:split"
+      ],
+      "properties": {
+        "split:split": {
+          "type": "object",
+          "required": [
+            "type",
+            "nullable",
+            "description"
+          ],
+          "properties": {
+            "type": {
+              "const": "string"
+            },
+            "nullable": {
+              "const": false
+            },
+            "description": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "propertyNames": {
+        "anyOf": [
+          {
+            "not": {
+              "pattern": "^split:"
+            }
+          },
+          {
+            "const": "split:split"
+          }
+        ]
+      }
+    },
+    "level": {
+      "type": "object",
+      "propertyNames": {
+        "not": {
+          "pattern": "^split:"
+        }
+      }
+    }
+  }
+}

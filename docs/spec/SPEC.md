@@ -412,6 +412,7 @@ An extension gives a namespace a published meaning. It defines the fields of tha
 | [Rumi](extensions/rumi.md) | `rumi` | Sample |
 | [MajorTOM](extensions/majortom.md) | `majortom` | Sample |
 | [GeoEnrich](extensions/geoenrich.md) | `geoenrich` | Sample |
+| [Split](extensions/split.md) | `split` | Sample |
 
 #### Identity
 
@@ -475,7 +476,7 @@ The dependency graph and operational configuration exist only while writing. Par
 
 An extension parameter that changes how a stored column is calculated or interpreted MUST be stored as collection metadata in the extension's namespace. The writer MUST add this metadata automatically and MUST reject an append when its value differs from the existing collection.
 
-An extension MAY produce the collection `extent` (Section 5.5) and MAY allow its fields to declare `files` (Section 5.4). It MAY also define columns that the reader generates beside a file in `read()` (Section 8.2). Only the extensions listed above define these behaviors.
+An extension MAY summarize its rows into collection fields, such as `extent` (Section 5.5) or `split:counts`. The writer computes a summary from the rows it writes and MUST NOT keep a value the producer supplied. Each ZIP partition summarizes its own rows, a FOLDER append summarizes the existing and appended rows, and a TACOCAT combines the summaries of its partitions as the extension defines. An extension MAY also allow its fields to declare `files` (Section 5.4). It MAY also define columns that the reader generates beside a file in `read()` (Section 8.2). Only the extensions listed above define these behaviors.
 
 ## 6. Dataset Identity and Mutability
 
@@ -816,7 +817,7 @@ Group names cannot be `metadata` or a named parameter of `Collection`. Readers s
 
 #### Collection summaries
 
-An extension may summarize its columns into collection metadata, as the [STAC extension](extensions/stac.md) does for `extent`.
+An extension may summarize its columns into collection metadata, as the [STAC extension](extensions/stac.md) does for `extent` and the [Split extension](extensions/split.md) for `split:counts`. `consolidate` combines the summaries of its partitions.
 
 Summaries run independently for every output partition. They consume metadata in batches and retain only the values needed for the summary. They do not keep the complete metadata table in memory.
 

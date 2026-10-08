@@ -31,13 +31,13 @@ def test_collection_metadata_models(collection: taco.Collection) -> None:
             sensor="sentinel2msi",
             bands=[models.SpectralBand(name="B02", center_wavelength=490)],
         ),
-        split=models.SplitStrategy(strategy="stratified"),
+        strategy=models.SplitStrategy(strategy="stratified"),
     )
     values = collection.to_dict()
     assert values["labels:num_classes"] == 2
     assert values["optical:num_bands"] == 1
-    assert values["split:strategy"] == "stratified"
-    assert collection.metadata["split"] == {"strategy": "stratified"}
+    assert values["strategy:strategy"] == "stratified"
+    assert collection.metadata["strategy"] == {"strategy": "stratified"}
 
 
 class POI(BaseModel):

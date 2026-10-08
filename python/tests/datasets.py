@@ -479,7 +479,7 @@ def derived_metadata() -> DatasetCase:
                     )
                 ]
             ),
-            split=models.SplitStrategy(strategy="manual"),
+            strategy=models.SplitStrategy(strategy="manual"),
         ),
         tuple(samples),
         contract.levels,

@@ -28,6 +28,11 @@ class CollectionSummary(ABC):
     def close(self) -> None:
         raise NotImplementedError
 
+    @classmethod
+    def merge(cls, values: Sequence[Any]) -> Any:
+        """Combine the summaries of partitions written separately; a value may be None."""
+        raise NotImplementedError(f"{cls.__name__} cannot combine partition summaries")
+
 
 @dataclass(frozen=True)
 class ExtensionContext:

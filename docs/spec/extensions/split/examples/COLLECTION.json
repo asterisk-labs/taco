@@ -1,0 +1,39 @@
+{
+  "taco:version": "3.0.0",
+  "id": "split-example",
+  "description": "Example collection using the split extension",
+  "licenses": [
+    "CC-BY-4.0"
+  ],
+  "providers": [
+    {
+      "name": "Asterisk Labs",
+      "roles": [
+        "producer"
+      ]
+    }
+  ],
+  "taco:structure": [
+    "image.tif",
+    "label.tif"
+  ],
+  "taco:metadata": {
+    "sample": {
+      "split:split": {
+        "type": "string",
+        "nullable": false,
+        "description": "Partition of the sample; excluded keeps it out of every partition"
+      }
+    },
+    "children": {}
+  },
+  "taco:extensions": [
+    "https://asterisk.coop/taco/spec/extensions/split/v1.0.0/schema.json"
+  ],
+  "split:counts": {
+    "train": 2,
+    "validation": 1,
+    "test": 1,
+    "excluded": 0
+  }
+}

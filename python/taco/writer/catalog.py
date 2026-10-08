@@ -16,7 +16,6 @@ import pyarrow.parquet as pq
 from ..container.parquet import parquet_writer_options
 from ..container.publish import publish_many
 from ..container.view import DatasetView, open_view
-from ..contract.collection import Extent
 from ..contract.contract import CHILDREN_LEVEL, SAMPLE_ID, SAMPLE_LEVEL
 from ..contract.naming import (
     COLLECTION_FILENAME,
@@ -30,7 +29,7 @@ from ..contract.naming import (
 )
 from ..errors import ConsolidationError, ContractError
 from .identity import IdentifierIndex
-from .metadata import level_hints, table_schema
+from .metadata import level_hints, summary_types, table_schema
 
 __all__ = ["consolidate"]
 
@@ -52,9 +51,10 @@ def _check_partition(dataset: DatasetView, reference: DatasetView) -> None:
 
 
 def _collection_metadata(dataset: DatasetView) -> dict[str, Any]:
+    # Summaries describe each partition's own rows, so partitions may differ in them.
     metadata = dict(dataset.collection_json)
-    metadata.pop("extent", None)
-    metadata.pop("taco:sources", None)
+    for name in (*summary_types(dataset.contract), "extent", "taco:sources"):
+        metadata.pop(name, None)
     return metadata
 
 
@@ -125,7 +125,8 @@ def consolidate(
     }
     hints = {level: level_hints(reference.contract, level) | {SOURCE_FILE: "dictionary"} for level in reference.levels}
     collection = dict(reference.collection_json)
-    extents: list[Extent] = []
+    summaries = summary_types(reference.contract)
+    summary_values: dict[str, list[Any]] = {name: [] for name in summaries}
     sources: list[dict[str, Any]] = []
     level_offsets = dict.fromkeys(reference.levels, 0)
 
@@ -151,8 +152,8 @@ def consolidate(
             for index, path in enumerate(paths):
                 dataset = reference if index == 0 else open_view(path)
                 _check_partition(dataset, reference)
-                if dataset.collection.extent is not None:
-                    extents.append(dataset.collection.extent)
+                for name in summaries:
+                    summary_values[name].append(dataset.collection_json.get(name))
                 source_entry = _source_entry(dataset, directory)
                 sources.append(source_entry)
                 sample_table = dataset.level(SAMPLE_LEVEL)
@@ -195,9 +196,12 @@ def consolidate(
                         writer_for(level, None).write_table(table)
                     level_offsets[level] += table.num_rows
 
-        merged_extent = Extent.union(extents)
-        if merged_extent is not None:
-            collection["extent"] = merged_extent.to_dict()
+        for name, summary in summaries.items():
+            merged = summary.merge(summary_values[name])
+            if merged is None:
+                collection.pop(name, None)
+            else:
+                collection[name] = merged
         collection["taco:sources"] = {
             "samples": sum(entry["samples"] for entry in sources),
             "partitions": sources,

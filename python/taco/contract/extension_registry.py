@@ -15,6 +15,7 @@ BUILTINS = {
     "rumi": (f"{BASE}/rumi/v1.0.0/schema.json", ("rumi",)),
     "majortom": (f"{BASE}/majortom/v1.0.0/schema.json", ("majortom",)),
     "geoenrich": (f"{BASE}/geoenrich/v1.0.0/schema.json", ("geoenrich",)),
+    "split": (f"{BASE}/split/v1.0.0/schema.json", ("split",)),
 }
 OWNERS = {namespace: identifier for identifier, namespaces in BUILTINS.values() for namespace in namespaces}
 

@@ -213,7 +213,7 @@ def test_scope_is_enforced() -> None:
     with pytest.raises(ContractError, match="cannot be used"):
         taco.Contract(
             structure=["a.tif"],
-            metadata=[taco.Level("sample", split=models.SplitStrategy)],
+            metadata=[taco.Level("sample", strategy=models.SplitStrategy)],
         )
     with pytest.raises(CollectionError, match="not collection"):
         taco.Collection(
@@ -222,7 +222,7 @@ def test_scope_is_enforced() -> None:
             description="Scoped metadata",
             licenses=["MIT"],
             providers=["me"],
-            split=models.Split(split="train"),
+            ml=models.Split(split="train"),
         )
     taco.Contract(
         structure=["folder/a.tif"],

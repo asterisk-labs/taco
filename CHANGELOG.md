@@ -6,6 +6,14 @@ JavaScript reader are documented here. The format follows
 
 ## Unreleased
 
+### Added
+
+- The `split` extension: `taco.extensions.sample.split.Split` stores each
+  sample's partition in `split:split` as `train`, `validation`, `test` or
+  `excluded`, and the writer counts them in `split:counts`.
+- `consolidate` combines the collection summaries of its partitions, such as
+  `extent` and `split:counts`.
+
 ### Changed
 
 - Built-ins now live under `taco.extensions.sample` or

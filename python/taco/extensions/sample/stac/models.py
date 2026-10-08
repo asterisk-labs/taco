@@ -723,6 +723,11 @@ class _SpatialExtent(CollectionSummary):
         if not self._intervals.closed:
             self._intervals.close()
 
+    @classmethod
+    def merge(cls, values: Sequence[Any]) -> dict[str, Any] | None:
+        extent = Extent.union([Extent.from_any(value) for value in values if value is not None])
+        return None if extent is None else extent.to_dict()
+
 
 class _SpatioTemporalExtent(_SpatialExtent):
     """Incrementally summarize sample bounding boxes and times."""

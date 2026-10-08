@@ -25,7 +25,7 @@ from ..contract.naming import (
     level_to_filename,
 )
 from ..contract.sample import _PreparedSample
-from ..extensions.sample.stac.models import PROFILES
+from ..extensions.sample import MODELS
 
 
 # Summary reducers refer to fields without a namespace. Keep the namespace
@@ -51,19 +51,19 @@ def _level_summaries(contract: Contract, level: str) -> list[tuple[str, type[Col
     if groups:
         return [(group.namespace, summary) for group in groups for summary in group.summaries]
 
-    # A contract read from COLLECTION.json has no models, but a profile keeps
-    # its canonical namespace, which is enough to find its summary.
+    # A contract read from COLLECTION.json has no models, but a built-in keeps
+    # its namespace, which is enough to find its summaries.
     namespaces = {name.partition(":")[0] for name in contract.metadata[level]}
     return [
         (namespace, summary)
-        for namespace, model in PROFILES.items()
+        for namespace, model in MODELS.items()
         if namespace in namespaces
-        for summary in model.__taco_summaries__
+        for summary in getattr(model, "__taco_summaries__", ())
     ]
 
 
-def _collection_summaries(contract: Contract) -> list[_SummaryAccumulator]:
-    summaries = []
+def _summary_levels(contract: Contract) -> list[tuple[str, str, type[CollectionSummary]]]:
+    found = []
     fields_seen = set()
     for level in contract.levels:
         for namespace, summary in _level_summaries(contract, level):
@@ -71,9 +71,21 @@ def _collection_summaries(contract: Contract) -> list[_SummaryAccumulator]:
             # profile appears at several levels, the first level owns it.
             if summary.field in fields_seen:
                 continue
-            summaries.append(_SummaryAccumulator(summary.field, level, namespace, summary()))
+            found.append((level, namespace, summary))
             fields_seen.add(summary.field)
-    return summaries
+    return found
+
+
+def summary_types(contract: Contract) -> dict[str, type[CollectionSummary]]:
+    """The collection fields the writer summarizes for a contract, by field name."""
+    return {summary.field: summary for _, _, summary in _summary_levels(contract)}
+
+
+def _collection_summaries(contract: Contract) -> list[_SummaryAccumulator]:
+    return [
+        _SummaryAccumulator(summary.field, level, namespace, summary())
+        for level, namespace, summary in _summary_levels(contract)
+    ]
 
 
 def internal_columns_for(contract: Contract, level: str, *, with_offsets: bool) -> list[str]:

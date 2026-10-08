@@ -1,5 +1,8 @@
 """Sample extensions."""
 
-from . import geoenrich, majortom, rumi, stac
+from . import geoenrich, majortom, rumi, split, stac
 
-__all__ = ["geoenrich", "majortom", "rumi", "stac"]
+# Built-in models by namespace, for contracts read without their models.
+MODELS = {**stac.models.PROFILES, "split": split.Split}
+
+__all__ = ["geoenrich", "majortom", "rumi", "split", "stac"]

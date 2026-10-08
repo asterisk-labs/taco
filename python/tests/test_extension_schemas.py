@@ -12,12 +12,13 @@ import pytest
 import taco
 from taco.contract.extension_registry import BUILTINS, declared
 from taco.contract.extension_registry import schema as schema_of_package
+from taco.writer.metadata import summary_types
 
 jsonschema = pytest.importorskip("jsonschema")
 
 EXTENSIONS = Path(__file__).resolve().parents[2] / "docs" / "spec" / "extensions"
 BASE = "https://asterisk.coop/taco/spec/extensions"
-NAMES = ["stac", "rumi", "majortom", "geoenrich"]
+NAMES = ["stac", "rumi", "majortom", "geoenrich", "split"]
 
 
 def identifier(name: str) -> str:
@@ -59,6 +60,11 @@ def document(structure: list[str], levels: dict[str, dict[str, Any]], extensions
         for namespace, group in level.items():
             if isinstance(group, taco.Extension):
                 out |= {f"{namespace}:{key}": value for key, value in group.collection_metadata().items()}
+    # The summaries the writer adds, as for a dataset without rows.
+    for name, summary in summary_types(contract).items():
+        value = summary.merge([])
+        if value is not None:
+            out[name] = value
     out["taco:extensions"] = declared(out)
     assert out["taco:extensions"] == sorted(identifier(name) for name in extensions)
     return out
@@ -134,6 +140,8 @@ WRITER_CONTRACTS: dict[str, tuple[list[str], dict[str, dict[str, Any]], list[str
         {"sample": {"stac": E.stac.STAC, "geoenrich": E.geoenrich.GeoEnrich(["elevation"], backend="earthengine")}},
         ["stac", "geoenrich"],
     ),
+    "split": (["a.tif"], {"sample": {"split": E.split.Split}}, ["split"]),
+    "split with stac": (["a.tif"], {"sample": {"stac": E.stac.STAC, "split": E.split.Split}}, ["split", "stac"]),
 }
 
 
@@ -211,6 +219,22 @@ INVALID: dict[str, tuple[str, Callable[[dict[str, Any]], Any]]] = {
     "index without backend": ("geoenrich", drop("geoenrich:backend")),
     "unknown backend": ("geoenrich", lambda d: d.update({"geoenrich:backend": "earthengine"})),
     "index without majortom": ("geoenrich", without_extension("majortom")),
+    # Split
+    "split not listed": ("split", without_extension("split")),
+    "split collection field": ("split", lambda d: d.update({"split:strategy": "random"})),
+    "unknown split field": ("split", lambda d: sample(d).update({"split:original": sample(d)["split:split"]})),
+    "nullable split": ("split", lambda d: sample(d)["split:split"].update(nullable=True)),
+    "integer split": ("split", lambda d: sample(d)["split:split"].update(type="int64")),
+    "split below the sample": (
+        "split",
+        lambda d: d["taco:metadata"]["children"].update({"split:split": sample(d)["split:split"]}),
+    ),
+    "split missing": ("split", lambda d: sample(d).pop("split:split")),
+    "counts missing": ("split", drop("split:counts")),
+    "count missing": ("split", lambda d: d["split:counts"].pop("excluded")),
+    "unknown count": ("split", lambda d: d["split:counts"].update(val=1)),
+    "negative count": ("split", lambda d: d["split:counts"].update(test=-1)),
+    "fractional count": ("split", lambda d: d["split:counts"].update(test=1.5)),
 }
 
 
@@ -219,8 +243,9 @@ def test_invalid_collection_is_rejected(case: str) -> None:
     name, mutate = INVALID[case]
     doc = copy.deepcopy(example(name))
     mutate(doc)
-    if case == "rumi not listed":
-        schema = schema_of(identifier("rumi"))
+    if case.endswith(" not listed") and not doc["taco:extensions"]:
+        # Without its identifier no schema runs; the rule is that the schema requires it.
+        schema = schema_of(identifier(name))
         assert list(jsonschema.Draft202012Validator(schema).iter_errors(doc))
         return
     assert errors(doc)

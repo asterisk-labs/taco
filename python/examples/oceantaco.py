@@ -116,7 +116,6 @@ collection = taco.Collection(
             }
         ]
     },
-    split={"strategy": "manual"},
 )
 
 windows = [

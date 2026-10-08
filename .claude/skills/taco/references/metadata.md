@@ -26,7 +26,7 @@ imply fails: `metadata has unknown levels ['children/nope']; valid levels are
 ['sample', 'children']`.
 
 A namespace matches `[a-z][a-z0-9_]*`; `taco`, `internal` and `cozip` are reserved.
-`stac`, `spatial`, `temporal`, `rumi`, `majortom` and `geoenrich` belong to the built-in
+`stac`, `spatial`, `temporal`, `rumi`, `majortom`, `geoenrich` and `split` belong to the built-in
 extensions: a model or extension that declares no namespace cannot bind them
 (`metadata namespace 'majortom' is reserved for the majortom extension`).
 A field name must be non-empty and contain no `:`, `/`, `__` or NUL. The qualified

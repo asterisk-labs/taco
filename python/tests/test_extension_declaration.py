@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -12,7 +12,7 @@ import pytest
 from pydantic import BaseModel
 
 import taco
-from taco.errors import CollectionError, ContractError
+from taco.errors import CollectionError, ConsolidationError, ContractError
 from taco.writer.base import render_collection
 
 BASE = "https://asterisk.coop/taco/spec/extensions"
@@ -228,7 +228,7 @@ def test_export_and_consolidation_keep_the_list(
     assert taco.validate(catalog).ok
 
 
-@pytest.mark.parametrize("namespace", ["stac", "spatial", "temporal", "rumi", "majortom", "geoenrich"])
+@pytest.mark.parametrize("namespace", ["stac", "spatial", "temporal", "rumi", "majortom", "geoenrich", "split"])
 def test_a_user_model_cannot_take_an_owned_namespace(namespace: str) -> None:
     class Grid(BaseModel):
         code: int
@@ -255,3 +255,165 @@ def test_a_user_extension_cannot_take_an_owned_namespace() -> None:
     with pytest.raises(ContractError, match="'majortom' is reserved for the majortom extension"):
         taco.Level("sample", majortom=Code())
     assert taco.Level("sample", code=Code()).groups
+
+
+def split_collection() -> taco.Collection:
+    from taco.extensions.sample.split import Split
+
+    return taco.Collection(
+        contract=taco.Contract(structure=["a.bin"], metadata=[taco.Level("sample", split=Split)]),
+        id="splits",
+        description="Splits",
+        licenses=["MIT"],
+        providers=["me"],
+    )
+
+
+def split_dataset(tmp_path: Path) -> Path:
+    from taco.extensions.sample.split import Split
+
+    path = tmp_path / "splits"
+    with taco.open_writer(split_collection(), path) as writer:
+        for index, name in enumerate(("train", "validation", "test", "excluded")):
+            writer.add(taco.Sample(id=f"s{index}", assets=b"x", metadata=taco.Metadata(split=Split(split=name))))
+        writer.run()
+    return path
+
+
+def test_split_writes_validates_and_partitions(tmp_path: Path) -> None:
+    from taco.extensions.sample.split import Split
+
+    path = split_dataset(tmp_path)
+    assert taco.open_dataset(path).collection.extensions == (f"{BASE}/split/v1.0.0/schema.json",)
+    assert taco.validate(path).ok
+    with pytest.raises(ValueError, match="validation"):
+        Split(split="val")  # type: ignore[arg-type]
+
+    with taco.open_writer(split_collection(), tmp_path / "parts.zip", partition_by="split:split") as writer:
+        for index, name in enumerate(("train", "test")):
+            writer.add(taco.Sample(id=f"p{index}", assets=b"x", metadata=taco.Metadata(split=Split(split=name))))
+        assert len(writer.run().parts) == 2
+
+
+def test_a_stored_split_outside_the_four_values_is_reported(tmp_path: Path) -> None:
+    path = split_dataset(tmp_path)
+    parquet = path / "METADATA" / "sample.parquet"
+    table = pq.read_table(parquet)
+    values = ["val", *table.column("split:split").to_pylist()[1:]]
+    index = table.schema.get_field_index("split:split")
+    table = table.set_column(index, table.schema.field(index), pa.array(values, type=pa.string()))
+    pq.write_table(table, parquet)
+    assert any("outside" in message and "'val'" in message for message in extension_errors(path))
+
+
+def counts(path: Path) -> dict[str, int]:
+    return json.loads((path / "COLLECTION.json").read_text())["split:counts"]
+
+
+def test_split_counts_follow_every_write(tmp_path: Path) -> None:
+    from taco.extensions.sample.split import Split
+
+    path = split_dataset(tmp_path)
+    assert counts(path) == {"train": 1, "validation": 1, "test": 1, "excluded": 1}
+
+    with taco.open_writer(split_collection(), path, append=True) as writer:
+        for index in range(2):
+            writer.add(taco.Sample(id=f"a{index}", assets=b"x", metadata=taco.Metadata(split=Split(split="train"))))
+        writer.run()
+    assert counts(path) == {"train": 3, "validation": 1, "test": 1, "excluded": 1}
+
+    exported = tmp_path / "train"
+    taco.export(path, exported, sql="SELECT * FROM sample WHERE \"split:split\" = 'train'")
+    assert counts(exported) == {"train": 3, "validation": 0, "test": 0, "excluded": 0}
+
+    with taco.open_writer(split_collection(), tmp_path / "parts.zip", partition_by="split:split") as writer:
+        for index, name in enumerate(("train", "train", "test")):
+            writer.add(taco.Sample(id=f"p{index}", assets=b"x", metadata=taco.Metadata(split=Split(split=name))))
+        result = writer.run()
+    parts = {part.name: json.loads(zip_collection(part))["split:counts"] for part in result.parts}
+    assert sorted(value["train"] + value["test"] for value in parts.values()) == [1, 2]
+    assert counts(Path(result.path)) == {"train": 2, "validation": 0, "test": 1, "excluded": 0}
+    assert taco.validate(result.path).ok
+
+
+def zip_collection(path: Path) -> str:
+    import zipfile
+
+    with zipfile.ZipFile(path) as archive:
+        return archive.read("COLLECTION.json").decode()
+
+
+def test_supplied_split_counts_are_recomputed(tmp_path: Path) -> None:
+    from taco.extensions.sample.split import Split
+
+    collection = split_collection().replace(split={"counts": {"train": 99, "validation": 0, "test": 0, "excluded": 0}})
+    with taco.open_writer(collection, tmp_path / "supplied") as writer:
+        writer.add(taco.Sample(id="a", assets=b"x", metadata=taco.Metadata(split=Split(split="test"))))
+        writer.run()
+    assert counts(tmp_path / "supplied") == {"train": 0, "validation": 0, "test": 1, "excluded": 0}
+
+
+def test_split_counts_must_match_the_rows(tmp_path: Path) -> None:
+    path = split_dataset(tmp_path)
+    edit_collection(path, lambda data: data["split:counts"].update(train=5))
+    assert any("does not match the stored rows" in message for message in extension_errors(path))
+
+
+def test_consolidate_rejects_a_custom_summary_that_differs(tmp_path: Path) -> None:
+    from taco.contract.extension import CollectionSummary
+
+    # consolidate reads partitions without their models, so it cannot combine a custom summary.
+    class Total(CollectionSummary):
+        field = "note:total"
+        requires: ClassVar[tuple[str, ...]] = ("value",)
+
+        def __init__(self) -> None:
+            self.total = 0
+
+        def update(self, columns: Mapping[str, Sequence[Any]]) -> None:
+            self.total += sum(columns["value"])
+
+        def finish(self) -> int:
+            return self.total
+
+        def close(self) -> None:
+            pass
+
+    class Note(BaseModel):
+        __taco_summaries__: ClassVar[tuple[type[CollectionSummary], ...]] = (Total,)
+        value: int
+
+    collection = taco.Collection(
+        contract=taco.Contract(structure=["a.bin"], metadata=[taco.Level("sample", note=Note)]),
+        id="notes",
+        description="Notes",
+        licenses=["MIT"],
+        providers=["me"],
+    )
+    parts = []
+    for index in range(2):
+        part = tmp_path / f"notes-{index}.zip"
+        with taco.open_writer(collection, part) as writer:
+            writer.add(taco.Sample(id=f"n{index}", assets=b"x", metadata=taco.Metadata(note=Note(value=index + 1))))
+            writer.run()
+        parts.append(part)
+    with pytest.raises(ConsolidationError, match="different collection metadata"):
+        taco.consolidate(parts)
+
+
+def test_consolidate_adds_split_counts(tmp_path: Path) -> None:
+    from taco.extensions.sample.split import Split
+
+    parts = []
+    for index, names in enumerate((("train", "test"), ("train", "excluded"))):
+        part = tmp_path / f"part-{index}.zip"
+        with taco.open_writer(split_collection(), part) as writer:
+            for row, name in enumerate(names):
+                writer.add(
+                    taco.Sample(id=f"s{index}{row}", assets=b"x", metadata=taco.Metadata(split=Split(split=name)))
+                )
+            writer.run()
+        parts.append(part)
+    catalog = taco.consolidate(parts)
+    assert counts(Path(catalog)) == {"train": 2, "validation": 0, "test": 1, "excluded": 1}
+    assert taco.validate(catalog).ok

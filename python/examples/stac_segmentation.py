@@ -93,7 +93,6 @@ collection = taco.Collection(
             {"name": "B08", "index": 3, "common_name": "nir"},
         ],
     },
-    split={"strategy": "manual"},
 )
 
 chips = [

@@ -28,6 +28,7 @@ extension may add validation in `checks.py`.
 | `rumi.Rumi(header=True, stats=False)` | nothing | `rumi:header` and optional statistics | sample |
 | `MajorTOM(dist_km=100, extra=(), latitude_range=(-85, 85), longitude_range=(-180, 180), sep="_", centroid="stac:centroid")` | the centroid field | `majortom:code` plus one per extra grid | sample |
 | `GeoEnrich(variables=None, backend="majortom-index", scale_m=5120, batch_size=250, max_concurrency=8, centroid="stac:centroid", code="majortom:code", index_url=...)` | the 10 km MajorTOM code by default; the centroid field for `earthengine` | one column per variable | sample |
+| `split.Split` (the class) | nothing | `split:split`: `train`, `validation`, `test` or `excluded`, at the `sample` level only; summarized as `split:counts` with all four keys | sample |
 
 The same profile class is used in a level and its rows. `Spatial` and `STAC` fill a
 missing `centroid`; `Temporal` has no operation. `STAC | None` makes the whole group
@@ -241,7 +242,12 @@ A `CollectionSummary` is a streaming reducer attached to a metadata model throug
 `requires` (unqualified field names read from its own namespace), and implements
 `update(columns)`, `finish()` and `close()`. The writer feeds it every batch, including
 rows copied during an append, and writes `finish()` into the collection; returning
-`None` removes the key.
+`None` removes the key. A value the producer supplied is replaced. Each ZIP partition
+summarizes its own rows; the partitioned writer summarizes all rows for its TACOCAT,
+and `consolidate` combines separately written partitions with the classmethod
+`merge(values)` (union for `extent`, sum for `split:counts`). `consolidate` reads
+partitions without their models, so it only combines built-in summaries; a custom
+summary must be equal in every partition or the partitions are rejected.
 
 `_SpatialExtent` and `_SpatioTemporalExtent` use each row's `bbox`, `geometry`, or grid.
 They stream longitude intervals to disk; `longitude_cover` omits the widest gap to

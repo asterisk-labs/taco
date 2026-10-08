@@ -15,9 +15,14 @@ The dependency graph and runtime configuration exist only in the Python contract
 `COLLECTION.json` stores the resulting columns and semantic collection metadata, not
 extension descriptors. A dataset read back therefore has `contract.operations == {}`.
 
-`contract/extension_registry.py` holds built-in IDs and namespaces. Schemas ship in
-`taco/extensions/schemas/` and are mirrored under `docs/spec/extensions/`. Each
-extension may add validation in `checks.py`.
+Built-ins live in `taco/extensions/_builtin/<name>/`. Each package keeps its code and
+`schema.json` together and exposes `MODELS` plus an optional `check_dataset`.
+The modules under `taco.extensions.sample` and `taco.extensions.collection` only
+re-export the public classes. `contract/extension_registry.py` records each name,
+version and namespace without importing writer dependencies.
+
+To add one, create its `_builtin` package, register it, add the public re-export and
+publish the matching schema and example under `docs/spec/extensions/`.
 
 ## Built-in extensions
 

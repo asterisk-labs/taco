@@ -14,7 +14,7 @@ from cffi import FFI
 
 from ..errors import ContainerError
 
-API_VERSION = 2
+API_VERSION = 3
 LIBRARY_ENV = "TACO_LIB"
 
 _ffi = FFI()
@@ -46,7 +46,6 @@ _ffi.cdef(
     const char* taco_dataset_level(const taco_dataset* dataset, size_t index);
     size_t taco_dataset_structure_count(const taco_dataset* dataset);
     const char* taco_dataset_structure(const taco_dataset* dataset, size_t index);
-    const char* taco_dataset_derived(const taco_dataset* dataset);
 
     typedef struct {
         const char* idx;
@@ -203,10 +202,6 @@ class NativeDataset:
             str(_text(library.taco_dataset_structure(self._handle, index)))
             for index in range(library.taco_dataset_structure_count(self._handle))
         ]
-
-    @property
-    def derived(self) -> str | None:
-        return _text(_load().taco_dataset_derived(self._handle))
 
 
 def sql(

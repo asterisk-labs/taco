@@ -30,7 +30,6 @@ def test_reader_inspects_an_archive(archive: Path) -> None:
         "extra*[1,3].png",
     ]
     assert inspect_module.levels(archive) == ["sample", "children", "children/after", "children/before"]
-    assert inspect_module.derived(archive) == {}
     assert inspect_module.collection(archive)["id"] == "tiny-change"
     assert inspect_module.profile(archive) == "taco"
     assert "read_parquet(" in inspect_module.native_sql(archive, idx=1)

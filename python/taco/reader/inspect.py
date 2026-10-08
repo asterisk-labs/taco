@@ -1,11 +1,7 @@
 from __future__ import annotations
 
-import json
-from typing import Any
-
 import pyarrow as pa
 
-from ..errors import ContainerError
 from . import native
 from .collection import load_collection
 from .query import Files, Index, build_native_sql
@@ -19,8 +15,6 @@ def contract(path: PathInput) -> pa.Table:
     dataset = native.NativeDataset(path)
     rows = [("structure", item) for item in dataset.structure]
     rows += [("level", level) for level in dataset.levels]
-    if dataset.derived is not None:
-        rows.append(("derived", dataset.derived))
     return pa.table(
         {
             "kind": pa.array([kind for kind, _ in rows], pa.string()),
@@ -37,17 +31,6 @@ def structure(path: PathInput) -> list[str]:
 def levels(path: PathInput) -> list[str]:
     """Return metadata levels, parents before children."""
     return native.NativeDataset(path).levels
-
-
-def derived(path: PathInput) -> dict[str, Any]:
-    """Return serialized ``taco:derived`` declarations."""
-    value = native.NativeDataset(path).derived
-    if value is None:
-        return {}
-    data = json.loads(value)
-    if not isinstance(data, dict):
-        raise ContainerError(f"taco:derived is not a JSON object: {path}")
-    return data
 
 
 def collection(path: PathInput) -> dict[str, object]:
@@ -84,4 +67,4 @@ def inspect(path: PathInput, query: str) -> object:
     return operation(path)
 
 
-__all__ = ["collection", "contract", "derived", "inspect", "levels", "native_sql", "profile", "structure"]
+__all__ = ["collection", "contract", "inspect", "levels", "native_sql", "profile", "structure"]

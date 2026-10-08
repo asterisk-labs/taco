@@ -1,8 +1,7 @@
-# Extensions: writer-time metadata operations
+# Extensions
 
-Sources: `python/taco/contract/extension.py`, `python/taco/extensions/` (one package
-per extension: `stac`, `rumi`, `majortom`, `geoenrich`), SPEC 5.7 and
-`docs/spec/extensions/`.
+Built-ins live under `taco.extensions.sample.<name>` for metadata levels and
+`taco.extensions.collection.<name>` for `COLLECTION.json`.
 
 An **extension** is a metadata operation the writer runs during `run()`, after assets
 are local. It may take producer input, produce columns, or both.
@@ -14,36 +13,31 @@ extension. Rewriting preserves an explicitly declared built-in version.
 
 The dependency graph and runtime configuration exist only in the Python contract.
 `COLLECTION.json` stores the resulting columns and semantic collection metadata, not
-extension descriptors. A dataset read back therefore has `contract.extensions == {}`.
+extension descriptors. A dataset read back therefore has `contract.operations == {}`.
 
-Each built-in lives in `taco/extensions/<name>/` with `IDENTIFIER`, `NAMESPACES` and a
-copy of its `schema.json`; the published one is `docs/spec/extensions/<name>/v1.0.0/`,
-and `tests/test_extension_schemas.py` keeps them identical. Change both together.
+`contract/extension_registry.py` holds built-in IDs and namespaces. Schemas ship in
+`taco/extensions/schemas/` and are mirrored under `docs/spec/extensions/`. Each
+extension may add validation in `checks.py`.
 
 ## Built-in extensions
 
 | Extension | Requires | Produces | Scopes |
 | --- | --- | --- | --- |
-| `Spatial(model=...)` | `spatial:geometry`, `proj_code`, `proj_shape`, `proj_transform` | `spatial:centroid` | sample, folder |
-| `STAC(model=...)` | `stac:geometry`, `proj_code`, `proj_shape`, `proj_transform` | `stac:centroid` | sample, folder |
-| `Rumi(header=True, stats=False)` | nothing | `rumi:header` by default; optional `double` statistic columns; at least one output required | sample, asset |
+| `stac.Spatial` | `spatial:geometry`, `proj_code`, `proj_shape`, `proj_transform` | `spatial:centroid` | sample |
+| `stac.STAC` | `stac:geometry`, `proj_code`, `proj_shape`, `proj_transform` | `stac:centroid` | sample |
+| `rumi.Rumi(header=True, stats=False)` | nothing | `rumi:header` and optional statistics | sample |
 | `MajorTOM(dist_km=100, extra=(), latitude_range=(-85, 85), longitude_range=(-180, 180), sep="_", centroid="stac:centroid")` | the centroid field | `majortom:code` plus one per extra grid | sample |
 | `GeoEnrich(variables=None, backend="majortom-index", scale_m=5120, batch_size=250, max_concurrency=8, centroid="stac:centroid", code="majortom:code", index_url=...)` | the 10 km MajorTOM code by default; the centroid field for `earthengine` | one column per variable | sample |
 
-There is no `Temporal` extension: that profile computes nothing, so it is declared as
-a model, `temporal=taco.extensions.stac.Temporal`.
-
-The profile extensions also carry the producer's input model, so
-`taco.Level("sample", stac=taco.extensions.STAC())` declares the inputs and the
-outputs at once. `model=` takes a subclass of the matching `taco.extensions.stac.*`
-model, such as the folder variant. A profile namespace holds exactly the STAC
-fields, so extra fields go in your own namespace:
+The same profile class is used in a level and its rows. `Spatial` and `STAC` fill a
+missing `centroid`; `Temporal` has no operation. `STAC | None` makes the whole group
+optional. Extra fields belong in another namespace.
 
 ```python
 class Quality(BaseModel):
     cloud_cover: float
 
-taco.Level("sample", stac=taco.extensions.STAC(), quality=Quality)
+taco.Level("sample", stac=taco.extensions.sample.stac.STAC, quality=Quality)
 ```
 
 A subclass that adds a field fails with `STAC metadata at level 'sample' has fields
@@ -80,9 +74,9 @@ restricted with `_b<band>`, `_t<time>` or `_t<time>_b<band>`, zero-based without
 leading zeros:
 
 ```python
-taco.extensions.Rumi(stats=True)                                  # rumi:mean, rumi:p98, ...
-taco.extensions.Rumi(stats=["mean", "mean_b10", "p98_t0_b3"])
-taco.extensions.Rumi(stats={
+taco.extensions.sample.rumi.Rumi(stats=True)                                  # rumi:mean, rumi:p98, ...
+taco.extensions.sample.rumi.Rumi(stats=["mean", "mean_b10", "p98_t0_b3"])
+taco.extensions.sample.rumi.Rumi(stats={
     "rumi/image.rumi": ["mean", "p98"],
     "rumi/cube.rumi": ["mean_t0", "p98_t0_b3"],
 })
@@ -176,13 +170,13 @@ class Area(Extension):
                            for s, t in zip(shapes, transforms)]}
 
 
-taco.Level("sample", stac=taco.extensions.STAC(), area=Area())
+taco.Level("sample", stac=taco.extensions.sample.stac.STAC, area=Area())
 ```
 
 If `area` is a published format extension rather than a private user namespace, pass
 its JSON Schema identifier to `Collection(extensions=[...])`.
 
-Contract:
+### Contract rules
 
 - `requires` names **fully qualified** fields, which may come from another group or
   another extension's output. `fields` names **unqualified** fields, which the writer
@@ -194,7 +188,6 @@ Contract:
   in those rows, by qualified name) and `context.assets` (the local `Path` of each
   row's asset, or `None`). It must return exactly its declared field names, each a
   sequence of the same length as the batch.
-- `DerivedMetadata` adapts `compute(columns)` to `run`; new code should use `Extension`.
 - `__taco_complete_level__ = True` buffers the whole level instead of flushing per
   batch, for an operation that needs every row at once.
 

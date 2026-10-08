@@ -65,7 +65,7 @@ class ML(BaseModel):
 contract = taco.Contract(
     structure=["before/B02.tif", "after/B02.tif", "mask.tif", "extra*[1,3].png"],
     metadata=[
-        taco.Level("sample", stac=taco.extensions.STAC(), ml=ML),
+        taco.Level("sample", stac=taco.extensions.sample.stac.STAC, ml=ML),
     ],
 )
 collection = taco.Collection(
@@ -90,7 +90,7 @@ with taco.open_writer(collection, "tiny.zip", overwrite=True) as writer:
             id="lima-0001",                          # stable identity, never the index
             assets=[taco.Asset(data, path=name) for name, data in payloads.items()],
             metadata=taco.Metadata(
-                stac=taco.extensions.stac.STAC(      # the grid is stored; centroid is derived
+                stac=taco.extensions.sample.stac.STAC(
                     proj_code="EPSG:4326",
                     proj_shape=(256, 256),           # [height, width]
                     proj_transform=(0.2 / 256, 0, -76.6, 0, -0.2 / 256, -12.0),

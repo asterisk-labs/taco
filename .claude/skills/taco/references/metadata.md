@@ -1,7 +1,7 @@
-# Metadata: levels, groups, types and profiles
+# Metadata
 
-Sources: `python/taco/contract/schema.py`, `contract/types.py`,
-`python/taco/extensions/stac/`, SPEC 5.4 to 5.6.
+See `python/taco/contract/schema.py`, `contract/types.py`,
+`python/taco/extensions/sample/stac/` and SPEC 5.4 to 5.6.
 
 Tabular metadata describes samples and the nodes inside them, one Parquet per level.
 Collection metadata describes the dataset once and lives in `COLLECTION.json`. The two
@@ -14,7 +14,7 @@ are separate systems and their objects are not interchangeable.
 
 ```python
 metadata=[
-    taco.Level("sample", stac=taco.extensions.STAC(), ml=ML, majortom=taco.extensions.MajorTOM()),
+    taco.Level("sample", stac=taco.extensions.sample.stac.STAC, ml=ML, majortom=taco.extensions.sample.majortom.MajorTOM()),
     taco.Level("children", node=Kind | None),        # Model | None makes the group optional
     taco.Level("children/before", file=AssetInfo),
 ]
@@ -57,24 +57,15 @@ A group is bound to what it can describe through `__taco_scopes__`:
 
 | Module | Scope | Contents |
 | --- | --- | --- |
-| `taco.extensions.stac` | `sample` | `Spatial`, `Temporal`, `STAC` |
-| `taco.extensions.stac.folder` | `folder` | The three profiles, re-scoped |
-| `taco.extensions` | Per extension | `STAC`, `Spatial` (sample, folder), `Rumi` (sample, asset), `MajorTOM`, `GeoEnrich` (sample) |
+| `taco.extensions.sample.<name>` | `sample` | Fields in any metadata level |
+| `taco.extensions.collection.<name>` | `collection` | Fields in `COLLECTION.json` |
 
 The library ships no split, label, band or scaling models. Define a Pydantic model
 in your own namespace, as the canonical workflow does with `ML`.
 
-The check runs at contract time against what the level can hold: `sample` holds a
-sample, a `children/...` level holds folders and files depending on the structure
-beneath it. A required group must cover every possibility; an optional one need only
-intersect. `STAC cannot be used at metadata level 'children'` is this check.
-
-A model with no `__taco_scopes__`, such as a plain `BaseModel` you define, fits
-anywhere. `flatten_metadata` re-checks per row, which matters when one level holds
-both kinds: with `structure=["x/y.tif", "z.tif"]`, `children` holds the folder `x` and
-the file `z.tif`, so an optional asset-scoped group passes the contract check and is
-refused only when it is attached to the folder:
-`SampleError: Scaling cannot describe a folder` for a model scoped to `asset`.
+Collection models cannot be bound to levels, and sample models cannot be passed to
+`Collection`. An unscoped `BaseModel` works in either place. Rumi also requires a
+file for every row it processes.
 
 ## Python types to Arrow
 
@@ -126,9 +117,9 @@ nullability. A level may use at most one. STAC `proj:` fields are stored with a
 
 | Profile | Producer supplies | Writer adds | Declare it as |
 | --- | --- | --- | --- |
-| `temporal` | `datetime`, or `start_datetime` + `end_datetime` | nothing | `temporal=taco.extensions.stac.Temporal` |
-| `spatial` | `proj_code` + `proj_shape` + `proj_transform`, or `geometry` | `centroid` | `spatial=taco.extensions.Spatial()` |
-| `stac` | both of the above | `centroid` | `stac=taco.extensions.STAC()` |
+| `temporal` | `datetime`, or `start_datetime` + `end_datetime` | nothing | `temporal=taco.extensions.sample.stac.Temporal` |
+| `spatial` | `proj_code` + `proj_shape` + `proj_transform`, or `geometry` | `centroid` | `spatial=taco.extensions.sample.stac.Spatial` |
+| `stac` | both of the above | `centroid` | `stac=taco.extensions.sample.stac.STAC` |
 
 Canonical declarations, enforced by `Contract._check_profiles` from
 `contract/schema.py:PROFILE_FIELDS`:
@@ -147,8 +138,8 @@ Either match that nullability exactly, or make the **whole group** nullable with
 `Model | None`. Anything in between raises `SPATIAL metadata at level 'sample' must use
 canonical nullability or make the complete optional group nullable`.
 
-The row rules live in the model validators (`check_times`, `check_location` in
-`extensions/stac/models.py`) and `taco.validate()` re-applies them to every stored row:
+The row rules live in `extensions/sample/stac/models.py`. `taco.validate()` applies
+them to every stored row.
 
 - **Time**: `datetime`, or `start_datetime` and `end_datetime` together; the range is
   inclusive and must not be reversed; `datetime` may sit inside a range. A DEM or an

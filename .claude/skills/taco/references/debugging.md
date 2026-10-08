@@ -159,8 +159,7 @@ Python package structure:
 ```
 taco/contract/    Contract, Collection, Sample/Asset/Folder, schema, types, naming,
                   the Extension base
-taco/extensions/  one package per extension: stac (profiles, footprints, extent),
-                  rumi, majortom, geoenrich
+taco/extensions/  scoped built-ins under sample/ and collection/, plus schemas/
 taco/writer/      open_writer, archive and folder writers, metadata tables, partitions,
                   catalog (consolidate), export
 taco/reader/      open_dataset, read, Dataset.sql, inspect, the cffi binding

@@ -675,13 +675,6 @@ Contract read_contract(const Dataset& dataset) {
         fail("COLLECTION.json metadata levels do not match its Parquet files: " + source);
     if (dataset.level_names.size() < 2)
         fail("COLLECTION.json structure requires sample and children metadata levels: " + source);
-
-    if (const json::Value* derived = root.find("taco:derived")) {
-        if (!derived->is_object())
-            fail("COLLECTION.json: taco:derived must be an object: " + source);
-        contract.has_derived = true;
-        contract.derived = std::string(derived->raw);
-    }
     return contract;
 }
 

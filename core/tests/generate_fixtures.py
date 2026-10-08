@@ -315,13 +315,6 @@ def main() -> None:
     edit_collection(DATA / "taco_badversion", lambda data: data.update({"taco:version": "2.0.0"}))
     shutil.copytree(DATA / "taco_folder", DATA / "taco_badstructure")
     edit_collection(DATA / "taco_badstructure", lambda data: data.update({"taco:structure": None}))
-    shutil.copytree(DATA / "taco_folder", DATA / "taco_derived")
-    edit_collection(
-        DATA / "taco_derived",
-        lambda data: data.update(
-            {"taco:derived": {"sample": {"majortom": {"requires": ["geo:centroid"], "produces": ["majortom:code"]}}}}
-        ),
-    )
 
 
 if __name__ == "__main__":

@@ -206,7 +206,6 @@ void test_open_archives() {
     CHECK(flat.location_base == data("taco_flat.zip"));
     CHECK((flat.level_names == Strings{"sample", "children"}));
     CHECK((flat.contract.structure == Strings{"image.bin", "label.bin"}));
-    CHECK(!flat.contract.has_derived);
     CHECK(contains(flat.collection, "\"taco-flat\""));
     // Local archives are extracted to a temporary directory, never to the cache.
     for (const auto& path : flat.level_paths)
@@ -327,9 +326,6 @@ void test_open_directories() {
     CHECK_THROWS(taco::open_dataset(data("taco_badjson"), cache), "COLLECTION.json is not valid JSON");
     CHECK_THROWS(taco::open_dataset(data("taco_badversion"), cache), "unsupported TACO version '2.0.0'");
     CHECK_THROWS(taco::open_dataset(data(""), cache), "directory has no COLLECTION.json");
-
-    const auto derived = taco::open_dataset(data("taco_derived"), cache);
-    CHECK(derived.contract.has_derived && contains(derived.contract.derived, "majortom"));
 
     // file:// URIs take the object-store path: levels come from COLLECTION.json.
     const std::string root = "file://" + fs::absolute(TACO_TEST_DATA).generic_string();
@@ -646,7 +642,6 @@ void test_c_api() {
     CHECK(taco_dataset_level(dataset, 4) == nullptr);
     CHECK(taco_dataset_structure_count(dataset) == 4);
     CHECK(std::string(taco_dataset_structure(dataset, 0)) == "before/B02.bin");
-    CHECK(taco_dataset_derived(dataset) == nullptr);
     CHECK(contains(taco_dataset_collection(dataset), "taco-nested"));
 
     const char* files[] = {"change.bin"};

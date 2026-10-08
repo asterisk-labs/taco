@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://asterisk.coop/taco/spec/extensions/rumi/v1.0.0/schema.json",
+  "title": "Rumi",
+  "description": "Canonical headers and statistics of Rumi files.",
+  "type": "object",
+  "required": [
+    "taco:extensions",
+    "taco:metadata"
+  ],
+  "properties": {
+    "taco:extensions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "allOf": [
+        {
+          "contains": {
+            "const": "https://asterisk.coop/taco/spec/extensions/rumi/v1.0.0/schema.json"
+          }
+        }
+      ]
+    },
+    "taco:metadata": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/level"
+      }
+    }
+  },
+  "propertyNames": {
+    "anyOf": [
+      {
+        "not": {
+          "pattern": "^(rumi):"
+        }
+      }
+    ]
+  },
+  "$defs": {
+    "level": {
+      "type": "object",
+      "propertyNames": {
+        "anyOf": [
+          {
+            "not": {
+              "pattern": "^(rumi):"
+            }
+          },
+          {
+            "const": "rumi:header"
+          },
+          {
+            "pattern": "^rumi:(minimum|maximum|mean|stddev|p2|p98)(_t(0|[1-9][0-9]*))?(_b(0|[1-9][0-9]*))?$"
+          }
+        ]
+      },
+      "properties": {
+        "rumi:header": {
+          "type": "object",
+          "required": [
+            "type",
+            "nullable",
+            "description"
+          ],
+          "properties": {
+            "type": {
+              "const": "binary"
+            },
+            "nullable": {
+              "type": "boolean"
+            },
+            "description": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "patternProperties": {
+        "^rumi:(minimum|maximum|mean|stddev|p2|p98)(_t(0|[1-9][0-9]*))?(_b(0|[1-9][0-9]*))?$": {
+          "type": "object",
+          "required": [
+            "type",
+            "nullable",
+            "description"
+          ],
+          "properties": {
+            "type": {
+              "const": "double"
+            },
+            "nullable": {
+              "const": true
+            },
+            "description": {
+              "type": "string"
+            },
+            "files": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  }
+}

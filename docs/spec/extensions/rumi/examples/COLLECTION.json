@@ -1,0 +1,66 @@
+{
+  "taco:version": "3.0.0",
+  "id": "rumi-example",
+  "description": "Example collection using the rumi extension",
+  "licenses": [
+    "CC-BY-4.0"
+  ],
+  "providers": [
+    {
+      "name": "Asterisk Labs",
+      "roles": [
+        "producer"
+      ]
+    }
+  ],
+  "taco:structure": [
+    "rumi/image.rumi",
+    "rumi/cube.rumi"
+  ],
+  "taco:metadata": {
+    "sample": {},
+    "children": {},
+    "children/rumi": {
+      "rumi:header": {
+        "type": "binary",
+        "nullable": false,
+        "description": "Canonical external Rumi header"
+      },
+      "rumi:mean": {
+        "type": "double",
+        "nullable": true,
+        "description": "Mean of all valid values",
+        "files": [
+          "rumi/image.rumi"
+        ]
+      },
+      "rumi:p98": {
+        "type": "double",
+        "nullable": true,
+        "description": "98th percentile of all valid values",
+        "files": [
+          "rumi/image.rumi"
+        ]
+      },
+      "rumi:mean_t0": {
+        "type": "double",
+        "nullable": true,
+        "description": "Mean of the valid values at time step 0",
+        "files": [
+          "rumi/cube.rumi"
+        ]
+      },
+      "rumi:p98_t0_b3": {
+        "type": "double",
+        "nullable": true,
+        "description": "98th percentile of the valid values in band 3 at time step 0",
+        "files": [
+          "rumi/cube.rumi"
+        ]
+      }
+    }
+  },
+  "taco:extensions": [
+    "https://asterisk.coop/taco/spec/extensions/rumi/v1.0.0/schema.json"
+  ]
+}

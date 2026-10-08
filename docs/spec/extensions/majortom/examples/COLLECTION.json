@@ -1,0 +1,97 @@
+{
+  "taco:version": "3.0.0",
+  "id": "majortom-example",
+  "description": "Example collection using the majortom extension",
+  "licenses": [
+    "CC-BY-4.0"
+  ],
+  "providers": [
+    {
+      "name": "Asterisk Labs",
+      "roles": [
+        "producer"
+      ]
+    }
+  ],
+  "taco:structure": [
+    "image.tif"
+  ],
+  "taco:metadata": {
+    "sample": {
+      "stac:geometry": {
+        "type": "binary",
+        "nullable": true,
+        "description": "Footprint in EPSG:4326 as WKB, when the producer supplies one"
+      },
+      "stac:bbox": {
+        "type": "list<double>",
+        "nullable": true,
+        "description": "Bounds of geometry [west, south, east, north]; west > east crosses the antimeridian"
+      },
+      "stac:centroid": {
+        "type": "struct<lon: float, lat: float>",
+        "nullable": false,
+        "description": "Center of the grid, or of the footprint without a grid, in EPSG:4326"
+      },
+      "stac:datetime": {
+        "type": "timestamp[us, UTC]",
+        "nullable": true,
+        "description": "Acquisition time; null when only a range is known"
+      },
+      "stac:start_datetime": {
+        "type": "timestamp[us, UTC]",
+        "nullable": true,
+        "description": "First time covered by the observation, inclusive"
+      },
+      "stac:end_datetime": {
+        "type": "timestamp[us, UTC]",
+        "nullable": true,
+        "description": "Last time covered by the observation, inclusive"
+      },
+      "stac:proj_code": {
+        "type": "string",
+        "nullable": true,
+        "description": "CRS of the grid as AUTHORITY:CODE, e.g. EPSG:32718"
+      },
+      "stac:proj_shape": {
+        "type": "list<int64>",
+        "nullable": true,
+        "description": "Grid size in pixels as [height, width]"
+      },
+      "stac:proj_transform": {
+        "type": "list<double>",
+        "nullable": true,
+        "description": "Affine transform [a, b, c, d, e, f]: x = a*column + b*row + c, y = d*column + e*row + f"
+      },
+      "majortom:code": {
+        "type": "string",
+        "nullable": false,
+        "description": "MajorTOM spherical grid cell identifier at 100 km"
+      },
+      "majortom:code_10km": {
+        "type": "string",
+        "nullable": false,
+        "description": "MajorTOM spherical grid cell identifier at 10 km"
+      }
+    },
+    "children": {}
+  },
+  "taco:extensions": [
+    "https://asterisk.coop/taco/spec/extensions/majortom/v1.0.0/schema.json",
+    "https://asterisk.coop/taco/spec/extensions/stac/v1.0.0/schema.json"
+  ],
+  "majortom:dist_km": 100.0,
+  "majortom:extra": {
+    "code_10km": 10.0
+  },
+  "majortom:latitude_range": [
+    -85.0,
+    85.0
+  ],
+  "majortom:longitude_range": [
+    -180.0,
+    180.0
+  ],
+  "majortom:sep": "_",
+  "majortom:centroid": "stac:centroid"
+}

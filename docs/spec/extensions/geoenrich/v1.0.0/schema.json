@@ -1,0 +1,428 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://asterisk.coop/taco/spec/extensions/geoenrich/v1.0.0/schema.json",
+  "title": "GeoEnrich",
+  "description": "Environmental, socioeconomic and administrative variables of each sample.",
+  "type": "object",
+  "required": [
+    "taco:extensions",
+    "taco:metadata"
+  ],
+  "properties": {
+    "taco:extensions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "allOf": [
+        {
+          "contains": {
+            "const": "https://asterisk.coop/taco/spec/extensions/geoenrich/v1.0.0/schema.json"
+          }
+        }
+      ]
+    },
+    "taco:metadata": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/level"
+      }
+    },
+    "geoenrich:backend": {
+      "const": "majortom-index"
+    },
+    "geoenrich:index_url": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "propertyNames": {
+    "anyOf": [
+      {
+        "not": {
+          "pattern": "^(geoenrich):"
+        }
+      },
+      {
+        "enum": [
+          "geoenrich:backend",
+          "geoenrich:index_url"
+        ]
+      }
+    ]
+  },
+  "$defs": {
+    "level": {
+      "type": "object",
+      "propertyNames": {
+        "anyOf": [
+          {
+            "not": {
+              "pattern": "^(geoenrich):"
+            }
+          },
+          {
+            "enum": [
+              "geoenrich:admin_countries",
+              "geoenrich:admin_districts",
+              "geoenrich:admin_states",
+              "geoenrich:cisi",
+              "geoenrich:elevation",
+              "geoenrich:gdp",
+              "geoenrich:human_modification",
+              "geoenrich:population",
+              "geoenrich:precipitation",
+              "geoenrich:soil_bulk_density",
+              "geoenrich:soil_carbon",
+              "geoenrich:soil_clay",
+              "geoenrich:soil_ph",
+              "geoenrich:soil_sand",
+              "geoenrich:temperature"
+            ]
+          }
+        ]
+      },
+      "properties": {
+        "geoenrich:elevation": {
+          "type": "object",
+          "required": [
+            "type",
+            "nullable",
+            "description"
+          ],
+          "properties": {
+            "type": {
+              "const": "float"
+            },
+            "nullable": {
+              "const": true
+            },
+            "description": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        "geoenrich:cisi": {
+          "type": "object",
+          "required": [
+            "type",
+            "nullable",
+            "description"
+          ],
+          "properties": {
+            "type": {
+              "const": "float"
+            },
+            "nullable": {
+              "const": true
+            },
+            "description": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        "geoenrich:precipitation": {
+          "type": "object",
+          "required": [
+            "type",
+            "nullable",
+            "description"
+          ],
+          "properties": {
+            "type": {
+              "const": "float"
+            },
+            "nullable": {
+              "const": true
+            },
+            "description": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        "geoenrich:temperature": {
+          "type": "object",
+          "required": [
+            "type",
+            "nullable",
+            "description"
+          ],
+          "properties": {
+            "type": {
+              "const": "float"
+            },
+            "nullable": {
+              "const": true
+            },
+            "description": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        "geoenrich:soil_clay": {
+          "type": "object",
+          "required": [
+            "type",
+            "nullable",
+            "description"
+          ],
+          "properties": {
+            "type": {
+              "const": "float"
+            },
+            "nullable": {
+              "const": true
+            },
+            "description": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        "geoenrich:soil_sand": {
+          "type": "object",
+          "required": [
+            "type",
+            "nullable",
+            "description"
+          ],
+          "properties": {
+            "type": {
+              "const": "float"
+            },
+            "nullable": {
+              "const": true
+            },
+            "description": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        "geoenrich:soil_carbon": {
+          "type": "object",
+          "required": [
+            "type",
+            "nullable",
+            "description"
+          ],
+          "properties": {
+            "type": {
+              "const": "float"
+            },
+            "nullable": {
+              "const": true
+            },
+            "description": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        "geoenrich:soil_bulk_density": {
+          "type": "object",
+          "required": [
+            "type",
+            "nullable",
+            "description"
+          ],
+          "properties": {
+            "type": {
+              "const": "float"
+            },
+            "nullable": {
+              "const": true
+            },
+            "description": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        "geoenrich:soil_ph": {
+          "type": "object",
+          "required": [
+            "type",
+            "nullable",
+            "description"
+          ],
+          "properties": {
+            "type": {
+              "const": "float"
+            },
+            "nullable": {
+              "const": true
+            },
+            "description": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        "geoenrich:gdp": {
+          "type": "object",
+          "required": [
+            "type",
+            "nullable",
+            "description"
+          ],
+          "properties": {
+            "type": {
+              "const": "float"
+            },
+            "nullable": {
+              "const": true
+            },
+            "description": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        "geoenrich:human_modification": {
+          "type": "object",
+          "required": [
+            "type",
+            "nullable",
+            "description"
+          ],
+          "properties": {
+            "type": {
+              "const": "float"
+            },
+            "nullable": {
+              "const": true
+            },
+            "description": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        "geoenrich:population": {
+          "type": "object",
+          "required": [
+            "type",
+            "nullable",
+            "description"
+          ],
+          "properties": {
+            "type": {
+              "const": "float"
+            },
+            "nullable": {
+              "const": true
+            },
+            "description": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        "geoenrich:admin_countries": {
+          "type": "object",
+          "required": [
+            "type",
+            "nullable",
+            "description"
+          ],
+          "properties": {
+            "type": {
+              "const": "string"
+            },
+            "nullable": {
+              "const": false
+            },
+            "description": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        "geoenrich:admin_states": {
+          "type": "object",
+          "required": [
+            "type",
+            "nullable",
+            "description"
+          ],
+          "properties": {
+            "type": {
+              "const": "string"
+            },
+            "nullable": {
+              "const": false
+            },
+            "description": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        "geoenrich:admin_districts": {
+          "type": "object",
+          "required": [
+            "type",
+            "nullable",
+            "description"
+          ],
+          "properties": {
+            "type": {
+              "const": "string"
+            },
+            "nullable": {
+              "const": false
+            },
+            "description": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "dependentRequired": {
+        "geoenrich:backend": [
+          "geoenrich:index_url"
+        ],
+        "geoenrich:index_url": [
+          "geoenrich:backend"
+        ]
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "geoenrich:backend"
+        ]
+      },
+      "then": {
+        "properties": {
+          "taco:extensions": {
+            "contains": {
+              "type": "string",
+              "pattern": "^https://asterisk[.]coop/taco/spec/extensions/majortom/v1[.][0-9]+[.][0-9]+/schema[.]json$"
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "taco:extensions": {
+            "contains": {
+              "type": "string",
+              "pattern": "^https://asterisk[.]coop/taco/spec/extensions/stac/v1[.][0-9]+[.][0-9]+/schema[.]json$"
+            }
+          }
+        }
+      }
+    }
+  ]
+}

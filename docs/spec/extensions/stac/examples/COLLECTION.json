@@ -1,0 +1,73 @@
+{
+  "taco:version": "3.0.0",
+  "id": "stac-example",
+  "description": "Example collection using the stac extension",
+  "licenses": [
+    "CC-BY-4.0"
+  ],
+  "providers": [
+    {
+      "name": "Asterisk Labs",
+      "roles": [
+        "producer"
+      ]
+    }
+  ],
+  "taco:structure": [
+    "image.tif",
+    "label.tif"
+  ],
+  "taco:metadata": {
+    "sample": {
+      "stac:geometry": {
+        "type": "binary",
+        "nullable": true,
+        "description": "Footprint in EPSG:4326 as WKB, when the producer supplies one"
+      },
+      "stac:bbox": {
+        "type": "list<double>",
+        "nullable": true,
+        "description": "Bounds of geometry [west, south, east, north]; west > east crosses the antimeridian"
+      },
+      "stac:centroid": {
+        "type": "struct<lon: float, lat: float>",
+        "nullable": false,
+        "description": "Center of the grid, or of the footprint without a grid, in EPSG:4326"
+      },
+      "stac:datetime": {
+        "type": "timestamp[us, UTC]",
+        "nullable": true,
+        "description": "Acquisition time; null when only a range is known"
+      },
+      "stac:start_datetime": {
+        "type": "timestamp[us, UTC]",
+        "nullable": true,
+        "description": "First time covered by the observation, inclusive"
+      },
+      "stac:end_datetime": {
+        "type": "timestamp[us, UTC]",
+        "nullable": true,
+        "description": "Last time covered by the observation, inclusive"
+      },
+      "stac:proj_code": {
+        "type": "string",
+        "nullable": true,
+        "description": "CRS of the grid as AUTHORITY:CODE, e.g. EPSG:32718"
+      },
+      "stac:proj_shape": {
+        "type": "list<int64>",
+        "nullable": true,
+        "description": "Grid size in pixels as [height, width]"
+      },
+      "stac:proj_transform": {
+        "type": "list<double>",
+        "nullable": true,
+        "description": "Affine transform [a, b, c, d, e, f]: x = a*column + b*row + c, y = d*column + e*row + f"
+      }
+    },
+    "children": {}
+  },
+  "taco:extensions": [
+    "https://asterisk.coop/taco/spec/extensions/stac/v1.0.0/schema.json"
+  ]
+}

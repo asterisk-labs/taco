@@ -135,58 +135,48 @@ def test_majortom_collection_fields_are_checked(
     assert any(expected in message for message in extension_errors(folder_dataset))
 
 
-def folder_metadata_dataset(tmp_path: Path) -> Path:
+def test_one_profile_class_describes_folders_and_files(tmp_path: Path) -> None:
     contract = taco.Contract(
         structure=["x/y.tif", "z.tif"],
-        metadata=[taco.Level("children", stac=taco.extensions.stac.folder.STAC | None)],
+        metadata=[taco.Level("children", stac=taco.extensions.sample.stac.STAC | None)],
     )
-    collection = taco.Collection(
-        contract=contract, id="scopes", description="Scopes", licenses=["MIT"], providers=["me"]
-    )
-    grid = taco.extensions.stac.folder.STAC(
+    collection = taco.Collection(contract=contract, id="rows", description="Rows", licenses=["MIT"], providers=["me"])
+    grid = taco.extensions.sample.stac.STAC(
         proj_code="EPSG:4326",
         proj_shape=(2, 2),
         proj_transform=(0.1, 0, -76, 0, -0.1, -12),
-        centroid=(-75.9, -12.1),
         datetime="2024-01-01T00:00:00Z",
     )
-    path = tmp_path / "scopes"
+    path = tmp_path / "rows"
     with taco.open_writer(collection, path) as writer:
         writer.add(
             taco.Sample(
                 id="a",
                 folders=[taco.Folder("x", metadata=taco.Metadata(stac=grid))],
-                assets=[taco.Asset(b"y", path="x/y.tif"), taco.Asset(b"z", path="z.tif")],
+                assets=[
+                    taco.Asset(b"y", path="x/y.tif"),
+                    taco.Asset(b"z", path="z.tif", metadata=taco.Metadata(stac=grid)),
+                ],
             )
         )
         writer.run()
-    return path
-
-
-def test_extension_values_stay_on_the_rows_their_scope_allows(tmp_path: Path) -> None:
-    path = folder_metadata_dataset(tmp_path)
+    centroids = pq.read_table(path / "METADATA" / "children.parquet").column("stac:centroid").to_pylist()
+    assert centroids[0] == centroids[1] is not None
     assert taco.validate(path).ok
-
-    parquet = path / "METADATA" / "children.parquet"
-    table = pq.read_table(parquet)
-    columns = {
-        name: (pa_values if not name.startswith("stac:") else [pa_values[0]] * len(pa_values))
-        for name, pa_values in ((name, table.column(name).to_pylist()) for name in table.column_names)
-    }
-    pq.write_table(table.from_pydict(columns, schema=table.schema), parquet)
-    assert any("stac:" in message and "asset rows" in message for message in extension_errors(path))
 
 
 def test_extra_fields_in_a_profile_namespace_are_rejected() -> None:
-    class CloudSTAC(taco.extensions.stac.STAC):
+    class CloudSTAC(taco.extensions.sample.stac.STAC):
         cloud_cover: float
 
     with pytest.raises(ContractError, match="does not define \\['cloud_cover'\\]"):
-        taco.Contract(structure=["a.tif"], metadata=[taco.Level("sample", stac=taco.extensions.STAC(model=CloudSTAC))])
+        taco.Contract(structure=["a.tif"], metadata=[taco.Level("sample", stac=CloudSTAC)])
 
 
 def test_extra_fields_in_a_profile_mapping_are_rejected() -> None:
-    contract = taco.Contract(structure=["a.tif"], metadata=[taco.Level("sample", stac=taco.extensions.STAC())])
+    contract = taco.Contract(
+        structure=["a.tif"], metadata=[taco.Level("sample", stac=taco.extensions.sample.stac.STAC)]
+    )
     metadata = contract.to_dict()["taco:metadata"]
     metadata["sample"]["stac:cloud_cover"] = {"type": "double", "nullable": True, "description": ""}
     with pytest.raises(ContractError, match="does not define"):
@@ -220,7 +210,7 @@ def test_replace_completes_the_list_and_resets_it_with_the_contract(collection: 
 
 def test_the_list_is_not_read_as_an_extension_descriptor(collection: taco.Collection) -> None:
     data = {**collection.to_dict(), "taco:extensions": [STAC]}
-    assert taco.Contract.from_dict(data).extensions == {}
+    assert taco.Contract.from_dict(data).operations == {}
 
 
 def test_export_and_consolidation_keep_the_list(

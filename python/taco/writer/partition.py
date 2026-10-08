@@ -91,7 +91,7 @@ def _samples_with_partition_metadata(writer: ArchiveWriter) -> Iterator[tuple[_P
     assert writer.partition_by is not None
     derived = any(
         writer.partition_by in descriptor["produces"]
-        for descriptor in writer.contract.extensions.get(SAMPLE_LEVEL, {}).values()
+        for descriptor in writer.contract.operations.get(SAMPLE_LEVEL, {}).values()
     )
     if not derived:
         for _, sample, size in writer._staged_samples():

@@ -120,7 +120,7 @@ module = ["pyarrow", "pyarrow.*", "cffi", "jsonschema", "jsonschema.*", "shapely
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = ["taco.container.view", "taco.extensions.geoenrich.extension", "taco.extensions.majortom.extension", "taco.writer.catalog", "taco.writer.metadata"]
+module = ["taco.container.view", "taco.extensions.sample.geoenrich.extension", "taco.extensions.sample.majortom.extension", "taco.writer.catalog", "taco.writer.metadata"]
 disable_error_code = ["no-untyped-call"]
 
 [tool.coverage.run]

@@ -192,28 +192,28 @@ def test_profiles_require_canonical_nullability() -> None:
         taco.Contract(structure=["a.bin"], metadata={"sample": fields})
 
 
-def test_passive_profile_validates_canonical_required_fields() -> None:
+def test_a_profile_without_centroid_gets_one_computed() -> None:
     contract = taco.Contract(
         structure=["a.bin"],
-        metadata=[taco.Level("sample", stac=taco.extensions.stac.STAC)],
+        metadata=[taco.Level("sample", stac=taco.extensions.sample.stac.STAC)],
     )
     metadata = taco.Metadata(
-        stac=taco.extensions.stac.STAC(
+        stac=taco.extensions.sample.stac.STAC(
             proj_code="EPSG:4326",
             proj_shape=(16, 16),
             proj_transform=(1, 0, 0, 0, -1, 0),
             datetime=datetime(2025, 1, 1, tzinfo=timezone.utc),
         )
     )
-    with pytest.raises(SampleError, match="stac:centroid"):
-        contract.validate_sample(taco.Sample(id="missing-centroid", assets=b"x", metadata=metadata))
+    contract.validate_sample(taco.Sample(id="missing-centroid", assets=b"x", metadata=metadata))
+    assert contract.operations["sample"]["stac"]["produces"] == ["stac:centroid"]
 
 
 def test_scope_is_enforced() -> None:
     with pytest.raises(ContractError, match="cannot be used"):
         taco.Contract(
             structure=["a.tif"],
-            metadata=[taco.Level("sample", scaling=models.Scaling)],
+            metadata=[taco.Level("sample", split=models.SplitStrategy)],
         )
     with pytest.raises(CollectionError, match="not collection"):
         taco.Collection(
@@ -224,23 +224,26 @@ def test_scope_is_enforced() -> None:
             providers=["me"],
             split=models.Split(split="train"),
         )
-    with pytest.raises(ContractError, match="cannot be used"):
-        taco.Contract(
-            structure=["folder/a.tif"],
-            metadata=[taco.Level("children", stac=taco.extensions.stac.STAC | None)],
-        )
     taco.Contract(
         structure=["folder/a.tif"],
-        metadata=[taco.Level("children", stac=taco.extensions.STAC(model=taco.extensions.stac.folder.STAC))],
+        metadata=[taco.Level("children", stac=taco.extensions.sample.stac.STAC | None)],
+    )
+    taco.Contract(
+        structure=["folder/a.tif"],
+        metadata=[taco.Level("children", stac=taco.extensions.sample.stac.STAC)],
     )
 
 
 def test_derived_declaration_and_dependency() -> None:
     contract = taco.Contract(
         structure=["a.bin"],
-        metadata=[taco.Level("sample", stac=taco.extensions.STAC(), majortom=taco.extensions.MajorTOM(50))],
+        metadata=[
+            taco.Level(
+                "sample", stac=taco.extensions.sample.stac.STAC, majortom=taco.extensions.sample.majortom.MajorTOM(50)
+            )
+        ],
     )
-    descriptor = contract.extensions["sample"]["majortom"]
+    descriptor = contract.operations["sample"]["majortom"]
     assert descriptor["requires"] == ["stac:centroid"]
     assert descriptor["produces"] == ["majortom:code"]
     assert descriptor["configuration"]["dist_km"] == 50
@@ -248,13 +251,16 @@ def test_derived_declaration_and_dependency() -> None:
     with pytest.raises(ContractError, match="missing"):
         taco.Contract(
             structure=["a.bin"],
-            metadata=[taco.Level("sample", majortom=taco.extensions.MajorTOM())],
+            metadata=[taco.Level("sample", majortom=taco.extensions.sample.majortom.MajorTOM())],
         )
 
 
 @pytest.mark.parametrize(
     ("namespace", "extension"),
-    [("grid", taco.extensions.MajorTOM()), ("enrich", taco.extensions.GeoEnrich(["elevation"]))],
+    [
+        ("grid", taco.extensions.sample.majortom.MajorTOM()),
+        ("enrich", taco.extensions.sample.geoenrich.GeoEnrich(["elevation"])),
+    ],
 )
 def test_extensions_keep_the_namespace_they_own(namespace: str, extension: taco.Extension) -> None:
     with pytest.raises(ContractError, match="must use metadata namespace"):
@@ -264,12 +270,16 @@ def test_extensions_keep_the_namespace_they_own(namespace: str, extension: taco.
 def test_execution_graph_is_not_serialized() -> None:
     contract = taco.Contract(
         structure=["data.bin"],
-        metadata=[taco.Level("sample", stac=taco.extensions.STAC(), majortom=taco.extensions.MajorTOM())],
+        metadata=[
+            taco.Level(
+                "sample", stac=taco.extensions.sample.stac.STAC, majortom=taco.extensions.sample.majortom.MajorTOM()
+            )
+        ],
     )
-    assert contract.extensions
+    assert contract.operations
     assert "taco:derived" not in contract.to_dict()
 
-    assert taco.Contract.from_dict(contract.to_dict()).extensions == {}
+    assert taco.Contract.from_dict(contract.to_dict()).operations == {}
 
 
 def test_serialized_extension_descriptors_are_rejected(collection: taco.Collection) -> None:

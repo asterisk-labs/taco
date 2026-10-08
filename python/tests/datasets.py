@@ -83,12 +83,12 @@ def polygon(west: float, south: float, east: float, north: float) -> bytes:
 
 def stac(
     index: int,
-    model: type[taco.extensions.stac.STAC] = taco.extensions.stac.STAC,
+    model: type[taco.extensions.sample.stac.STAC] = taco.extensions.sample.stac.STAC,
     *,
     footprint: bool = False,
     with_bbox: bool = True,
     **values: object,
-) -> taco.extensions.stac.STAC:
+) -> taco.extensions.sample.stac.STAC:
     x = -76.0 + index
     moment = datetime(2024, 1, index + 1, tzinfo=timezone.utc)
     if footprint:
@@ -204,7 +204,7 @@ def nested_folders() -> DatasetCase:
             taco.Level("sample", core=SampleInfo),
             taco.Level(
                 "children",
-                stac=taco.extensions.stac.folder.STAC | None,
+                stac=taco.extensions.sample.stac.STAC | None,
             ),
         ],
     )
@@ -218,11 +218,11 @@ def nested_folders() -> DatasetCase:
                 folders=[
                     taco.Folder(
                         "before",
-                        metadata=taco.Metadata(stac=stac(index, taco.extensions.stac.folder.STAC, footprint=True)),
+                        metadata=taco.Metadata(stac=stac(index, taco.extensions.sample.stac.STAC, footprint=True)),
                     ),
                     taco.Folder(
                         "after",
-                        metadata=taco.Metadata(stac=stac(index + 1, taco.extensions.stac.folder.STAC, footprint=True)),
+                        metadata=taco.Metadata(stac=stac(index + 1, taco.extensions.sample.stac.STAC, footprint=True)),
                     ),
                 ],
                 assets=assets,
@@ -346,15 +346,15 @@ def deep_hierarchy() -> DatasetCase:
     contract = taco.Contract(
         structure=paths,
         metadata=[
-            taco.Level("sample", stac=taco.extensions.STAC()),
-            taco.Level("children", stac=taco.extensions.stac.folder.STAC),
-            taco.Level("children/inputs", stac=taco.extensions.stac.folder.STAC),
-            taco.Level("children/targets", stac=taco.extensions.stac.folder.STAC),
+            taco.Level("sample", stac=taco.extensions.sample.stac.STAC),
+            taco.Level("children", stac=taco.extensions.sample.stac.STAC),
+            taco.Level("children/inputs", stac=taco.extensions.sample.stac.STAC),
+            taco.Level("children/targets", stac=taco.extensions.sample.stac.STAC),
         ],
     )
     samples = []
     for index in range(2):
-        folder = taco.Metadata(stac=stac(index, taco.extensions.stac.folder.STAC, footprint=True))
+        folder = taco.Metadata(stac=stac(index, taco.extensions.sample.stac.STAC, footprint=True))
         samples.append(
             taco.Sample(
                 id=f"s{index}",
@@ -424,10 +424,10 @@ def derived_metadata() -> DatasetCase:
         metadata=[
             taco.Level(
                 "sample",
-                stac=taco.extensions.STAC(),
+                stac=taco.extensions.sample.stac.STAC,
                 quality=Quality,
                 ml=models.Split,
-                majortom=taco.extensions.MajorTOM(dist_km=100),
+                majortom=taco.extensions.sample.majortom.MajorTOM(dist_km=100),
             ),
             taco.Level(
                 "children",
@@ -492,11 +492,11 @@ def independent_profile(profile: str) -> DatasetCase:
     # Spatial computes its footprint, so it is an extension; Temporal only stores values.
     sample_model: type[BaseModel]
     if profile == "spatial":
-        sample_model, folder_model = taco.extensions.stac.Spatial, taco.extensions.stac.folder.Spatial
-        sample_group: object = taco.extensions.Spatial()
-        folder_group: object = taco.extensions.Spatial(model=folder_model)
+        sample_model, folder_model = taco.extensions.sample.stac.Spatial, taco.extensions.sample.stac.Spatial
+        sample_group: object = taco.extensions.sample.stac.Spatial
+        folder_group: object = folder_model
     else:
-        sample_model, folder_model = taco.extensions.stac.Temporal, taco.extensions.stac.folder.Temporal
+        sample_model, folder_model = taco.extensions.sample.stac.Temporal, taco.extensions.sample.stac.Temporal
         sample_group, folder_group = sample_model, folder_model
     contract = taco.Contract(
         structure=["scene/data.bin"],

@@ -10,7 +10,7 @@ import pyarrow as pa
 
 from ..errors import ContractError, SampleError
 from .extension import ExtensionContext
-from .naming import level_folder, rumi_file_field
+from .naming import rumi_file_field
 from .sample import Asset, Folder, Sample, _PreparedAsset, _PreparedNode, _PreparedSample
 from .schema import PROFILE_FIELDS, Field, Group, Level, Metadata, validate_qualified_field
 from .structure import Leaf, Node, build_tree, parse_leaf
@@ -107,7 +107,7 @@ def _check_row_independent(
 class Contract:
     structure: tuple[str, ...]
     metadata: dict[str, dict[str, Field]]
-    extensions: dict[str, dict[str, dict[str, Any]]]
+    operations: dict[str, dict[str, dict[str, Any]]]
     levels: tuple[str, ...]
     leaves: tuple[Leaf, ...]
     folders: frozenset[tuple[str, ...]]
@@ -140,14 +140,14 @@ class Contract:
             groups: dict[str, tuple[Group, ...]] = dict.fromkeys(levels, ())
             descriptors: dict[str, dict[str, dict[str, Any]]] = {}
         else:
-            normalized, types_, groups, descriptors = self._from_models(metadata, levels, children)
+            normalized, types_, groups, descriptors = self._from_models(metadata, levels)
         self._check_field_case(normalized)
         self._check_profiles(normalized)
         self._check_rumi_fields(normalized, leaves)
 
         object.__setattr__(self, "structure", declarations)
         object.__setattr__(self, "metadata", normalized)
-        object.__setattr__(self, "extensions", descriptors)
+        object.__setattr__(self, "operations", descriptors)
         object.__setattr__(self, "levels", levels)
         object.__setattr__(self, "leaves", leaves)
         object.__setattr__(self, "folders", folders)
@@ -259,7 +259,6 @@ class Contract:
         cls,
         schema: Sequence[Level],
         levels: tuple[str, ...],
-        children: Mapping[tuple[str, ...], tuple[tuple[str, Any], ...]],
     ) -> tuple[
         dict[str, dict[str, Field]],
         dict[str, dict[str, pa.DataType]],
@@ -280,7 +279,7 @@ class Contract:
         descriptors: dict[str, dict[str, dict[str, Any]]] = {}
         for level in levels:
             bindings = declared[level].groups if level in declared else ()
-            cls._check_scopes(level, bindings, children)
+            cls._check_scopes(level, bindings)
             level_fields: dict[str, Field] = {}
             level_types: dict[str, pa.DataType] = {}
             level_descriptors: dict[str, dict[str, Any]] = {}
@@ -316,26 +315,11 @@ class Contract:
         return metadata, types_, groups, descriptors
 
     @staticmethod
-    def _check_scopes(
-        level: str,
-        groups: Sequence[Group],
-        children: Mapping[tuple[str, ...], tuple[tuple[str, Any], ...]],
-    ) -> None:
-        if level == SAMPLE_LEVEL:
-            possible = {"sample"}
-        else:
-            folder = level_folder(level)
-            possible = {"folder" if kind == "folder" else "asset" for kind, _ in children[folder]}
+    def _check_scopes(level: str, groups: Sequence[Group]) -> None:
         for group in groups:
-            # An active group with producer inputs is scoped by the configured
-            # input model. This lets a reusable operation such as STAC run for
-            # either sample.STAC or folder.STAC while generated-only
-            # extensions such as Rumi keep their own declared scopes.
             target = group.model if group.model is not None else type(group.extension)
-            assert target is not None
             scopes: frozenset[str] = getattr(target, "__taco_scopes__", frozenset())
-            valid = possible.issubset(scopes) if not group.optional else bool(scopes.intersection(possible))
-            if scopes and not valid:
+            if scopes and "sample" not in scopes:
                 raise ContractError(f"{target.__name__} cannot be used at metadata level {level!r}")
 
     @staticmethod
@@ -492,7 +476,7 @@ class Contract:
         if not isinstance(sample, Sample):
             raise SampleError(f"expected a Sample, got {type(sample).__name__}")
         tree = self.expand(sample.assets, sample.folders)
-        metadata = self.flatten_metadata(SAMPLE_LEVEL, sample.metadata, scope="sample")
+        metadata = self.flatten_metadata(SAMPLE_LEVEL, sample.metadata)
         rows: dict[str, tuple[_PreparedNode, ...]] = {}
         for folder, nodes in tree.items():
             level = self.level_of_folder(folder)
@@ -500,7 +484,7 @@ class Contract:
                 _PreparedNode(
                     node.name,
                     node.is_folder,
-                    self.flatten_metadata(level, node.metadata, scope="folder" if node.is_folder else "asset"),
+                    self.flatten_metadata(level, node.metadata),
                 )
                 for node in nodes
             )
@@ -508,7 +492,7 @@ class Contract:
         validated = Sample(id=sample.id, assets=ordered, metadata=sample.metadata, folders=sample.folders)
         return validated, metadata, rows
 
-    def flatten_metadata(self, level: str, metadata: Metadata, *, scope: str) -> dict[str, Any]:
+    def flatten_metadata(self, level: str, metadata: Metadata) -> dict[str, Any]:
         groups = self._groups[level]
         if not groups and metadata.groups:
             raise SampleError(f"metadata is not declared for {level!r}")
@@ -535,9 +519,6 @@ class Contract:
                     f"metadata group {namespace!r} at {level!r} must be {group.model.__name__}, "
                     f"got {type(model).__name__}"
                 )
-            scopes: frozenset[str] = getattr(type(model), "__taco_scopes__", frozenset())
-            if scopes and scope not in scopes:
-                raise SampleError(f"{type(model).__name__} cannot describe a {scope}")
             dumped = model.model_dump(mode="python")
             try:
                 values = {name: dumped[name] for name, _ in group.input_fields}
@@ -615,6 +596,7 @@ class Contract:
                     )
                 produced: dict[str, list[Any]] = {}
                 output_fields = {field.name: field for field in group.extension.fields}
+                nullable = {name: field.nullable for name, field in group.fields}
                 for name, arrow_field in output_fields.items():
                     values = list(output[name])
                     if len(values) != len(rows):
@@ -628,7 +610,7 @@ class Contract:
                     for row, value in zip(rows, produced[name], strict=True):
                         qualified = f"{group.namespace}:{arrow_field.name}"
                         try:
-                            row[qualified] = coerce_value(value, arrow_field.type, nullable=arrow_field.nullable)
+                            row[qualified] = coerce_value(value, arrow_field.type, nullable=nullable[name])
                         except (TypeError, ValueError, OverflowError) as exc:
                             raise SampleError(f"invalid extension output {qualified!r} at {level!r}: {exc}") from exc
                 available.update(f"{group.namespace}:{field.name}" for field in group.extension.fields)

@@ -25,15 +25,7 @@ from ..contract.naming import (
     level_to_filename,
 )
 from ..contract.sample import _PreparedSample
-from ..errors import SampleError
-from ..extensions.stac.models import STAC, Spatial, Temporal, grid_problems
-
-_GRID_NAMESPACES = ("spatial", "stac")
-_PROFILES: dict[str, type[Spatial] | type[Temporal] | type[STAC]] = {
-    "spatial": Spatial,
-    "temporal": Temporal,
-    "stac": STAC,
-}
+from ..extensions.sample.stac.models import PROFILES
 
 
 # Summary reducers refer to fields without a namespace. Keep the namespace
@@ -64,7 +56,7 @@ def _level_summaries(contract: Contract, level: str) -> list[tuple[str, type[Col
     namespaces = {name.partition(":")[0] for name in contract.metadata[level]}
     return [
         (namespace, summary)
-        for namespace, model in _PROFILES.items()
+        for namespace, model in PROFILES.items()
         if namespace in namespaces
         for summary in model.__taco_summaries__
     ]
@@ -242,31 +234,12 @@ class MetadataTableWriter:
             self._writers[level] = writer
         return writer
 
-    def _check_grids(self, level: str, rows: list[dict[str, Any]]) -> None:
-        for namespace in _GRID_NAMESPACES:
-            code = f"{namespace}:proj_code"
-            if code not in self._schemas[level].names:
-                continue
-            grids = [row for row in rows if row.get(code) is not None]
-            problems = grid_problems(
-                [row[code] for row in grids],
-                [row[f"{namespace}:proj_shape"] for row in grids],
-                [row[f"{namespace}:proj_transform"] for row in grids],
-            )
-            if problems:
-                index, message = problems[0]
-                row = grids[index]
-                raise SampleError(
-                    f"{namespace} grid of {row.get(SAMPLE_ID, row[RELATIVE_PATH])!r} at {level!r}: {message}"
-                )
-
     def _flush(self, level: str) -> None:
         rows = self._buffers[level]
         assets = self._asset_buffers[level]
         if not rows:
             return
 
-        self._check_grids(level, rows)
         # Extension outputs must be row-local; otherwise changing batch_size
         # would change the dataset. Check that once, on the first useful batch,
         # because the verification computes the derived values again per row.

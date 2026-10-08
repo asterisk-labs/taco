@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 from .container.parquet import Encoding
 from .contract import Asset, Collection, Contract, Folder, Sample
 from .contract.extension import ExtensionContext
-from .contract.schema import DerivedMetadata, Extension, Level, Metadata
+from .contract.schema import Extension, Level, Metadata
 from .errors import TacoError
 from .reader import Dataset, open_dataset, read
 from .reader.inspect import inspect
@@ -61,7 +61,6 @@ __all__ = [
     "Collection",
     "Contract",
     "Dataset",
-    "DerivedMetadata",
     "Encoding",
     "Extension",
     "ExtensionContext",

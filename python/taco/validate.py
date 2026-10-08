@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import importlib
+import importlib.util
 import struct
 import zipfile
 from collections import Counter, defaultdict
@@ -7,7 +9,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field
 from os import PathLike
 from pathlib import Path
-from typing import Any, BinaryIO, Literal
+from typing import BinaryIO, Literal
 
 import pyarrow as pa
 
@@ -15,7 +17,7 @@ from .container.cozip import INDEX_NAME
 from .container.view import DatasetView, open_view
 from .contract.collection import KNOWN_TASKS
 from .contract.contract import CHILDREN_LEVEL, SAMPLE_ID, SAMPLE_LEVEL, Contract
-from .contract.extension_registry import OWNERS, builtin_name, used_namespaces
+from .contract.extension_registry import OWNERS, builtin_name, schema, used_namespaces
 from .contract.naming import (
     COLLECTION_FILENAME,
     CURRENT_ID,
@@ -30,12 +32,8 @@ from .contract.naming import (
     level_to_filename,
     normalize_relative_path,
 )
-from .contract.schema import PROFILE_FIELDS
 from .contract.types import type_name
 from .errors import TacoError, ValidationFailed
-from .extensions import majortom
-from .extensions._registry import SCOPES, schema
-from .extensions.stac.models import STAC, Spatial, Temporal, grid_problems
 from .writer.metadata import table_schema
 
 __all__ = ["Issue", "ValidationReport", "validate"]
@@ -114,7 +112,7 @@ def validate(path: str | PathLike[str], *, check_data: bool = True) -> Validatio
     _check_metadata_files(dataset, collector)
     _check_sample_ids(dataset, collector)
     _check_levels(dataset, dataset.tables, collector)
-    _check_profile_rows(dataset, collector)
+    _check_extension_rules(dataset, collector)
     if dataset.container == "zip":
         _check_zip(dataset, collector, check_data=check_data)
     elif dataset.container == "folder":
@@ -148,71 +146,6 @@ def _check_sample_ids(dataset: DatasetView, collector: _Collector) -> None:
     duplicates = sum(count - 1 for count in counts.values() if count > 1)
     if duplicates:
         collector.error("id", f"sample: id must be unique ({duplicates} duplicates)")
-
-
-def _profile_problem(values: dict[str, object]) -> str | None:
-    try:
-        if "centroid" in values:
-            if values["centroid"] is None:
-                return "centroid is null"
-            model = STAC if "datetime" in values else Spatial
-            model.model_validate(values)
-        else:
-            Temporal.model_validate(values)
-    except ValueError as exc:
-        return str(exc)
-    return None
-
-
-def _grid_problems(grids: list[tuple[int, dict[str, Any]]]) -> list[tuple[int, str]]:
-    problems = grid_problems(
-        [values["proj_code"] for _, values in grids],
-        [values["proj_shape"] for _, values in grids],
-        [values["proj_transform"] for _, values in grids],
-    )
-    return [(grids[index][0], message) for index, message in problems]
-
-
-def _check_profile_rows(dataset: DatasetView, collector: _Collector) -> None:
-    """Check every row of a spatial or temporal profile against its rules."""
-    for level, fields in dataset.contract.metadata.items():
-        table = dataset.tables.get(level)
-        if table is None:
-            continue
-        namespaces = {name.partition(":")[0] for name in fields}.intersection(PROFILE_FIELDS)
-        for namespace in sorted(namespaces):
-            names = list(PROFILE_FIELDS[namespace])
-            if not all(f"{namespace}:{name}" in table.column_names for name in names):
-                continue
-            selected = table.select([f"{namespace}:{name}" for name in names])
-            first_problem: tuple[int, str] | None = None
-            problem_count = 0
-            offset = 0
-            for batch in selected.to_batches(max_chunksize=8192):
-                columns = [column.to_pylist() for column in batch.columns]
-                problems: list[tuple[int, str]] = []
-                grids: list[tuple[int, dict[str, Any]]] = []
-                for row, values in enumerate(zip(*columns, strict=True), start=offset):
-                    # An optional group may be absent from a row as a whole.
-                    if all(value is None for value in values):
-                        continue
-                    named = dict(zip(names, values, strict=True))
-                    problem = _profile_problem(named)
-                    if problem is not None:
-                        problems.append((row, problem))
-                    elif named.get("proj_code") is not None:
-                        grids.append((row, named))
-                problems.extend(_grid_problems(grids))
-                problem_count += len(problems)
-                if problems and first_problem is None:
-                    first_problem = min(problems)
-                offset += batch.num_rows
-            if first_problem is not None:
-                row, problem = first_problem
-                collector.error(
-                    "profile",
-                    f"{level}: {namespace} breaks its profile on {problem_count} rows (first row {row}: {problem})",
-                )
 
 
 def _check_collection(dataset: DatasetView, collector: _Collector) -> None:
@@ -257,54 +190,23 @@ def _check_extensions(dataset: DatasetView, collector: _Collector) -> None:
             where = "/".join(str(part) for part in error.absolute_path) or "COLLECTION.json"
             message = error.message if len(error.message) <= 200 else error.message[:197] + "..."
             collector.error("extensions", f"{where} breaks {identifier}: {message}")
-    if majortom.IDENTIFIER in listed:
-        _check_majortom(document, collector)
-    _check_extension_rows(dataset, listed, collector)
 
 
-def _check_majortom(document: dict[str, Any], collector: _Collector) -> None:
-    extra = document.get("majortom:extra")
-    if isinstance(extra, dict):
-        expected = {"majortom:code", *(f"majortom:{name}" for name in extra)}
-        stored = {name for name in document["taco:metadata"].get(SAMPLE_LEVEL, {}) if name.startswith("majortom:")}
-        if stored != expected:
-            collector.error("extensions", f"majortom columns {sorted(stored)} do not match majortom:extra")
-    for name in ("majortom:latitude_range", "majortom:longitude_range"):
-        value = document.get(name)
-        if isinstance(value, list) and len(value) == 2 and not value[0] < value[1]:
-            collector.error("extensions", f"{name} must increase, got {value}")
-
-
-def _check_extension_rows(dataset: DatasetView, listed: tuple[str, ...], collector: _Collector) -> None:
-    for level, fields in dataset.contract.metadata.items():
-        if level == SAMPLE_LEVEL:
-            continue
-        table = dataset.tables.get(level)
-        if table is None or RELATIVE_PATH not in table.column_names:
-            continue
-        owners = {name: OWNERS.get(name.partition(":")[0]) for name in fields}
-        owned = [(name, SCOPES[owner]) for name, owner in owners.items() if owner is not None and owner in listed]
-        if not owned:
-            continue
-        kinds = [
-            "asset" if dataset.is_leaf_level_row(level, path) else "folder"
-            for path in table.column(RELATIVE_PATH).to_pylist()
-        ]
-        for name, scopes in owned:
-            if name not in table.column_names:
+def _check_extension_rules(dataset: DatasetView, collector: _Collector) -> None:
+    """Run checks not covered by JSON Schema."""
+    names = {
+        builtin_name(OWNERS[namespace]) for namespace in used_namespaces(dataset.collection_json) if namespace in OWNERS
+    }
+    for name in sorted(name for name in names if name is not None):
+        for scope in ("sample", "collection"):
+            module = f"taco.extensions.{scope}.{name}.checks"
+            if (
+                importlib.util.find_spec(f"taco.extensions.{scope}.{name}") is None
+                or importlib.util.find_spec(module) is None
+            ):
                 continue
-            values = table.column(name).to_pylist()
-            rows = [
-                row
-                for row, (kind, value) in enumerate(zip(kinds, values, strict=True))
-                if value is not None and kind not in scopes
-            ]
-            if rows:
-                collector.error(
-                    "extensions",
-                    f"{level}: {name} has values on {len(rows)} {kinds[rows[0]]} rows its extension cannot describe "
-                    f"(first row {rows[0]})",
-                )
+            for code, message in importlib.import_module(module).check_dataset(dataset):
+                collector.error(code, message)
 
 
 def _expected_schema_names(contract: Contract, level: str, container: str) -> list[str]:

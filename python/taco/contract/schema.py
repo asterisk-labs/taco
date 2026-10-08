@@ -11,7 +11,7 @@ import pyarrow as pa
 
 from ..container.parquet import Encoding
 from ..errors import ContractError, SampleError
-from .extension import CollectionSummary, DerivedMetadata, Extension
+from .extension import CollectionSummary, Extension
 from .naming import validate_field_name
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -79,11 +79,6 @@ class Group:
     input_fields: tuple[tuple[str, pa.Field], ...]
     extension: Extension | None = None
     summaries: tuple[type[CollectionSummary], ...] = ()
-
-    @property
-    def derived(self) -> Extension | None:
-        """Compatibility name used by older callers."""
-        return self.extension
 
 
 def _optional(annotation: Any) -> tuple[Any, bool]:
@@ -222,6 +217,9 @@ def _model_binding(namespace: str, value: Any) -> Group:
         raise ContractError(
             f"{annotation.__name__} must use metadata namespace {expected_namespace!r}, got {namespace!r}"
         )
+    operation = getattr(annotation, "__taco_operation__", None)
+    if operation is not None:
+        return _extension_binding(namespace, operation(), optional=optional)
     input_fields = _model_fields(namespace, annotation, optional)
     fields = input_fields
     canonical = PROFILE_FIELDS.get(namespace)
@@ -240,7 +238,7 @@ def _model_binding(namespace: str, value: Any) -> Group:
     )
 
 
-def _extension_binding(namespace: str, value: Extension) -> Group:
+def _extension_binding(namespace: str, value: Extension, *, optional: bool = False) -> Group:
     expected_namespace = value.__taco_namespace__
     if expected_namespace is not None and namespace != expected_namespace:
         raise ContractError(
@@ -257,7 +255,7 @@ def _extension_binding(namespace: str, value: Extension) -> Group:
             raise ContractError(
                 f"{type(value).__name__} must use metadata namespace {expected_namespace!r}, got {namespace!r}"
             )
-        input_fields = _model_fields(namespace, model, False)
+        input_fields = _model_fields(namespace, model, optional)
         summaries = _summary_types(model, input_fields)
 
     fields = list(input_fields)
@@ -266,7 +264,7 @@ def _extension_binding(namespace: str, value: Extension) -> Group:
         qualified = f"{namespace}:{field.name}"
         validate_field_name(qualified, context="derived metadata")
         metadata = field.metadata
-        item = (field.name, pa.field(qualified, field.type, nullable=field.nullable, metadata=metadata))
+        item = (field.name, pa.field(qualified, field.type, nullable=field.nullable or optional, metadata=metadata))
         if qualified in positions:
             existing = fields[positions[qualified]][1]
             if existing.type != field.type:
@@ -279,7 +277,7 @@ def _extension_binding(namespace: str, value: Extension) -> Group:
             fields.append(item)
     if not value.fields:
         raise ContractError(f"extension group {namespace!r} has no output fields")
-    return Group(namespace, model, False, tuple(fields), input_fields, value, summaries)
+    return Group(namespace, model, optional, tuple(fields), input_fields, value, summaries)
 
 
 def _namespace(value: str) -> str:
@@ -350,7 +348,6 @@ class Metadata:
 
 __all__ = [
     "PROFILE_FIELDS",
-    "DerivedMetadata",
     "Extension",
     "Field",
     "Level",

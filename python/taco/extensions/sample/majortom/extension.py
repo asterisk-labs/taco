@@ -8,8 +8,8 @@ from typing import Any, ClassVar
 
 import pyarrow as pa
 
-from ...contract.extension import DerivedMetadata
-from ...contract.naming import validate_field_name
+from ....contract.extension import Extension, ExtensionContext
+from ....contract.naming import validate_field_name
 from ..stac.models import centroid_field, lonlat
 
 
@@ -60,7 +60,7 @@ def _grid(
 
 
 @dataclass(frozen=True)
-class MajorTOM(DerivedMetadata):
+class MajorTOM(Extension):
     """Assign the spherical MajorTOM grid cell containing each centroid."""
 
     __taco_scopes__: ClassVar[frozenset[str]] = frozenset({"sample"})
@@ -186,6 +186,9 @@ class MajorTOM(DerivedMetadata):
             )
             for row_index, column_index in zip(row_indexes, column_indexes, strict=True)
         ]
+
+    def run(self, context: ExtensionContext) -> Mapping[str, Sequence[Any]]:
+        return self.compute({name: context.columns[name] for name in self.requires})
 
     def compute(self, columns: Mapping[str, Sequence[Any]]) -> Mapping[str, Sequence[Any]]:
         try:

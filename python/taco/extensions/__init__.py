@@ -1,9 +1,5 @@
-"""Built-in extensions, one module per extension in ``docs/spec/extensions``."""
+"""Built-in extensions grouped by scope."""
 
-from . import geoenrich, majortom, rumi, stac
-from .geoenrich import GeoEnrich
-from .majortom import MajorTOM
-from .rumi import Rumi
-from .stac.extension import STAC, Spatial
+from . import collection, sample
 
-__all__ = ["STAC", "GeoEnrich", "MajorTOM", "Rumi", "Spatial", "geoenrich", "majortom", "rumi", "stac"]
+__all__ = ["collection", "sample"]

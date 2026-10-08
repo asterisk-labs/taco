@@ -1,6 +1,6 @@
 """Regenerate the datasets the core tests read.
 
-    python core/tests/generate_fixtures.py
+python core/tests/generate_fixtures.py
 """
 
 from __future__ import annotations
@@ -258,7 +258,7 @@ def write_rumi(output: Path) -> None:
         metadata=[
             taco.Level(
                 "children/scene",
-                rumi=taco.extensions.Rumi(
+                rumi=taco.extensions.sample.rumi.Rumi(
                     stats={
                         "scene/image.rumi": "mean",
                         "scene/series*[1,2].rumi": "maximum_b1",

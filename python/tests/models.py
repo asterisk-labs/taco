@@ -25,7 +25,7 @@ class Split(Scoped):
 
 
 class Scaling(Scoped):
-    __taco_scopes__ = frozenset({"asset"})
+    __taco_scopes__ = frozenset({"sample"})
 
     scale_factor: Annotated[list[float], pa.list_(pa.float32())] | None = Field(
         default=None, description="Multiplicative factors used to unpack values"

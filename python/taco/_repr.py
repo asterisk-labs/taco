@@ -192,7 +192,7 @@ def _metadata(dataset: Dataset) -> str:
     rows = []
     for level, fields in dataset.contract.metadata.items():
         produced = {
-            field for group in dataset.contract.extensions.get(level, {}).values() for field in group["produces"]
+            field for group in dataset.contract.operations.get(level, {}).values() for field in group["produces"]
         }
         chips = "".join(_metadata_field(name, field, derived=name in produced) for name, field in fields.items())
         content = chips or '<span class="taco-empty">no fields</span>'

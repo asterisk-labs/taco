@@ -215,10 +215,9 @@ def collection_models_matching(values: dict[str, object], candidates: set[type[o
 
 def test_every_public_extension_group_has_a_writer_case() -> None:
     modules = (
-        taco.extensions.stac,
-        taco.extensions.stac.folder,
-        taco.extensions.majortom,
-        taco.extensions.geoenrich,
+        taco.extensions.sample.stac,
+        taco.extensions.sample.majortom,
+        taco.extensions.sample.geoenrich,
     )
     public = set().union(*(public_metadata_groups(module) for module in modules))
     used: set[type[object]] = set()
@@ -226,10 +225,10 @@ def test_every_public_extension_group_has_a_writer_case() -> None:
     for case in CASES:
         for groups in case.collection.contract._groups.values():
             for group in groups:
-                target = group.model if group.model is not None else type(group.derived)
+                target = group.model if group.model is not None else type(group.extension)
                 used.update(candidate for candidate in public if issubclass(target, candidate))
         for values in case.collection.metadata.values():
             used.update(collection_models_matching(values, public))
 
-    external = {taco.extensions.GeoEnrich}
+    external = {taco.extensions.sample.geoenrich.GeoEnrich}
     assert public == used | external

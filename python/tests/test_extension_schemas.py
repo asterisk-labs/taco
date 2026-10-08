@@ -4,14 +4,14 @@ import copy
 import json
 import re
 from collections.abc import Callable
-from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 import taco
-from taco.contract.extension_registry import declared
+from taco.contract.extension_registry import BUILTINS, declared
+from taco.contract.extension_registry import schema as schema_of_package
 
 jsonschema = pytest.importorskip("jsonschema")
 
@@ -75,10 +75,8 @@ def test_schema_is_valid_and_matches_its_identifier(name: str) -> None:
 
 @pytest.mark.parametrize("name", NAMES)
 def test_package_ships_the_published_schema(name: str) -> None:
-    module = getattr(taco.extensions, name)
-    assert identifier(name) == module.IDENTIFIER
-    shipped = files(module.__name__).joinpath("schema.json").read_text(encoding="utf-8")
-    assert json.loads(shipped) == load(EXTENSIONS / name / "v1.0.0" / "schema.json")
+    assert BUILTINS[name][0] == identifier(name)
+    assert schema_of_package(identifier(name)) == load(EXTENSIONS / name / "v1.0.0" / "schema.json")
 
 
 @pytest.mark.parametrize("name", NAMES)
@@ -88,37 +86,52 @@ def test_example_validates(name: str) -> None:
     assert errors(document) == []
 
 
-E = taco.extensions
+E = taco.extensions.sample
 WRITER_CONTRACTS: dict[str, tuple[list[str], dict[str, dict[str, Any]], list[str]]] = {
-    "temporal": (["a.tif"], {"sample": {"temporal": taco.extensions.stac.Temporal}}, ["stac"]),
-    "spatial": (["a.tif"], {"sample": {"spatial": E.Spatial()}}, ["stac"]),
-    "optional stac": (["a.tif"], {"sample": {"stac": taco.extensions.stac.STAC | None}}, ["stac"]),
-    "folder stac": (["x/a.tif"], {"children": {"stac": taco.extensions.stac.folder.STAC}}, ["stac"]),
-    "rumi header": (["a.rumi"], {"sample": {"rumi": E.Rumi()}}, ["rumi"]),
-    "rumi stats": (["x/a.rumi"], {"children/x": {"rumi": E.Rumi(stats=True)}}, ["rumi"]),
+    "temporal": (["a.tif"], {"sample": {"temporal": taco.extensions.sample.stac.Temporal}}, ["stac"]),
+    "spatial": (["a.tif"], {"sample": {"spatial": E.stac.Spatial}}, ["stac"]),
+    "optional stac": (["a.tif"], {"sample": {"stac": taco.extensions.sample.stac.STAC | None}}, ["stac"]),
+    "folder stac": (["x/a.tif"], {"children": {"stac": taco.extensions.sample.stac.STAC}}, ["stac"]),
+    "rumi header": (["a.rumi"], {"sample": {"rumi": E.rumi.Rumi()}}, ["rumi"]),
+    "rumi stats": (["x/a.rumi"], {"children/x": {"rumi": E.rumi.Rumi(stats=True)}}, ["rumi"]),
     "rumi per file": (
         ["x/a.rumi", "x/b*[1,3].rumi"],
-        {"children/x": {"rumi": E.Rumi(header=False, stats={"x/a.rumi": "mean_b2", "x/b*[1,3].rumi": ["p2_t0_b10"]})}},
+        {
+            "children/x": {
+                "rumi": E.rumi.Rumi(header=False, stats={"x/a.rumi": "mean_b2", "x/b*[1,3].rumi": ["p2_t0_b10"]})
+            }
+        },
         ["rumi"],
     ),
     "majortom": (
         ["a.tif"],
-        {"sample": {"stac": E.STAC(), "majortom": E.MajorTOM(dist_km=50, extra={"fine": 1, "wide": 1000}, sep="-")}},
+        {
+            "sample": {
+                "stac": E.stac.STAC,
+                "majortom": E.majortom.MajorTOM(dist_km=50, extra={"fine": 1, "wide": 1000}, sep="-"),
+            }
+        },
         ["stac", "majortom"],
     ),
     "majortom on spatial": (
         ["a.tif"],
-        {"sample": {"spatial": E.Spatial(), "majortom": E.MajorTOM(centroid="spatial:centroid")}},
+        {"sample": {"spatial": E.stac.Spatial, "majortom": E.majortom.MajorTOM(centroid="spatial:centroid")}},
         ["stac", "majortom"],
     ),
     "geoenrich index": (
         ["a.tif"],
-        {"sample": {"stac": E.STAC(), "majortom": E.MajorTOM(dist_km=10), "geoenrich": E.GeoEnrich()}},
+        {
+            "sample": {
+                "stac": E.stac.STAC,
+                "majortom": E.majortom.MajorTOM(dist_km=10),
+                "geoenrich": E.geoenrich.GeoEnrich(),
+            }
+        },
         ["stac", "majortom", "geoenrich"],
     ),
     "geoenrich earthengine": (
         ["a.tif"],
-        {"sample": {"stac": E.STAC(), "geoenrich": E.GeoEnrich(["elevation"], backend="earthengine")}},
+        {"sample": {"stac": E.stac.STAC, "geoenrich": E.geoenrich.GeoEnrich(["elevation"], backend="earthengine")}},
         ["stac", "geoenrich"],
     ),
 }

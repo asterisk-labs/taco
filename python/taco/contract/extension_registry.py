@@ -1,9 +1,12 @@
-"""Built-in extension identifiers."""
+"""Built-in extension registry."""
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Mapping
+from functools import cache
+from importlib.resources import files
 from typing import Any
 
 BASE = "https://asterisk.coop/taco/spec/extensions"
@@ -46,3 +49,14 @@ def declared(document: Mapping[str, Any]) -> list[str]:
             identifiers.add(owner)
             names.add(name)
     return sorted(identifiers)
+
+
+@cache
+def schema(identifier: str) -> dict[str, Any] | None:
+    """Return a bundled schema."""
+    name = next((name for name, (known, _) in BUILTINS.items() if known == identifier), None)
+    if name is None:
+        return None
+    text = files("taco").joinpath("extensions", "schemas", f"{name}.json").read_text(encoding="utf-8")
+    loaded: dict[str, Any] = json.loads(text)
+    return loaded

@@ -13,9 +13,9 @@ from typing import Annotated, Any, ClassVar, TypeAlias
 import pyarrow as pa
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from ...container.parquet import Encoding
-from ...contract.collection import Extent
-from ...contract.extension import CollectionSummary
+from ....container.parquet import Encoding
+from ....contract.collection import Extent
+from ....contract.extension import CollectionSummary, Extension
 
 TimestampUTC = Annotated[datetime, pa.timestamp("us", tz="UTC")]
 Float32 = Annotated[float, pa.float32()]
@@ -565,6 +565,13 @@ class _Profile(BaseModel):
 class _Location(_Profile):
     """Fields and checks shared by Spatial and STAC."""
 
+    @classmethod
+    def __taco_operation__(cls) -> Extension:
+        """Derive centroids for this profile."""
+        from ._centroid import Centroid
+
+        return Centroid(cls)
+
     geometry: Geometry | None = Field(
         default=None,
         description="Footprint in EPSG:4326 as WKB, when the producer supplies one",
@@ -809,7 +816,10 @@ class STAC(_Location):
         return self
 
 
+PROFILES: dict[str, type[_Profile]] = {"spatial": Spatial, "temporal": Temporal, "stac": STAC}
+
 __all__ = [
+    "PROFILES",
     "STAC",
     "Point",
     "Spatial",

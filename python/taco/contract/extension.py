@@ -88,20 +88,3 @@ class Extension(ABC):
     @abstractmethod
     def run(self, context: ExtensionContext) -> Mapping[str, Sequence[Any]]:
         raise NotImplementedError
-
-
-@dataclass(frozen=True)
-class DerivedMetadata(Extension):
-    """Compatibility base for column-only extensions.
-
-    New extensions should implement :class:`Extension` directly. This adapter
-    keeps existing custom derived metadata working while the contract uses one
-    execution model for every active metadata group.
-    """
-
-    @abstractmethod
-    def compute(self, columns: Mapping[str, Sequence[Any]]) -> Mapping[str, Sequence[Any]]:
-        raise NotImplementedError
-
-    def run(self, context: ExtensionContext) -> Mapping[str, Sequence[Any]]:
-        return self.compute({name: context.columns[name] for name in self.requires})

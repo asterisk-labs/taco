@@ -19,7 +19,7 @@ from shapely.geometry import MultiPolygon, box
 import taco
 from taco.container.view import open_view
 from taco.errors import SampleError, WriterError
-from taco.extensions.stac import STAC
+from taco.extensions.sample.stac.models import STAC
 from taco.writer.identity import IdentifierIndex
 
 
@@ -274,7 +274,7 @@ def test_collection_without_tasks_round_trips(tmp_path: Path) -> None:
 def test_stac_generates_extent(tmp_path: Path) -> None:
     contract = taco.Contract(
         structure=["data.bin"],
-        metadata=[taco.Level("sample", stac=taco.extensions.STAC())],
+        metadata=[taco.Level("sample", stac=taco.extensions.sample.stac.STAC)],
     )
     collection = taco.Collection(
         contract=contract,
@@ -296,7 +296,7 @@ def test_stac_generates_extent(tmp_path: Path) -> None:
     ]
     with taco.open_writer(collection, tmp_path / "data.zip", batch_size=1) as writer:
         for index, (lon, lat, times) in enumerate(records):
-            stac = taco.extensions.stac.STAC(
+            stac = taco.extensions.sample.stac.STAC(
                 proj_code="EPSG:4326",
                 proj_shape=(256, 256),
                 proj_transform=(0.25 / 256, 0, lon - 0.125, 0, -0.25 / 256, lat + 0.125),
@@ -314,7 +314,7 @@ def test_stac_generates_extent(tmp_path: Path) -> None:
 def test_extent_covers_footprints_across_the_antimeridian(tmp_path: Path) -> None:
     contract = taco.Contract(
         structure=["data.bin"],
-        metadata=[taco.Level("sample", stac=taco.extensions.STAC())],
+        metadata=[taco.Level("sample", stac=taco.extensions.sample.stac.STAC)],
     )
     collection = taco.Collection(
         contract=contract,
@@ -348,7 +348,7 @@ def test_extent_covers_footprints_across_the_antimeridian(tmp_path: Path) -> Non
 def test_empty_stac_summary_removes_extent(tmp_path: Path) -> None:
     contract = taco.Contract(
         structure=["data.bin"],
-        metadata=[taco.Level("sample", stac=taco.extensions.stac.STAC | None)],
+        metadata=[taco.Level("sample", stac=taco.extensions.sample.stac.STAC | None)],
     )
     collection = taco.Collection(
         contract=contract,

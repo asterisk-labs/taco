@@ -10,10 +10,10 @@ from typing import Any, ClassVar, TypeGuard
 import numpy as np
 import pyarrow as pa
 
-from ...contract.extension import Extension, ExtensionContext
-from ...contract.naming import RUMI_NAMESPACE, RUMI_STATISTIC
-from ...contract.structure import Leaf, parse_leaf
-from ...errors import SampleError
+from ....contract.extension import Extension, ExtensionContext
+from ....contract.naming import RUMI_NAMESPACE, RUMI_STATISTIC
+from ....contract.structure import Leaf, parse_leaf
+from ....errors import SampleError
 
 # Statistics included by stats=True.
 STATISTICS = ("minimum", "maximum", "mean", "stddev", "p2", "p98")
@@ -243,7 +243,7 @@ class Rumi(Extension):
     _statistics: tuple[_Statistic, ...] = field(init=False, repr=False, compare=False)
     _file_statistics: tuple[tuple[Leaf, tuple[_Statistic, ...]], ...] = field(init=False, repr=False, compare=False)
 
-    __taco_scopes__: ClassVar[frozenset[str]] = frozenset({"sample", "asset"})
+    __taco_scopes__: ClassVar[frozenset[str]] = frozenset({"sample"})
     __taco_namespace__: ClassVar[str | None] = RUMI_NAMESPACE
     __taco_row_local__: ClassVar[bool] = True
 

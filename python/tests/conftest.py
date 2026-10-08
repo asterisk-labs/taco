@@ -44,9 +44,9 @@ def contract() -> taco.Contract:
         metadata=[
             taco.Level(
                 "sample",
-                stac=taco.extensions.STAC(),
+                stac=taco.extensions.sample.stac.STAC,
                 ml=ML,
-                majortom=taco.extensions.MajorTOM(dist_km=100),
+                majortom=taco.extensions.sample.majortom.MajorTOM(dist_km=100),
             ),
             taco.Level("children", node=Kind),
             taco.Level("children/before", file=AssetInfo),
@@ -92,7 +92,7 @@ def make_sample(tmp_path: Path):
         return taco.Sample(
             id=f"s{index}",
             metadata=taco.Metadata(
-                stac=taco.extensions.stac.STAC(
+                stac=taco.extensions.sample.stac.STAC(
                     proj_code="EPSG:4326",
                     proj_shape=(256, 256),
                     proj_transform=(0.25 / 256, 0, longitude - 0.125, 0, -0.25 / 256, latitude + 0.125),

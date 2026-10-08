@@ -47,7 +47,7 @@ def write_fake_rumi(
     fake_rumi(monkeypatch, array)
     contract = taco.Contract(
         structure=["data.rumi"],
-        metadata=[taco.Level("sample", rumi=taco.extensions.Rumi(stats=stats))],
+        metadata=[taco.Level("sample", rumi=taco.extensions.sample.rumi.Rumi(stats=stats))],
     )
     with taco.open_writer(collection(contract), tmp_path / "dataset") as writer:
         writer.add(taco.Sample(id="u10", assets=taco.Asset(source, path="data.rumi")))
@@ -69,7 +69,7 @@ CUBE = np.array(
 def test_rumi_stats_contract_matches_the_spec() -> None:
     contract = taco.Contract(
         structure=["data.rumi"],
-        metadata=[taco.Level("sample", rumi=taco.extensions.Rumi(stats=True))],
+        metadata=[taco.Level("sample", rumi=taco.extensions.sample.rumi.Rumi(stats=True))],
     )
     fields = contract.metadata["sample"]
     assert list(fields) == [
@@ -87,7 +87,7 @@ def test_rumi_stats_contract_matches_the_spec() -> None:
 
 
 def test_rumi_named_statistics_become_columns_in_order() -> None:
-    rumi = taco.extensions.Rumi(stats=["p98_t0_b3", "mean", "stddev_b10", "minimum_t2"])
+    rumi = taco.extensions.sample.rumi.Rumi(stats=["p98_t0_b3", "mean", "stddev_b10", "minimum_t2"])
     contract = taco.Contract(structure=["data.rumi"], metadata=[taco.Level("sample", rumi=rumi)])
     assert rumi.stats == ("p98_t0_b3", "mean", "stddev_b10", "minimum_t2")
     assert list(contract.metadata["sample"]) == [
@@ -104,12 +104,14 @@ def test_rumi_named_statistics_become_columns_in_order() -> None:
 
 
 def test_rumi_accepts_one_statistic_name() -> None:
-    assert taco.extensions.Rumi(stats="mean_b0").stats == ("mean_b0",)
+    assert taco.extensions.sample.rumi.Rumi(stats="mean_b0").stats == ("mean_b0",)
 
 
 def test_rumi_selection_stays_hashable() -> None:
-    assert hash(taco.extensions.Rumi(stats=["mean", "p2"])) == hash(taco.extensions.Rumi(stats=("mean", "p2")))
-    assert hash(taco.extensions.Rumi(stats={"data.rumi": ["mean"]}))
+    assert hash(taco.extensions.sample.rumi.Rumi(stats=["mean", "p2"])) == hash(
+        taco.extensions.sample.rumi.Rumi(stats=("mean", "p2"))
+    )
+    assert hash(taco.extensions.sample.rumi.Rumi(stats={"data.rumi": ["mean"]}))
 
 
 def test_rumi_can_select_statistics_per_file() -> None:
@@ -118,7 +120,7 @@ def test_rumi_can_select_statistics_per_file() -> None:
         metadata=[
             taco.Level(
                 "children/scene",
-                rumi=taco.extensions.Rumi(
+                rumi=taco.extensions.sample.rumi.Rumi(
                     stats={
                         "scene/image.rumi": ["mean", "p98"],
                         "scene/cube.rumi": ["mean_t0", "p98_t0_b3"],
@@ -138,13 +140,13 @@ def test_rumi_can_select_statistics_per_file() -> None:
 
 def test_rumi_per_file_selection_validates_the_contract() -> None:
     with pytest.raises(ValueError, match="mapping cannot be empty"):
-        taco.extensions.Rumi(stats={})
+        taco.extensions.sample.rumi.Rumi(stats={})
     with pytest.raises(ValueError, match="omit it from the mapping"):
-        taco.extensions.Rumi(stats={"data.rumi": False})
+        taco.extensions.sample.rumi.Rumi(stats={"data.rumi": False})
     with pytest.raises(ValueError, match="omit it from the mapping"):
-        taco.extensions.Rumi(stats={"data.rumi": []})
+        taco.extensions.sample.rumi.Rumi(stats={"data.rumi": []})
     with pytest.raises(TypeError, match="keys must be structure declarations"):
-        taco.extensions.Rumi(stats={1: "mean"})  # type: ignore[dict-item]
+        taco.extensions.sample.rumi.Rumi(stats={1: "mean"})  # type: ignore[dict-item]
 
     for selected, message in [
         ({"missing.rumi": "mean"}, "unknown structure declarations"),
@@ -156,7 +158,7 @@ def test_rumi_per_file_selection_validates_the_contract() -> None:
                 metadata=[
                     taco.Level(
                         "children/scene",
-                        rumi=taco.extensions.Rumi(stats=selected),
+                        rumi=taco.extensions.sample.rumi.Rumi(stats=selected),
                     )
                 ],
             )
@@ -167,10 +169,10 @@ def test_rumi_file_statistics_survive_reconstruction() -> None:
         "image.rumi": ["mean", "p98"],
         "cube.rumi": ["mean_t0"],
     }
-    extension = taco.extensions.Rumi(stats=selected)
+    extension = taco.extensions.sample.rumi.Rumi(stats=selected)
 
     changed = replace(extension, header=False)
-    reconstructed = taco.extensions.Rumi(stats=extension.stats)
+    reconstructed = taco.extensions.sample.rumi.Rumi(stats=extension.stats)
 
     assert changed.stats == extension.stats
     assert changed.configuration() == {"header": False, "stats": selected}
@@ -203,17 +205,17 @@ def test_rumi_file_scopes_are_validated(name: str, files: object, message: str) 
 @pytest.mark.parametrize("name", ["avg", "Mean", "mean_b01", "mean_b", "mean_b3_t0", "mean_t0_", "p25", "valid_count"])
 def test_rumi_rejects_unknown_statistics(name: str) -> None:
     with pytest.raises(ValueError, match="unknown Rumi statistic"):
-        taco.extensions.Rumi(stats=[name])
+        taco.extensions.sample.rumi.Rumi(stats=[name])
 
 
 def test_rumi_rejects_a_repeated_statistic() -> None:
     with pytest.raises(ValueError, match="duplicate Rumi statistic 'mean'"):
-        taco.extensions.Rumi(stats=["mean", "p2", "mean"])
+        taco.extensions.sample.rumi.Rumi(stats=["mean", "p2", "mean"])
 
 
 def test_rumi_rejects_an_empty_statistic_list() -> None:
     with pytest.raises(ValueError, match="use stats=False"):
-        taco.extensions.Rumi(stats=[])
+        taco.extensions.sample.rumi.Rumi(stats=[])
 
 
 @pytest.mark.parametrize(
@@ -228,7 +230,7 @@ def test_rumi_rejects_an_empty_statistic_list() -> None:
 )
 def test_rumi_rejects_statistics_that_are_not_names(stats: object, message: str) -> None:
     with pytest.raises(TypeError, match=message):
-        taco.extensions.Rumi(stats=stats)  # type: ignore[arg-type]
+        taco.extensions.sample.rumi.Rumi(stats=stats)  # type: ignore[arg-type]
 
 
 def test_rumi_statistics_cover_the_whole_array_by_default(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -342,7 +344,7 @@ def test_rumi_header_only_does_not_decode(tmp_path: Path, monkeypatch: pytest.Mo
     monkeypatch.setitem(sys.modules, "rumi", fake)
     contract = taco.Contract(
         structure=["data.rumi"],
-        metadata=[taco.Level("sample", rumi=taco.extensions.Rumi())],
+        metadata=[taco.Level("sample", rumi=taco.extensions.sample.rumi.Rumi())],
     )
     with taco.open_writer(collection(contract), tmp_path / "dataset") as writer:
         writer.add(taco.Sample(id="u11", assets=taco.Asset(source, path="data.rumi")))
@@ -358,7 +360,7 @@ def test_rumi_extension_can_store_stats_without_the_header(tmp_path: Path, monke
     fake_rumi(monkeypatch, np.ones((1, 2, 2), dtype=np.int16))
     contract = taco.Contract(
         structure=["data.rumi"],
-        metadata=[taco.Level("sample", rumi=taco.extensions.Rumi(header=False, stats=True))],
+        metadata=[taco.Level("sample", rumi=taco.extensions.sample.rumi.Rumi(header=False, stats=True))],
     )
     assert "rumi:header" not in contract.metadata["sample"]
     output = tmp_path / "dataset.zip"
@@ -372,12 +374,12 @@ def test_rumi_extension_can_store_stats_without_the_header(tmp_path: Path, monke
 
 def test_rumi_extension_rejects_an_empty_configuration() -> None:
     with pytest.raises(ValueError, match="header=True or at least one statistic"):
-        taco.extensions.Rumi(header=False)
+        taco.extensions.sample.rumi.Rumi(header=False)
 
 
 def test_rumi_extension_must_use_the_rumi_namespace() -> None:
     with pytest.raises(ContractError, match="Rumi must use metadata namespace 'rumi', got 'r'"):
-        taco.Level("sample", r=taco.extensions.Rumi())
+        taco.Level("sample", r=taco.extensions.sample.rumi.Rumi())
 
 
 def test_rumi_namespace_is_reserved_for_the_extension() -> None:
@@ -404,7 +406,7 @@ def test_rumi_extension_runs_at_asset_scope(tmp_path: Path, monkeypatch: pytest.
     fake_rumi(monkeypatch, np.ones((1, 2, 2), dtype=np.int16), header=b"asset-header")
     contract = taco.Contract(
         structure=["dem.rumi"],
-        metadata=[taco.Level("children", rumi=taco.extensions.Rumi())],
+        metadata=[taco.Level("children", rumi=taco.extensions.sample.rumi.Rumi())],
     )
     sample = taco.Sample(id="u12", assets=taco.Asset(source, path="dem.rumi"))
     with taco.open_writer(collection(contract), tmp_path / "dataset") as writer:
@@ -419,7 +421,7 @@ def test_rumi_extension_rejects_a_non_rumi_asset_without_importing_rumi(tmp_path
     source.write_bytes(b"not rumi")
     contract = taco.Contract(
         structure=["data.rumi"],
-        metadata=[taco.Level("sample", rumi=taco.extensions.Rumi())],
+        metadata=[taco.Level("sample", rumi=taco.extensions.sample.rumi.Rumi())],
     )
     with taco.open_writer(collection(contract), tmp_path / "dataset") as writer:
         writer.add(taco.Sample(id="u13", assets=taco.Asset(source, path="data.rumi")))
@@ -441,7 +443,7 @@ def test_rumi_extension_reads_a_real_rumi_file(tmp_path: Path) -> None:
 
     contract = taco.Contract(
         structure=["data.rumi"],
-        metadata=[taco.Level("sample", rumi=taco.extensions.Rumi(stats=True))],
+        metadata=[taco.Level("sample", rumi=taco.extensions.sample.rumi.Rumi(stats=True))],
     )
     with taco.open_writer(collection(contract), tmp_path / "dataset") as writer:
         writer.add(taco.Sample(id="u14", assets=taco.Asset(source, path="data.rumi")))
@@ -472,7 +474,7 @@ def test_wide_reads_carry_rumi_headers_and_statistics_next_to_locations(
         metadata=[
             taco.Level(
                 "children/scene",
-                rumi=taco.extensions.Rumi(
+                rumi=taco.extensions.sample.rumi.Rumi(
                     stats={
                         "scene/optical.rumi": "mean",
                         "scene/img*[1,2].rumi": "maximum_b0",

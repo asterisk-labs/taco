@@ -13,10 +13,10 @@ from urllib.parse import urlparse
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from ..._cache import cached_download
-from ...container.parquet import Encoding
-from ...contract.extension import DerivedMetadata
-from ...contract.naming import validate_field_name
+from ...._cache import cached_download
+from ....container.parquet import Encoding
+from ....contract.extension import Extension, ExtensionContext
+from ....contract.naming import validate_field_name
 from ..stac.models import centroid_field, lonlat
 
 
@@ -38,7 +38,7 @@ def _morton_key(longitude: float, latitude: float, bits: int = 24) -> int:
 
 @lru_cache(maxsize=3)
 def _admin_names(level: int) -> dict[int, str]:
-    resource = files("taco.extensions.geoenrich").joinpath("data", "admin", f"admin{level}.parquet")
+    resource = files("taco.extensions.sample.geoenrich").joinpath("data", "admin", f"admin{level}.parquet")
     with as_file(resource) as path:
         table = pq.read_table(path, columns=[f"admin_code{level}", "name"])
     codes, names = table.columns
@@ -75,7 +75,7 @@ def _get_info(request: Any) -> Any:
 
 
 @dataclass(frozen=True, init=False)
-class GeoEnrich(DerivedMetadata):
+class GeoEnrich(Extension):
     """Attach selected environmental variables from an explicit backend."""
 
     __taco_scopes__: ClassVar[frozenset[str]] = frozenset({"sample"})
@@ -262,6 +262,9 @@ class GeoEnrich(DerivedMetadata):
             return {"backend": self.backend, "index_url": self.index_url}
         # Preserve append compatibility with datasets written by TACO <= 0.10.2.
         return {}
+
+    def run(self, context: ExtensionContext) -> Mapping[str, Sequence[Any]]:
+        return self.compute({name: context.columns[name] for name in self.requires})
 
     def compute(self, columns: Mapping[str, Sequence[Any]]) -> Mapping[str, Sequence[Any]]:
         if self.backend == "majortom-index":

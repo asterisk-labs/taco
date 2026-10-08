@@ -95,24 +95,28 @@ folder is refused: `refusing to overwrite <path>: it is not a TACO folder datase
 
 ## Partitioned ZIP and TACOCAT
 
-`partition_size` fills partitions by payload bytes in sample order, naming them
-`part0001`, `part0002`, ... `partition_by` groups on one **sample-level** field, using
-the sanitized value as the label. The field must exist in the sample level and may not
-be `id`:
+`partition_size` fills partitions by payload bytes in sample order. `partition_by`
+groups on one **sample-level** field, using the sanitized value as the label. When both
+are set, each group is split by size independently. The field must exist in the sample
+level and may not be `id`:
 
 ```
 partition_by cannot be 'id'; it is unique, so every sample would be its own partition
 partition_by field 'ml:splt' is not sample metadata; available: ['stac:geometry', ..., 'ml:split']
 partition values 'a/b' and 'a_b' collide on file name 'a_b'
-use either partition_size or partition_by, not both
 ```
 
 Partitioning on a field an extension produces works: the writer runs the sample-level
 extensions over batches first so the value exists before grouping.
 
-The output is `<stem>_<label>.zip` beside a `.tacocat/` directory, and all of them are
-published together. `BuildResult.path` is the catalog, `BuildResult.parts` the
-archives. If only one partition results, the writer falls back to a single archive.
+Size-only parts are named `<stem>_partNNNN.zip`, field-only parts
+`<stem>_<label>.zip`, and combined parts `<stem>_<label>_partNNNN.zip`, such as
+`parts_train_part0001.zip`. They sit beside a `.tacocat/` directory.
+`BuildResult.path` is the catalog and `BuildResult.parts` the archives. If only one
+partition results, the writer falls back to a single archive.
+
+The complete partitioned dataset is published atomically after every archive and the
+catalog succeed. A failed build publishes no completed parts and cannot be resumed.
 `workers > 1` builds partitions in that many processes and shows one combined progress
 bar. Metadata models and extensions must be importable (not defined in a notebook), and
 scripts need an `if __name__ == "__main__":` guard.

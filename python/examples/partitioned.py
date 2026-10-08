@@ -1,8 +1,15 @@
+from pydantic import BaseModel, Field
+
 import taco
+
+
+class ML(BaseModel):
+    split: str = Field(description="Dataset split")
+
 
 contract = taco.Contract(
     structure=["data.bin"],
-    metadata=[taco.Level("sample", ml=taco.metadata.sample.Split)],
+    metadata=[taco.Level("sample", ml=ML)],
 )
 collection = taco.Collection(
     contract=contract,
@@ -24,7 +31,7 @@ with taco.open_writer(
             taco.Sample(
                 id=f"sample-{index}",
                 assets=f"sample-{index}".encode(),
-                metadata=taco.Metadata(ml=taco.metadata.sample.Split(split=split)),
+                metadata=taco.Metadata(ml=ML(split=split)),
             )
         )
     catalog = writer.run().path

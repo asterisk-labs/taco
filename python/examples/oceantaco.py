@@ -10,6 +10,10 @@ from pydantic import BaseModel, Field
 import taco
 
 
+class ML(BaseModel):
+    split: str = Field(description="Dataset split")
+
+
 class OceanWindow(BaseModel):
     swot_cycle: Annotated[int, pa.int32()] = Field(description="SWOT repeat cycle")
     pass_number: Annotated[int, pa.int32()] = Field(description="Along-track pass number")
@@ -67,7 +71,7 @@ contract = taco.Contract(
             "sample",
             stac=taco.extensions.STAC(),
             ocean=OceanWindow,
-            ml=taco.metadata.sample.Split,
+            ml=ML,
         ),
         taco.Level(
             "children",
@@ -103,16 +107,16 @@ collection = taco.Collection(
         "dataset_doi": "10.57967/hf/8171",
         "note": "Workflow inspiration only; every value in this example is synthetic",
     },
-    scientific=taco.metadata.collection.Publications(
-        publications=[
-            taco.metadata.collection.Publication(
-                doi="10.5194/essd-2026-232",
-                citation=("Lehmann et al. (2026), OceanTACO: A Multi-Sensor Global Ocean Sea Surface State Dataset"),
-                summary="Motivation for the synthetic multi-sensor collocation workflow",
-            )
+    scientific={
+        "publications": [
+            {
+                "doi": "10.5194/essd-2026-232",
+                "citation": "Lehmann et al. (2026), OceanTACO: A Multi-Sensor Global Ocean Sea Surface State Dataset",
+                "summary": "Motivation for the synthetic multi-sensor collocation workflow",
+            }
         ]
-    ),
-    split=taco.metadata.collection.SplitStrategy(strategy="manual"),
+    },
+    split={"strategy": "manual"},
 )
 
 windows = [
@@ -235,7 +239,7 @@ with taco.open_writer(collection, "oceantaco.zip", overwrite=True) as writer:
         ]
 
         # One affine grid cannot describe the clipped swath, so the sample supplies its footprint instead.
-        stac = taco.metadata.sample.STAC(
+        stac = taco.extensions.stac.STAC(
             geometry=polygon(window["ring"]),
             start_datetime=window["time"],
             end_datetime=window["time"] + timedelta(minutes=18),
@@ -274,7 +278,7 @@ with taco.open_writer(collection, "oceantaco.zip", overwrite=True) as writer:
                         argo_float_id=window["argo"],
                         collocation_distance_km=window["distance"],
                     ),
-                    ml=taco.metadata.sample.Split(split=window["split"]),
+                    ml=ML(split=window["split"]),
                 ),
             )
         )

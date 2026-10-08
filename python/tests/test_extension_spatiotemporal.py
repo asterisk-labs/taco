@@ -11,7 +11,7 @@ from shapely.geometry import Point, Polygon
 
 import taco
 from taco.container.view import open_view
-from taco.metadata.spatiotemporal import (
+from taco.extensions.stac import (
     footprint_bbox,
     footprint_center,
     grid_bbox,
@@ -57,7 +57,7 @@ def test_extension_dependencies_ignore_declaration_order(tmp_path: Path) -> None
             )
         ],
     )
-    stac = taco.metadata.sample.STAC(**GRID, start_datetime=START, end_datetime=END)
+    stac = taco.extensions.stac.STAC(**GRID, start_datetime=START, end_datetime=END)
     output = write(tmp_path, contract, taco.Sample(id="u15", assets=b"x", metadata=taco.Metadata(stac=stac)))
 
     row = open_view(output).level("sample").to_pylist()[0]
@@ -79,7 +79,7 @@ def test_spatial_composes_with_majortom_and_summarizes_boxes(tmp_path: Path) -> 
             )
         ],
     )
-    spatial = taco.metadata.sample.Spatial(**GRID)
+    spatial = taco.extensions.stac.Spatial(**GRID)
     output = write(tmp_path, contract, taco.Sample(id="u16", assets=b"x", metadata=taco.Metadata(spatial=spatial)))
 
     dataset = open_view(output)
@@ -94,9 +94,9 @@ def test_spatial_composes_with_majortom_and_summarizes_boxes(tmp_path: Path) -> 
 def test_temporal_is_a_plain_profile(tmp_path: Path) -> None:
     contract = taco.Contract(
         structure=["data.bin"],
-        metadata=[taco.Level("sample", temporal=taco.metadata.sample.Temporal)],
+        metadata=[taco.Level("sample", temporal=taco.extensions.stac.Temporal)],
     )
-    temporal = taco.metadata.sample.Temporal(start_datetime=START, end_datetime=END)
+    temporal = taco.extensions.stac.Temporal(start_datetime=START, end_datetime=END)
     output = write(tmp_path, contract, taco.Sample(id="u17", assets=b"x", metadata=taco.Metadata(temporal=temporal)))
 
     dataset = open_view(output)
@@ -114,7 +114,7 @@ def test_stac_keeps_a_supplied_footprint(tmp_path: Path) -> None:
         structure=["data.bin"],
         metadata=[taco.Level("sample", stac=taco.extensions.STAC())],
     )
-    stac = taco.metadata.sample.STAC(geometry=footprint.wkb, datetime=START)
+    stac = taco.extensions.stac.STAC(geometry=footprint.wkb, datetime=START)
     output = write(tmp_path, contract, taco.Sample(id="u18", assets=b"x", metadata=taco.Metadata(stac=stac)))
 
     dataset = open_view(output)
@@ -131,9 +131,9 @@ def test_stac_keeps_a_supplied_footprint(tmp_path: Path) -> None:
 def test_stac_extension_runs_on_folder_metadata(tmp_path: Path) -> None:
     contract = taco.Contract(
         structure=["scene/dem.bin"],
-        metadata=[taco.Level("children", stac=taco.extensions.STAC(model=taco.metadata.folder.STAC))],
+        metadata=[taco.Level("children", stac=taco.extensions.STAC(model=taco.extensions.stac.folder.STAC))],
     )
-    stac = taco.metadata.folder.STAC(**GRID, datetime=START)
+    stac = taco.extensions.stac.folder.STAC(**GRID, datetime=START)
     sample = taco.Sample(
         id="s0",
         folders=[taco.Folder("scene", metadata=taco.Metadata(stac=stac))],
@@ -183,7 +183,7 @@ def test_unknown_crs_is_rejected() -> None:
 def test_footprint_must_be_split_at_the_antimeridian() -> None:
     wrapped = Polygon([(179, 0), (-179, 0), (-179, 1), (179, 1)])
     with pytest.raises(ValueError, match="crosses the antimeridian"):
-        taco.metadata.sample.STAC(geometry=wrapped.wkb, datetime=START)
+        taco.extensions.stac.STAC(geometry=wrapped.wkb, datetime=START)
 
 
 def test_centroid_is_the_exact_grid_center() -> None:
@@ -201,7 +201,7 @@ def test_centroid_without_a_grid_comes_from_the_footprint(tmp_path: Path) -> Non
         metadata=[taco.Level("sample", stac=taco.extensions.STAC(), majortom=taco.extensions.MajorTOM())],
     )
     split = shapely.MultiPolygon([shapely.box(179.5, 0, 180, 1), shapely.box(-180, 0, -179.5, 1)])
-    stac = taco.metadata.sample.STAC(geometry=split.wkb, datetime=START)
+    stac = taco.extensions.stac.STAC(geometry=split.wkb, datetime=START)
     output = write(tmp_path, contract, taco.Sample(id="u19", assets=b"x", metadata=taco.Metadata(stac=stac)))
 
     row = open_view(output).level("sample").to_pylist()[0]
@@ -215,7 +215,7 @@ def test_supplied_centroid_is_kept(tmp_path: Path) -> None:
         structure=["data.bin"],
         metadata=[taco.Level("sample", stac=taco.extensions.STAC())],
     )
-    stac = taco.metadata.sample.STAC(**GRID, centroid=(1, 1), datetime=START)
+    stac = taco.extensions.stac.STAC(**GRID, centroid=(1, 1), datetime=START)
     output = write(tmp_path, contract, taco.Sample(id="u20", assets=b"x", metadata=taco.Metadata(stac=stac)))
     assert open_view(output).level("sample").to_pylist()[0]["stac:centroid"] == {"lon": 1.0, "lat": 1.0}
 
@@ -232,7 +232,7 @@ def test_centroid_is_stored_as_float32(tmp_path: Path) -> None:
         ],
     )
     grid = {"proj_code": "EPSG:32718", "proj_shape": (264, 264), "proj_transform": (10, 0, 277000, 0, -10, 8667000)}
-    spatial = taco.metadata.sample.Spatial(**grid)
+    spatial = taco.extensions.stac.Spatial(**grid)
     output = write(tmp_path, contract, taco.Sample(id="u21", assets=b"x", metadata=taco.Metadata(spatial=spatial)))
 
     row = open_view(output).level("sample").to_pylist()[0]
@@ -246,7 +246,7 @@ def test_centroid_is_stored_as_float32(tmp_path: Path) -> None:
 
 def test_centroid_must_be_a_valid_point() -> None:
     with pytest.raises(ValueError, match="outside EPSG:4326 bounds"):
-        taco.metadata.sample.STAC(**GRID, centroid=(181, 0), datetime=START)
+        taco.extensions.stac.STAC(**GRID, centroid=(181, 0), datetime=START)
 
 
 def test_projected_footprint_retains_curved_edges() -> None:
@@ -275,7 +275,7 @@ def test_global_grid_retains_all_longitudes() -> None:
 def test_self_intersecting_footprint_is_rejected() -> None:
     footprint = Polygon([(0, 0), (1, 1), (1, 0), (0, 1), (0, 0)])
     with pytest.raises(ValueError, match="not a valid geometry"):
-        taco.metadata.sample.STAC(geometry=footprint.wkb, datetime=START)
+        taco.extensions.stac.STAC(geometry=footprint.wkb, datetime=START)
 
 
 def test_small_projected_grid_keeps_its_corners() -> None:
@@ -332,14 +332,14 @@ def test_a_grid_past_180_degrees_that_fits_one_earth_is_kept() -> None:
 def test_the_writer_and_validate_reject_a_grid_that_wraps_twice(tmp_path: Path) -> None:
     code, shape, transform, message = BEYOND[0]
     contract = taco.Contract(structure=["data.bin"], metadata=[taco.Level("sample", spatial=taco.extensions.Spatial())])
-    spatial = taco.metadata.sample.Spatial(proj_code=code, proj_shape=shape, proj_transform=transform)
+    spatial = taco.extensions.stac.Spatial(proj_code=code, proj_shape=shape, proj_transform=transform)
     with pytest.raises(Exception, match=message):
         write(tmp_path, contract, taco.Sample(id="twice", assets=b"x", metadata=taco.Metadata(spatial=spatial)))
 
     output = write(
         tmp_path / "edited",
         contract,
-        taco.Sample(id="once", assets=b"x", metadata=taco.Metadata(spatial=taco.metadata.sample.Spatial(**GRID))),
+        taco.Sample(id="once", assets=b"x", metadata=taco.Metadata(spatial=taco.extensions.stac.Spatial(**GRID))),
     )
     path = output / "METADATA" / "sample.parquet"
     table = pq.read_table(path)
@@ -360,7 +360,7 @@ def test_the_writer_and_validate_reject_a_grid_that_wraps_twice(tmp_path: Path) 
 def test_the_writer_checks_a_grid_even_when_bbox_and_geometry_are_given(tmp_path: Path) -> None:
     code, shape, transform, message = BEYOND[0]
     contract = taco.Contract(structure=["data.bin"], metadata=[taco.Level("sample", spatial=taco.extensions.Spatial())])
-    spatial = taco.metadata.sample.Spatial(
+    spatial = taco.extensions.stac.Spatial(
         geometry=shapely.box(0, 0, 1, 1).wkb,
         bbox=(0, 0, 1, 1),
         proj_code=code,
@@ -377,13 +377,15 @@ def test_the_writer_checks_grids_on_levels_that_do_not_own_the_extent(tmp_path: 
         structure=["scene/dem.bin"],
         metadata=[
             taco.Level("sample", stac=taco.extensions.STAC()),
-            taco.Level("children", stac=taco.extensions.STAC(model=taco.metadata.folder.STAC)),
+            taco.Level("children", stac=taco.extensions.STAC(model=taco.extensions.stac.folder.STAC)),
         ],
     )
-    folder = taco.metadata.folder.STAC(proj_code=code, proj_shape=shape, proj_transform=transform, datetime=START)
+    folder = taco.extensions.stac.folder.STAC(
+        proj_code=code, proj_shape=shape, proj_transform=transform, datetime=START
+    )
     sample = taco.Sample(
         id="s0",
-        metadata=taco.Metadata(stac=taco.metadata.sample.STAC(**GRID, datetime=START)),
+        metadata=taco.Metadata(stac=taco.extensions.stac.STAC(**GRID, datetime=START)),
         folders=[taco.Folder("scene", metadata=taco.Metadata(stac=folder))],
         assets=[taco.Asset(b"x", path="scene/dem.bin")],
     )

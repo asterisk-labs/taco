@@ -10,6 +10,8 @@ from pydantic import BaseModel, Field
 
 import taco
 
+from . import models
+
 
 @pytest.fixture(autouse=True)
 def isolated_cache(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -64,7 +66,7 @@ def collection(contract: taco.Contract) -> taco.Collection:
         tasks=["change-detection"],
         title="Tiny change",
         keywords=["fixture"],
-        labels=taco.metadata.collection.Labels(classes=["clear", "change"]),
+        labels=models.Labels(classes=["clear", "change"]),
     )
 
 
@@ -90,7 +92,7 @@ def make_sample(tmp_path: Path):
         return taco.Sample(
             id=f"s{index}",
             metadata=taco.Metadata(
-                stac=taco.metadata.sample.STAC(
+                stac=taco.extensions.stac.STAC(
                     proj_code="EPSG:4326",
                     proj_shape=(256, 256),
                     proj_transform=(0.25 / 256, 0, longitude - 0.125, 0, -0.25 / 256, latitude + 0.125),

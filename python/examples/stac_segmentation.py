@@ -9,6 +9,15 @@ from pydantic import BaseModel, Field
 import taco
 
 
+class ML(BaseModel):
+    split: str = Field(description="Dataset split")
+
+
+class Scaling(BaseModel):
+    scale_factor: Annotated[list[float], pa.list_(pa.float32())] = Field(description="Factors that unpack values")
+    scale_offset: Annotated[list[float], pa.list_(pa.float32())] = Field(description="Offsets that unpack values")
+
+
 class Chip(BaseModel):
     source_scene: str = Field(description="Source scene identifier")
     cloud_cover: Annotated[float, pa.float32()] = Field(
@@ -38,7 +47,7 @@ contract = taco.Contract(
             "sample",
             stac=taco.extensions.STAC(),
             chip=Chip,
-            ml=taco.metadata.sample.Split,
+            ml=ML,
             majortom=taco.extensions.MajorTOM(
                 dist_km=100,
                 latitude_range=(-20, 0),
@@ -48,7 +57,7 @@ contract = taco.Contract(
         taco.Level(
             "children",
             content=AssetContent,
-            scaling=taco.metadata.asset.Scaling | None,
+            scaling=Scaling | None,
         ),
     ],
 )
@@ -67,24 +76,24 @@ collection = taco.Collection(
         "bands": ["B02", "B03", "B04", "B08"],
         "note": "The arrays are synthetic; only their shape and scale resemble reflectance chips",
     },
-    labels=taco.metadata.collection.Labels(
-        classes=[
-            taco.metadata.collection.LabelClass(name="water", category=0),
-            taco.metadata.collection.LabelClass(name="vegetation", category=1),
-            taco.metadata.collection.LabelClass(name="urban", category=2),
+    labels={
+        "classes": [
+            {"name": "water", "category": 0},
+            {"name": "vegetation", "category": 1},
+            {"name": "urban", "category": 2},
         ],
-        description="Dense land-cover classes stored in label.npy",
-    ),
-    optical=taco.metadata.collection.Optical(
-        sensor="Sentinel-2 MSI",
-        bands=[
-            taco.metadata.collection.SpectralBand(name="B02", index=0, common_name="blue"),
-            taco.metadata.collection.SpectralBand(name="B03", index=1, common_name="green"),
-            taco.metadata.collection.SpectralBand(name="B04", index=2, common_name="red"),
-            taco.metadata.collection.SpectralBand(name="B08", index=3, common_name="nir"),
+        "description": "Dense land-cover classes stored in label.npy",
+    },
+    optical={
+        "sensor": "Sentinel-2 MSI",
+        "bands": [
+            {"name": "B02", "index": 0, "common_name": "blue"},
+            {"name": "B03", "index": 1, "common_name": "green"},
+            {"name": "B04", "index": 2, "common_name": "red"},
+            {"name": "B08", "index": 3, "common_name": "nir"},
         ],
-    ),
-    split=taco.metadata.collection.SplitStrategy(strategy="manual"),
+    },
+    split={"strategy": "manual"},
 )
 
 chips = [
@@ -131,7 +140,7 @@ with taco.open_writer(collection, "stac-segmentation.zip", overwrite=True) as wr
         dominant_land_cover = class_names[int(np.bincount(label.ravel()).argmax())]
         easting, northing = chip["origin"]
 
-        stac = taco.metadata.sample.STAC(
+        stac = taco.extensions.stac.STAC(
             proj_code=chip["crs"],
             proj_shape=image.shape[-2:],
             proj_transform=(10, 0, easting, 0, -10, northing),
@@ -143,7 +152,7 @@ with taco.open_writer(collection, "stac-segmentation.zip", overwrite=True) as wr
                 path="image.npy",
                 metadata=taco.Metadata(
                     content=AssetContent(role="input", bands=["B02", "B03", "B04", "B08"], nodata=0),
-                    scaling=taco.metadata.asset.Scaling(
+                    scaling=Scaling(
                         scale_factor=[0.0001] * 4,
                         scale_offset=[0.0] * 4,
                     ),
@@ -168,7 +177,7 @@ with taco.open_writer(collection, "stac-segmentation.zip", overwrite=True) as wr
                         cloud_cover=chip["cloud"],
                         dominant_land_cover=dominant_land_cover,
                     ),
-                    ml=taco.metadata.sample.Split(split=chip["split"]),
+                    ml=ML(split=chip["split"]),
                 ),
             )
         )
@@ -181,5 +190,5 @@ assert dataset.sql('SELECT * FROM dataset ORDER BY "taco:sample_index"').equals(
 assert "majortom:code" in samples.column_names
 assert samples.column("stac:centroid").null_count == 0
 assert samples.column("stac:geometry").null_count == samples.num_rows
-assert dataset.collection.to_dict()["labels:num_classes"] == 3
+assert len(dataset.collection.to_dict()["labels:classes"]) == 3
 assert taco.validate("stac-segmentation.zip").ok

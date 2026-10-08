@@ -1,9 +1,13 @@
 import io
 
 import numpy as np
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 import taco
+
+
+class ML(BaseModel):
+    split: str = Field(description="Dataset split")
 
 
 class Acquisition(BaseModel):
@@ -25,7 +29,7 @@ contract = taco.Contract(
         "change.npy",
     ],
     metadata=[
-        taco.Level("sample", ml=taco.metadata.sample.Split),
+        taco.Level("sample", ml=ML),
         taco.Level("children", acquisition=Acquisition | None),
     ],
 )
@@ -52,7 +56,7 @@ assets = [taco.Asset(encode(array), path=path) for path, array in paths.items()]
 sample = taco.Sample(
     id="scene-0001",
     assets=assets,
-    metadata=taco.Metadata(ml=taco.metadata.sample.Split(split="train")),
+    metadata=taco.Metadata(ml=ML(split="train")),
     folders=[
         taco.Folder("before", metadata=taco.Metadata(acquisition=Acquisition(year=2020))),
         taco.Folder("after", metadata=taco.Metadata(acquisition=Acquisition(year=2024))),

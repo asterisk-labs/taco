@@ -290,7 +290,7 @@ def test_geoenrich_queries_a_cached_copy_of_a_remote_index(tmp_path: Path, cache
     )
     with origin(root) as server:
         url = f"{server.url}/global.parquet"
-        extension = taco.metadata.sample.GeoEnrich(["elevation"], index_url=url)
+        extension = taco.extensions.GeoEnrich(["elevation"], index_url=url)
         codes = {"majortom:code": ["MT10km_0000U_0000R"]}
         assert extension.compute(codes) == {"elevation": [12.25]}
         assert extension.compute(codes) == {"elevation": [12.25]}

@@ -29,7 +29,7 @@ sites = [(-77.04, -12.05), (-71.97, -13.53), (-80.63, -5.19)]
 with taco.open_writer(collection, "geospatial.zip", overwrite=True) as writer:
     for index, (longitude, latitude) in enumerate(sites):
         # An 8 x 8 grid of 0.0125 degree pixels centred on the site.
-        stac = taco.metadata.sample.STAC(
+        stac = taco.extensions.stac.STAC(
             proj_code="EPSG:4326",
             proj_shape=(8, 8),
             proj_transform=(0.0125, 0, longitude - 0.05, 0, -0.0125, latitude + 0.05),

@@ -15,7 +15,6 @@ from .reader.inspect import inspect
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from . import extensions as extensions
-    from . import metadata as metadata
     from .validate import validate as validate
     from .writer import open_writer as open_writer
     from .writer.catalog import consolidate as consolidate
@@ -31,13 +30,12 @@ _WRITER = {
     "consolidate": ".writer.catalog",
     "export": ".writer.export",
     "extensions": ".extensions",
-    "metadata": ".metadata",
     "open_writer": ".writer",
     "validate": ".validate",
     "writer": ".writer",
 }
-_MODULES = frozenset({"extensions", "metadata", "writer"})
-_WRITER_DEPENDENCIES = frozenset({"cozip", "numpy", "pydantic", "pydantic_core", "pyproj", "shapely"})
+_MODULES = frozenset({"extensions", "writer"})
+_WRITER_DEPENDENCIES = frozenset({"cozip", "jsonschema", "numpy", "pydantic", "pydantic_core", "pyproj", "shapely"})
 
 
 def __getattr__(name: str) -> Any:
@@ -78,7 +76,7 @@ __all__ = [
     "read",
 ]
 
-_WRITER_PUBLIC = ["consolidate", "export", "extensions", "metadata", "open_writer", "validate"]
+_WRITER_PUBLIC = ["consolidate", "export", "extensions", "open_writer", "validate"]
 
 try:
     if all(importlib.util.find_spec(name) is not None for name in _WRITER_DEPENDENCIES):

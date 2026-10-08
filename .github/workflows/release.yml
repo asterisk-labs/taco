@@ -361,7 +361,7 @@ jobs:
           python -c "import sys, taco; taco.read('taco.zip'); loaded = {'cozip', 'numpy', 'pydantic', 'pyproj', 'shapely'} & set(sys.modules); assert not loaded, loaded"
           popd
           python -m pip install "${wheel}[writer]"
-          python -c "import taco; assert callable(taco.open_writer); assert taco.metadata.sample.STAC"
+          python -c "import taco; assert callable(taco.open_writer); assert taco.extensions.stac.STAC"
 
       - name: Test installed wheel (Windows)
         if: runner.os == 'Windows'
@@ -376,7 +376,7 @@ jobs:
             python -c "import sys, taco; taco.read('taco.zip'); loaded = {'cozip', 'numpy', 'pydantic', 'pyproj', 'shapely'} & set(sys.modules); assert not loaded, loaded"
           } finally { Pop-Location }
           python -m pip install "$wheel[writer]"
-          python -c "import taco; assert callable(taco.open_writer); assert taco.metadata.sample.STAC"
+          python -c "import taco; assert callable(taco.open_writer); assert taco.extensions.stac.STAC"
 
       - uses: actions/upload-artifact@v7
         with:

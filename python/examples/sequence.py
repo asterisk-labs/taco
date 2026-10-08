@@ -1,8 +1,13 @@
 import io
 
 import numpy as np
+from pydantic import BaseModel, Field
 
 import taco
+
+
+class ML(BaseModel):
+    split: str = Field(description="Dataset split")
 
 
 def encode(array: np.ndarray) -> bytes:
@@ -14,7 +19,7 @@ def encode(array: np.ndarray) -> bytes:
 contract = taco.Contract(
     structure=["image*[2,5].npy"],
     metadata=[
-        taco.Level("sample", ml=taco.metadata.sample.Split),
+        taco.Level("sample", ml=ML),
     ],
 )
 collection = taco.Collection(
@@ -37,7 +42,7 @@ with taco.open_writer(collection, "image-sequence.zip", overwrite=True) as write
             taco.Sample(
                 id=f"sequence-{sample_index}",
                 assets=assets,
-                metadata=taco.Metadata(ml=taco.metadata.sample.Split(split=split)),
+                metadata=taco.Metadata(ml=ML(split=split)),
             )
         )
     writer.run()

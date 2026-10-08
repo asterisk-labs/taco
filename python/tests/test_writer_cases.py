@@ -156,7 +156,7 @@ def test_derived_metadata_is_batch_invariant(tmp_path: Path) -> None:
     for batch_size in (1, 2, 100):
         path = tmp_path / str(batch_size)
         write_case(case, path, batch_size=batch_size)
-        tables.append(open_view(path).level("sample").select(["stac:cloud_cover", "majortom:code"]))
+        tables.append(open_view(path).level("sample").select(["quality:cloud_cover", "majortom:code"]))
 
     assert tables[0].to_pylist() == tables[1].to_pylist() == tables[2].to_pylist()
 
@@ -213,12 +213,12 @@ def collection_models_matching(values: dict[str, object], candidates: set[type[o
     return matching
 
 
-def test_every_public_metadata_group_has_a_writer_case() -> None:
+def test_every_public_extension_group_has_a_writer_case() -> None:
     modules = (
-        taco.metadata.sample,
-        taco.metadata.folder,
-        taco.metadata.asset,
-        taco.metadata.collection,
+        taco.extensions.stac,
+        taco.extensions.stac.folder,
+        taco.extensions.majortom,
+        taco.extensions.geoenrich,
     )
     public = set().union(*(public_metadata_groups(module) for module in modules))
     used: set[type[object]] = set()
@@ -231,5 +231,5 @@ def test_every_public_metadata_group_has_a_writer_case() -> None:
         for values in case.collection.metadata.values():
             used.update(collection_models_matching(values, public))
 
-    external = {taco.metadata.sample.GeoEnrich}
+    external = {taco.extensions.GeoEnrich}
     assert public == used | external

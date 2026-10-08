@@ -69,28 +69,6 @@ def _configuration(value: Mapping[str, Any], *, namespace: str) -> dict[str, Any
         raise ContractError(f"extension group {namespace!r} configuration must be JSON serializable") from exc
 
 
-def _check_extension_descriptors(
-    level: str,
-    groups: Mapping[str, Mapping[str, Any]],
-    fields: Mapping[str, Field],
-) -> None:
-    produced = [name for descriptor in groups.values() for name in descriptor["produces"]]
-    if len(produced) != len(set(produced)):
-        raise ContractError(f"extensions at {level!r} produce a field more than once")
-    available = set(fields) - set(produced)
-    pending = dict(groups)
-    while pending:
-        ready = [name for name, descriptor in pending.items() if set(descriptor["requires"]).issubset(available)]
-        if not ready:
-            required = {name for descriptor in pending.values() for name in descriptor["requires"]}
-            missing = sorted(required - set(fields))
-            if missing:
-                raise ContractError(f"extensions at {level!r} require missing fields {missing}")
-            raise ContractError(f"extensions at {level!r} contain a dependency cycle")
-        for name in ready:
-            available.update(pending.pop(name)["produces"])
-
-
 def _same_value(left: Any, right: Any) -> bool:
     if left is None or right is None:
         return left is right
@@ -129,7 +107,6 @@ def _check_row_independent(
 class Contract:
     structure: tuple[str, ...]
     metadata: dict[str, dict[str, Field]]
-    derived: dict[str, dict[str, dict[str, Any]]]
     extensions: dict[str, dict[str, dict[str, Any]]]
     levels: tuple[str, ...]
     leaves: tuple[Leaf, ...]
@@ -143,7 +120,6 @@ class Contract:
         *,
         structure: Iterable[str],
         metadata: Sequence[Level] | Mapping[str, Mapping[str, Any]] | None = None,
-        derived: Mapping[str, Mapping[str, Mapping[str, Any]]] | None = None,
     ) -> None:
         if structure is None or isinstance(structure, (str, bytes)):
             raise ContractError("structure must be a non-empty list of paths")
@@ -162,17 +138,16 @@ class Contract:
                 for level, fields in normalized.items()
             }
             groups: dict[str, tuple[Group, ...]] = dict.fromkeys(levels, ())
-            derived_ = self._normalize_extensions(derived or {}, levels, normalized)
+            descriptors: dict[str, dict[str, dict[str, Any]]] = {}
         else:
-            normalized, types_, groups, derived_ = self._from_models(metadata, levels, children)
+            normalized, types_, groups, descriptors = self._from_models(metadata, levels, children)
         self._check_field_case(normalized)
         self._check_profiles(normalized)
         self._check_rumi_fields(normalized, leaves)
 
         object.__setattr__(self, "structure", declarations)
         object.__setattr__(self, "metadata", normalized)
-        object.__setattr__(self, "derived", derived_)
-        object.__setattr__(self, "extensions", derived_)
+        object.__setattr__(self, "extensions", descriptors)
         object.__setattr__(self, "levels", levels)
         object.__setattr__(self, "leaves", leaves)
         object.__setattr__(self, "folders", folders)
@@ -204,6 +179,12 @@ class Contract:
                 missing = sorted(set(expected) - present)
                 if missing:
                     raise ContractError(f"{namespace.upper()} metadata at level {level!r} is missing fields {missing}")
+                extra = sorted(present - set(expected))
+                if extra:
+                    raise ContractError(
+                        f"{namespace.upper()} metadata at level {level!r} has fields the STAC extension does not "
+                        f"define {extra}; store them in your own namespace"
+                    )
                 for name, (expected_type, _) in expected.items():
                     qualified = f"{namespace}:{name}"
                     field = fields[qualified]
@@ -296,13 +277,13 @@ class Contract:
         metadata: dict[str, dict[str, Field]] = {}
         types_: dict[str, dict[str, pa.DataType]] = {}
         groups: dict[str, tuple[Group, ...]] = {}
-        derived: dict[str, dict[str, dict[str, Any]]] = {}
+        descriptors: dict[str, dict[str, dict[str, Any]]] = {}
         for level in levels:
             bindings = declared[level].groups if level in declared else ()
             cls._check_scopes(level, bindings, children)
             level_fields: dict[str, Field] = {}
             level_types: dict[str, pa.DataType] = {}
-            level_derived: dict[str, dict[str, Any]] = {}
+            level_descriptors: dict[str, dict[str, Any]] = {}
             for group in bindings:
                 for _, arrow_field in group.fields:
                     if arrow_field.name in level_fields:
@@ -321,7 +302,7 @@ class Contract:
                 if group.extension is not None:
                     for required in group.extension.requires:
                         validate_qualified_field(required)
-                    level_derived[group.namespace] = {
+                    level_descriptors[group.namespace] = {
                         "requires": list(group.extension.requires),
                         "produces": [f"{group.namespace}:{field.name}" for field in group.extension.fields],
                         "configuration": _configuration(group.extension.configuration(), namespace=group.namespace),
@@ -330,9 +311,9 @@ class Contract:
             metadata[level] = level_fields
             types_[level] = level_types
             groups[level] = bindings
-            if level_derived:
-                derived[level] = level_derived
-        return metadata, types_, groups, derived
+            if level_descriptors:
+                descriptors[level] = level_descriptors
+        return metadata, types_, groups, descriptors
 
     @staticmethod
     def _check_scopes(
@@ -391,54 +372,6 @@ class Contract:
                 assert group.extension is not None
                 available.update(f"{group.namespace}:{field.name}" for field in group.extension.fields)
                 pending.remove(group)
-
-    @staticmethod
-    def _normalize_extensions(
-        extensions: Mapping[str, Mapping[str, Mapping[str, Any]]],
-        levels: tuple[str, ...],
-        metadata: Mapping[str, Mapping[str, Field]],
-    ) -> dict[str, dict[str, dict[str, Any]]]:
-        if not isinstance(extensions, Mapping):
-            raise ContractError("taco:extensions must be an object")
-        extra = sorted(set(extensions) - set(levels))
-        if extra:
-            raise ContractError(f"derived metadata has unknown levels {extra}")
-        result: dict[str, dict[str, dict[str, Any]]] = {}
-        for level, groups in extensions.items():
-            if not isinstance(groups, Mapping):
-                raise ContractError(f"extensions for {level!r} must be an object")
-            result[level] = {}
-            for namespace, descriptor in groups.items():
-                validate_qualified_field(f"{namespace}:value")
-                if not isinstance(descriptor, Mapping):
-                    raise ContractError(f"extension group {namespace!r} must be an object")
-                extra = sorted(set(descriptor) - {"requires", "produces", "configuration"})
-                if extra:
-                    raise ContractError(f"extension group {namespace!r} has unknown properties {extra}")
-                requires = descriptor.get("requires")
-                produces = descriptor.get("produces")
-                configuration = descriptor.get("configuration", {})
-                if not isinstance(requires, list) or not all(isinstance(item, str) for item in requires):
-                    raise ContractError(f"extension group {namespace!r} needs a requires list")
-                if not isinstance(produces, list) or not all(isinstance(item, str) for item in produces):
-                    raise ContractError(f"extension group {namespace!r} needs a produces list")
-                if not produces:
-                    raise ContractError(f"extension group {namespace!r} must produce at least one field")
-                for name in [*requires, *produces]:
-                    validate_qualified_field(name)
-                if any(not name.startswith(f"{namespace}:") for name in produces):
-                    raise ContractError(f"extension group {namespace!r} must produce fields in its own namespace")
-                if not set(produces).issubset(metadata[level]):
-                    raise ContractError(f"extension group {namespace!r} produces fields absent from taco:metadata")
-                if not isinstance(configuration, Mapping):
-                    raise ContractError(f"extension group {namespace!r} configuration must be an object")
-                result[level][namespace] = {
-                    "requires": list(requires),
-                    "produces": list(produces),
-                    "configuration": _configuration(configuration, namespace=namespace),
-                }
-            _check_extension_descriptors(level, result[level], metadata[level])
-        return result
 
     def arrow_types(self, level: str) -> dict[str, pa.DataType]:
         return self._types[level]
@@ -701,17 +634,6 @@ class Contract:
                 available.update(f"{group.namespace}:{field.name}" for field in group.extension.fields)
                 pending.remove(group)
 
-    def apply_derived(
-        self,
-        level: str,
-        rows: list[dict[str, Any]],
-        *,
-        assets: Sequence[Path | None] | None = None,
-        verify: bool = False,
-    ) -> None:
-        """Compatibility alias for :meth:`apply_extensions`."""
-        self.apply_extensions(level, rows, assets=assets, verify=verify)
-
     def to_dict(self) -> dict[str, Any]:
         return {
             "taco:structure": list(self.structure),
@@ -742,7 +664,6 @@ class Contract:
         contract = cls(
             structure=data["taco:structure"],
             metadata=metadata,
-            derived=data.get("taco:extensions", data.get("taco:derived")),
         )
         missing = sorted(set(contract.levels) - set(metadata))
         if missing:

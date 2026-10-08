@@ -18,6 +18,8 @@ from pydantic import BaseModel, computed_field
 import taco
 from taco.errors import ContractError, SampleError
 
+from . import models
+
 
 def point(x: float, y: float) -> bytes:
     return struct.pack("<BIdd", 1, 1, x, y)
@@ -27,30 +29,20 @@ def centroid(x: float, y: float) -> dict[str, float]:
     return {"lon": x, "lat": y}
 
 
-def test_sample_metadata_facade_keeps_public_imports() -> None:
-    assert taco.metadata.sample.Spatial is taco.metadata.spatiotemporal.Spatial
-    assert taco.metadata.sample.Temporal is taco.metadata.spatiotemporal.Temporal
-    assert taco.metadata.sample.STAC is taco.metadata.spatiotemporal.STAC
-    assert taco.metadata.sample.MajorTOM is taco.metadata.derived.MajorTOM
-    assert taco.metadata.sample.Split is taco.metadata.split.Split
-    assert taco.extensions.MajorTOM is taco.metadata.derived.MajorTOM
+def test_stac_extension_exports_its_models() -> None:
+    assert taco.extensions.stac.Spatial is taco.extensions.stac.models.Spatial
+    assert taco.extensions.stac.Temporal is taco.extensions.stac.models.Temporal
+    assert taco.extensions.stac.STAC is taco.extensions.stac.models.STAC
+    assert taco.extensions.stac.folder.STAC.__taco_scopes__ == frozenset({"folder"})
+    assert taco.extensions.MajorTOM is taco.extensions.majortom.MajorTOM
+    assert taco.extensions.GeoEnrich is taco.extensions.geoenrich.GeoEnrich
     assert not hasattr(taco.extensions, "Temporal")
 
 
-def test_builtin_models() -> None:
-    scaling = taco.metadata.asset.Scaling(scale_factor=0.01, scale_offset=[1], padding=[1, 2, 3, 4])
-    split = taco.metadata.sample.Split(split="train")
-    assert scaling.scale_factor == [0.01]
-    assert split.split == "train"
-    assert not hasattr(taco.metadata.asset, "Raster")
-    assert not hasattr(taco.metadata.asset, "RasterStats")
-
-
-def test_scaling_validation() -> None:
-    with pytest.raises(ValueError, match="zero"):
-        taco.metadata.asset.Scaling(scale_factor=[1, 0])
-    with pytest.raises(ValueError, match="top"):
-        taco.metadata.asset.Scaling(padding=[1, 2])
+def test_metadata_module_is_gone() -> None:
+    with pytest.raises(AttributeError, match="no attribute 'metadata'"):
+        _ = taco.metadata  # type: ignore[attr-defined]
+    assert "metadata" not in dir(taco)
 
 
 GRID = {"proj_code": "EPSG:4326", "proj_shape": (256, 256), "proj_transform": (1 / 256, 0, -0.5, 0, -1 / 256, 0.5)}
@@ -59,67 +51,74 @@ GRID = {"proj_code": "EPSG:4326", "proj_shape": (256, 256), "proj_transform": (1
 def test_stac_time_rules() -> None:
     day = datetime(2024, 1, 1, tzinfo=timezone.utc)
     later = datetime(2024, 1, 3, tzinfo=timezone.utc)
-    taco.metadata.sample.STAC(**GRID, datetime=day)
-    taco.metadata.sample.STAC(**GRID, start_datetime=day, end_datetime=later)
-    taco.metadata.sample.STAC(**GRID, datetime=day, start_datetime=day, end_datetime=later)
-    taco.metadata.sample.STAC(**GRID, start_datetime=day, end_datetime=day)
+    taco.extensions.stac.STAC(**GRID, datetime=day)
+    taco.extensions.stac.STAC(**GRID, start_datetime=day, end_datetime=later)
+    taco.extensions.stac.STAC(**GRID, datetime=day, start_datetime=day, end_datetime=later)
+    taco.extensions.stac.STAC(**GRID, start_datetime=day, end_datetime=day)
     with pytest.raises(ValueError, match="datetime is required"):
-        taco.metadata.sample.STAC(**GRID)
+        taco.extensions.stac.STAC(**GRID)
     with pytest.raises(ValueError, match="given together"):
-        taco.metadata.sample.STAC(**GRID, start_datetime=day)
+        taco.extensions.stac.STAC(**GRID, start_datetime=day)
     with pytest.raises(ValueError, match="must not be after"):
-        taco.metadata.sample.STAC(**GRID, start_datetime=later, end_datetime=day)
+        taco.extensions.stac.STAC(**GRID, start_datetime=later, end_datetime=day)
 
 
 def test_profile_fields_follow_stac() -> None:
     location = ("geometry", "bbox", "centroid")
     grid = ("proj_code", "proj_shape", "proj_transform")
     times = ("datetime", "start_datetime", "end_datetime")
-    assert tuple(taco.metadata.sample.STAC.model_fields) == (*location, *times, *grid)
-    assert tuple(taco.metadata.sample.Spatial.model_fields) == (*location, *grid)
-    assert tuple(taco.metadata.sample.Temporal.model_fields) == times
-    assert taco.metadata.sample.Spatial.__taco_namespace__ == "spatial"
-    assert taco.metadata.sample.Temporal.__taco_namespace__ == "temporal"
-    assert taco.metadata.sample.STAC.__taco_namespace__ == "stac"
+    assert tuple(taco.extensions.stac.STAC.model_fields) == (*location, *times, *grid)
+    assert tuple(taco.extensions.stac.Spatial.model_fields) == (*location, *grid)
+    assert tuple(taco.extensions.stac.Temporal.model_fields) == times
+    assert taco.extensions.stac.Spatial.__taco_namespace__ == "spatial"
+    assert taco.extensions.stac.Temporal.__taco_namespace__ == "temporal"
+    assert taco.extensions.stac.STAC.__taco_namespace__ == "stac"
 
 
 def test_stac_location_rules() -> None:
     day = datetime(2024, 1, 1, tzinfo=timezone.utc)
     with pytest.raises(ValueError, match="geometry is required"):
-        taco.metadata.sample.STAC(datetime=day)
+        taco.extensions.stac.STAC(datetime=day)
     with pytest.raises(ValueError, match="given together"):
-        taco.metadata.sample.STAC(proj_code="EPSG:4326", proj_shape=(2, 2), datetime=day)
+        taco.extensions.stac.STAC(proj_code="EPSG:4326", proj_shape=(2, 2), datetime=day)
     with pytest.raises(ValueError, match="AUTHORITY:CODE"):
-        taco.metadata.sample.STAC(**{**GRID, "proj_code": "4326"}, datetime=day)
+        taco.extensions.stac.STAC(**{**GRID, "proj_code": "4326"}, datetime=day)
     with pytest.raises(ValueError, match="positive"):
-        taco.metadata.sample.STAC(**{**GRID, "proj_shape": (0, 256)}, datetime=day)
+        taco.extensions.stac.STAC(**{**GRID, "proj_shape": (0, 256)}, datetime=day)
     with pytest.raises(ValueError, match="at most 2"):
-        taco.metadata.sample.STAC(**{**GRID, "proj_shape": (3, 256, 256)}, datetime=day)
+        taco.extensions.stac.STAC(**{**GRID, "proj_shape": (3, 256, 256)}, datetime=day)
     with pytest.raises(ValueError, match="collapse"):
-        taco.metadata.sample.STAC(**{**GRID, "proj_transform": (1, 2, 0, 2, 4, 0)}, datetime=day)
+        taco.extensions.stac.STAC(**{**GRID, "proj_transform": (1, 2, 0, 2, 4, 0)}, datetime=day)
     with pytest.raises(ValueError, match="not valid WKB"):
-        taco.metadata.sample.STAC(geometry=b"bad", datetime=day)
+        taco.extensions.stac.STAC(geometry=b"bad", datetime=day)
     with pytest.raises(ValueError, match="EPSG:4326 bounds"):
-        taco.metadata.sample.STAC(geometry=point(200, 0), datetime=day)
+        taco.extensions.stac.STAC(geometry=point(200, 0), datetime=day)
     with pytest.raises(ValueError, match="requires geometry"):
-        taco.metadata.sample.STAC(**GRID, bbox=(0, 0, 1, 1), datetime=day)
+        taco.extensions.stac.STAC(**GRID, bbox=(0, 0, 1, 1), datetime=day)
     with pytest.raises(ValueError, match="does not match"):
-        taco.metadata.sample.STAC(geometry=point(1, 2), bbox=(0, 0, 1, 1), datetime=day)
-    taco.metadata.sample.STAC(geometry=point(1, 2), bbox=(1, 2, 1, 2), datetime=day)
+        taco.extensions.stac.STAC(geometry=point(1, 2), bbox=(0, 0, 1, 1), datetime=day)
+    taco.extensions.stac.STAC(geometry=point(1, 2), bbox=(1, 2, 1, 2), datetime=day)
+
+
+def test_profile_extensions_need_their_own_model() -> None:
+    with pytest.raises(TypeError, match=r"inherit taco\.extensions\.stac\.STAC"):
+        taco.extensions.STAC(model=taco.extensions.stac.Spatial)  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match=r"inherit taco\.extensions\.stac\.Spatial"):
+        taco.extensions.Spatial(model=taco.extensions.stac.Temporal)  # type: ignore[arg-type]
 
 
 def test_spatial_models_require_canonical_namespaces() -> None:
     with pytest.raises(ContractError, match="must use metadata namespace 'stac'"):
-        taco.Level("sample", location=taco.metadata.sample.STAC)
+        taco.Level("sample", location=taco.extensions.stac.STAC)
     with pytest.raises(ContractError, match="must use metadata namespace 'spatial'"):
-        taco.Level("sample", stac=taco.metadata.sample.Spatial)
+        taco.Level("sample", stac=taco.extensions.stac.Spatial)
 
 
 def test_contract_checks_profile_columns() -> None:
     with pytest.raises(ContractError, match="must choose one metadata profile, got SPATIAL, TEMPORAL"):
         taco.Contract(
             structure=["data.bin"],
-            metadata=[taco.Level("sample", spatial=taco.extensions.Spatial(), temporal=taco.metadata.sample.Temporal)],
+            metadata=[taco.Level("sample", spatial=taco.extensions.Spatial(), temporal=taco.extensions.stac.Temporal)],
         )
     with pytest.raises(ContractError, match=r"STAC metadata.*missing fields"):
         taco.Contract(structure=["data.bin"], metadata={"sample": {"stac:geometry": "binary"}})
@@ -159,11 +158,9 @@ def test_derived_centroid_dependency_is_configurable() -> None:
 
 
 def test_collection_models() -> None:
-    label = taco.metadata.collection.LabelClass(name="cloud", category=1)
-    labels = taco.metadata.collection.Labels(classes=[label, "clear"])
-    publications = taco.metadata.collection.Publications(
-        publications=[taco.metadata.collection.Publication(doi="10.0/x", citation="A et al.")]
-    )
+    label = models.LabelClass(name="cloud", category=1)
+    labels = models.Labels(classes=[label, "clear"])
+    publications = models.Publications(publications=[models.Publication(doi="10.0/x", citation="A et al.")])
     collection = taco.Collection(
         contract=taco.Contract(structure=["data.bin"]),
         id="models",
@@ -274,7 +271,7 @@ def test_geoenrich_batches_requests(monkeypatch: pytest.MonkeyPatch) -> None:
     FakeImage.calls.clear()
     FakeImage.unmask_values.clear()
     monkeypatch.setitem(sys.modules, "ee", fake_earth_engine())
-    extension = taco.metadata.sample.GeoEnrich(
+    extension = taco.extensions.GeoEnrich(
         ["elevation", "admin_countries"],
         backend="earthengine",
         batch_size=1,
@@ -297,7 +294,9 @@ def test_geoenrich_batches_requests(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_geoenrich_replaces_missing_admin_name(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setitem(sys.modules, "ee", fake_earth_engine())
-    monkeypatch.setattr(taco.metadata.derived, "_admin_names", lambda level: {0: "Afghanistan", 53343: None})
+    monkeypatch.setattr(
+        taco.extensions.geoenrich.extension, "_admin_names", lambda level: {0: "Afghanistan", 53343: None}
+    )
 
     def reduce_regions(self, *, collection, reducer, scale, crs):
         return SimpleNamespace(
@@ -307,7 +306,7 @@ def test_geoenrich_replaces_missing_admin_name(monkeypatch: pytest.MonkeyPatch) 
         )
 
     monkeypatch.setattr(FakeImage, "reduceRegions", reduce_regions)
-    extension = taco.metadata.sample.GeoEnrich(["admin_districts"], backend="earthengine")
+    extension = taco.extensions.GeoEnrich(["admin_districts"], backend="earthengine")
     result = extension.compute({"stac:centroid": [centroid(63.794370059438705, 36.06268468013294)]})
 
     assert result == {"admin_districts": ["Unknown"]}
@@ -331,7 +330,7 @@ def test_geoenrich_converts_units_and_keeps_missing_values(monkeypatch: pytest.M
         )
 
     monkeypatch.setattr(FakeImage, "reduceRegions", reduce_regions)
-    extension = taco.metadata.sample.GeoEnrich(["temperature", "soil_ph", "population"], backend="earthengine")
+    extension = taco.extensions.GeoEnrich(["temperature", "soil_ph", "population"], backend="earthengine")
     result = extension.compute({"stac:centroid": [centroid(0, 0), centroid(1, 1)]})
 
     assert result["temperature"] == [pytest.approx(26.85, abs=1e-5), None]
@@ -343,7 +342,7 @@ def test_geoenrich_converts_units_and_keeps_missing_values(monkeypatch: pytest.M
 def test_geoenrich_retries_failed_requests(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setitem(sys.modules, "ee", fake_earth_engine())
     delays: list[int] = []
-    monkeypatch.setattr(taco.metadata.derived.time, "sleep", delays.append)
+    monkeypatch.setattr(taco.extensions.geoenrich.extension.time, "sleep", delays.append)
     failures = [RuntimeError("Too many concurrent aggregations")]
 
     def reduce_regions(self, *, collection, reducer, scale, crs):
@@ -355,7 +354,7 @@ def test_geoenrich_retries_failed_requests(monkeypatch: pytest.MonkeyPatch) -> N
         return SimpleNamespace(getInfo=get_info)
 
     monkeypatch.setattr(FakeImage, "reduceRegions", reduce_regions)
-    result = taco.metadata.sample.GeoEnrich(["elevation"], backend="earthengine").compute(
+    result = taco.extensions.GeoEnrich(["elevation"], backend="earthengine").compute(
         {"stac:centroid": [centroid(0, 0)]}
     )
 
@@ -363,36 +362,45 @@ def test_geoenrich_retries_failed_requests(monkeypatch: pytest.MonkeyPatch) -> N
     assert delays == [1]
 
 
-def test_geoenrich_configuration() -> None:
-    assert taco.metadata.sample.GeoEnrich.__taco_complete_level__
-    assert not taco.metadata.sample.MajorTOM.__taco_complete_level__
-    with pytest.raises(ValueError, match="unknown"):
-        taco.metadata.sample.GeoEnrich(["nope"])
-    with pytest.raises(ValueError, match="positive"):
-        taco.metadata.sample.GeoEnrich(scale_m=0)
-    with pytest.raises(ValueError, match="must not be empty"):
-        taco.metadata.sample.GeoEnrich([])
-    with pytest.raises(ValueError, match="unique"):
-        taco.metadata.sample.GeoEnrich(["elevation", "elevation"])
-    with pytest.raises(TypeError, match="sequence"):
-        taco.metadata.sample.GeoEnrich("elevation")
-    with pytest.raises(ValueError, match="batch_size"):
-        taco.metadata.sample.GeoEnrich(batch_size=0)
-    with pytest.raises(ValueError, match="max_concurrency"):
-        taco.metadata.sample.GeoEnrich(max_concurrency=0)
-    with pytest.raises(ValueError, match="backend"):
-        taco.metadata.sample.GeoEnrich(backend="unknown")
-    with pytest.raises(ValueError, match="index_url"):
-        taco.metadata.sample.GeoEnrich(index_url="")
+def test_geoenrich_ships_admin_names() -> None:
+    from taco.extensions.geoenrich.extension import _admin_names
 
-    fields = taco.metadata.sample.GeoEnrich(["gdp", "admin_countries"]).fields
+    for level in (0, 1, 2):
+        names = _admin_names(level)
+        assert names
+        assert all(isinstance(code, int) for code in names)
+
+
+def test_geoenrich_configuration() -> None:
+    assert taco.extensions.GeoEnrich.__taco_complete_level__
+    assert not taco.extensions.MajorTOM.__taco_complete_level__
+    with pytest.raises(ValueError, match="unknown"):
+        taco.extensions.GeoEnrich(["nope"])
+    with pytest.raises(ValueError, match="positive"):
+        taco.extensions.GeoEnrich(scale_m=0)
+    with pytest.raises(ValueError, match="must not be empty"):
+        taco.extensions.GeoEnrich([])
+    with pytest.raises(ValueError, match="unique"):
+        taco.extensions.GeoEnrich(["elevation", "elevation"])
+    with pytest.raises(TypeError, match="sequence"):
+        taco.extensions.GeoEnrich("elevation")
+    with pytest.raises(ValueError, match="batch_size"):
+        taco.extensions.GeoEnrich(batch_size=0)
+    with pytest.raises(ValueError, match="max_concurrency"):
+        taco.extensions.GeoEnrich(max_concurrency=0)
+    with pytest.raises(ValueError, match="backend"):
+        taco.extensions.GeoEnrich(backend="unknown")
+    with pytest.raises(ValueError, match="index_url"):
+        taco.extensions.GeoEnrich(index_url="")
+
+    fields = taco.extensions.GeoEnrich(["gdp", "admin_countries"]).fields
     assert fields.field("gdp").type == pa.float32()
     assert fields.field("admin_countries").type == pa.string()
     assert fields.field("gdp").nullable
     assert not fields.field("admin_countries").nullable
     assert fields.field("admin_countries").metadata[b"description"]
 
-    default = taco.metadata.sample.GeoEnrich(["elevation"])
+    default = taco.extensions.GeoEnrich(["elevation"])
     assert default.requires == ("majortom:code",)
     assert default.configuration() == {
         "variables": ["elevation"],
@@ -405,7 +413,7 @@ def test_geoenrich_configuration() -> None:
         "index_url": "https://data.source.coop/major-tom/index/global.parquet",
     }
 
-    earthengine = taco.metadata.sample.GeoEnrich(["elevation"], backend="earthengine")
+    earthengine = taco.extensions.GeoEnrich(["elevation"], backend="earthengine")
     assert earthengine.requires == ("stac:centroid",)
     assert earthengine.collection_metadata() == {}
 
@@ -422,7 +430,7 @@ def test_geoenrich_reads_majortom_index_in_input_order(tmp_path) -> None:
         ),
         index,
     )
-    extension = taco.metadata.sample.GeoEnrich(
+    extension = taco.extensions.GeoEnrich(
         ["elevation", "admin_countries"],
         index_url=str(index),
     )
@@ -447,7 +455,7 @@ def test_geoenrich_majortom_index_rejects_missing_codes(tmp_path) -> None:
         pa.table({"id": ["MT10km_0000U_0000R"], "geoenrich:elevation": [12.25]}),
         index,
     )
-    extension = taco.metadata.sample.GeoEnrich(["elevation"], index_url=str(index))
+    extension = taco.extensions.GeoEnrich(["elevation"], index_url=str(index))
 
     with pytest.raises(ValueError, match="MT10km_9999U_9999R"):
         extension.compute({"majortom:code": ["MT10km_9999U_9999R"]})

@@ -11,6 +11,7 @@ import pyarrow.parquet as pq
 
 from ..container.parquet import encoding_hints, parquet_writer_options
 from ..contract.contract import SAMPLE_ID, SAMPLE_LEVEL, Contract
+from ..contract.extension import CollectionSummary
 from ..contract.naming import (
     CURRENT_ID,
     DATA_DIR,
@@ -25,11 +26,10 @@ from ..contract.naming import (
 )
 from ..contract.sample import _PreparedSample
 from ..errors import SampleError
-from ..metadata._base import CollectionSummary, SampleModel
-from ..metadata.spatiotemporal import STAC, Spatial, Temporal, grid_problems
+from ..extensions.stac.models import STAC, Spatial, Temporal, grid_problems
 
 _GRID_NAMESPACES = ("spatial", "stac")
-_PROFILES: dict[str, type[SampleModel]] = {
+_PROFILES: dict[str, type[Spatial] | type[Temporal] | type[STAC]] = {
     "spatial": Spatial,
     "temporal": Temporal,
     "stac": STAC,

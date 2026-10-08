@@ -385,7 +385,7 @@ def test_rumi_namespace_is_reserved_for_the_extension() -> None:
         mean: str
 
     for value in (Notes, Notes | None):
-        with pytest.raises(ContractError, match=r"reserved for taco\.extensions\.Rumi"):
+        with pytest.raises(ContractError, match="reserved for the rumi extension"):
             taco.Level("sample", rumi=value)
 
 

@@ -12,7 +12,7 @@ import pyarrow as pa
 from ..container.parquet import Encoding
 from ..errors import ContractError, SampleError
 from .extension import CollectionSummary, DerivedMetadata, Extension
-from .naming import RUMI_NAMESPACE, validate_field_name
+from .naming import validate_field_name
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from pydantic import BaseModel
@@ -300,6 +300,12 @@ def validate_qualified_field(value: str) -> None:
     validate_field_name(value, context="metadata")
 
 
+def _declared_namespace(value: Any) -> str | None:
+    if isinstance(value, Extension):
+        return value.__taco_namespace__ or getattr(value.input_model, "__taco_namespace__", None)
+    return getattr(_optional(value)[0], "__taco_namespace__", None)
+
+
 @dataclass(frozen=True, init=False)
 class Level:
     name: str
@@ -308,13 +314,17 @@ class Level:
     def __init__(self, name: str, **groups: Any) -> None:
         if not isinstance(name, str) or not name:
             raise ContractError("metadata level needs a name")
+        # Avoid a contract/extensions import cycle.
+        from .extension_registry import OWNERS, builtin_name
+
         bindings = []
         for namespace, value in groups.items():
             _namespace(namespace)
-            # Wide reads carry Rumi fields next to file locations by name, so
-            # only the Rumi extension may declare them.
-            if namespace == RUMI_NAMESPACE and getattr(value, "__taco_namespace__", None) != RUMI_NAMESPACE:
-                raise ContractError("metadata namespace 'rumi' is reserved for taco.extensions.Rumi")
+            owner = OWNERS.get(namespace)
+            if owner is not None and _declared_namespace(value) is None:
+                raise ContractError(
+                    f"metadata namespace {namespace!r} is reserved for the {builtin_name(owner)} extension"
+                )
             if isinstance(value, Extension):
                 bindings.append(_extension_binding(namespace, value))
             else:

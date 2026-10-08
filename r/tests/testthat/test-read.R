@@ -27,7 +27,7 @@ describe("read a TACO dataset", {
     expect_identical(dataset$collection$id, "taco-fixture")
     expect_identical(dataset$contract$structure, c("image.bin", "mask.bin"))
     expect_identical(dataset$contract$levels, c("sample", "children"))
-    expect_identical(dataset$contract$derived, list())
+    expect_null(dataset$contract$derived)
     expect_identical(nrow(taco::read(dataset)), 3L)
     expect_match(capture.output(print(dataset)), "taco.Dataset")
     selected <- taco::sql(dataset, 'SELECT id FROM dataset WHERE "taco:sample_index" = 1')

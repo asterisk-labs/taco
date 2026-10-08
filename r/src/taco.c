@@ -98,15 +98,13 @@ static SEXP string_vector(const taco_dataset* dataset, size_t count,
 
 SEXP taco_r_dataset(SEXP pointer) {
     const taco_dataset* dataset = dataset_address(pointer);
-    const char* names[] = {"source", "container", "collection", "levels", "structure", "derived", ""};
+    const char* names[] = {"source", "container", "collection", "levels", "structure", ""};
     SEXP result = PROTECT(Rf_mkNamed(VECSXP, names));
     SET_VECTOR_ELT(result, 0, scalar_utf8(taco_dataset_source(dataset)));
     SET_VECTOR_ELT(result, 1, scalar_utf8(taco_dataset_container(dataset)));
     SET_VECTOR_ELT(result, 2, scalar_utf8(taco_dataset_collection(dataset)));
     SET_VECTOR_ELT(result, 3, string_vector(dataset, taco_dataset_level_count(dataset), taco_dataset_level));
     SET_VECTOR_ELT(result, 4, string_vector(dataset, taco_dataset_structure_count(dataset), taco_dataset_structure));
-    const char* derived = taco_dataset_derived(dataset);
-    SET_VECTOR_ELT(result, 5, derived ? scalar_utf8(derived) : R_NilValue);
     UNPROTECT(1);
     return result;
 }

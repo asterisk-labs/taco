@@ -24,8 +24,6 @@ struct Contract {
     // Every level with the user fields it declares, in COLLECTION.json order.
     std::vector<std::pair<std::string, std::vector<std::string>>> fields;
     std::vector<FileScope> file_scopes;
-    bool has_derived = false;
-    std::string derived;
 
     [[nodiscard]] const std::vector<std::string>* fields_of(std::string_view level) const;
     [[nodiscard]] bool field_applies(std::string_view level, std::string_view field,

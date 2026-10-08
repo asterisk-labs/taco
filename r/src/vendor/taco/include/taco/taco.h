@@ -22,7 +22,7 @@
 extern "C" {
 #endif
 
-#define TACO_API_VERSION 2
+#define TACO_API_VERSION 3
 
 typedef enum {
     TACO_OK = 0,
@@ -67,8 +67,6 @@ TACO_API size_t taco_dataset_level_count(const taco_dataset* dataset);
 TACO_API const char* taco_dataset_level(const taco_dataset* dataset, size_t index);
 TACO_API size_t taco_dataset_structure_count(const taco_dataset* dataset);
 TACO_API const char* taco_dataset_structure(const taco_dataset* dataset, size_t index);
-// Serialized taco:derived object, or NULL when the collection has none.
-TACO_API const char* taco_dataset_derived(const taco_dataset* dataset);
 
 typedef struct {
     // NULL for every sample, "5" for one, "[0, 100]" for a half-open range.

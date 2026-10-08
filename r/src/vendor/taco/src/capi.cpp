@@ -126,10 +126,6 @@ const char* taco_dataset_structure(const taco_dataset* dataset, size_t index) {
     return dataset ? item(dataset->value.contract.structure, index) : nullptr;
 }
 
-const char* taco_dataset_derived(const taco_dataset* dataset) {
-    return dataset && dataset->value.contract.has_derived ? dataset->value.contract.derived.c_str() : nullptr;
-}
-
 taco_status taco_sql(const taco_dataset* const* datasets, size_t count, const taco_read_options* options,
                      char** out_sql) {
     if (out_sql)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import shutil
 import sys
 from html.parser import HTMLParser
@@ -25,6 +26,7 @@ REQUIRED = (
     "api/style.css",
     "api/app.js",
     "spec/index.html",
+    "spec/extensions/stac.html",
     "spec/assets/datamodel.png",
     "playground/index.html",
     "playground/app.js",
@@ -38,8 +40,8 @@ SPEC_TEMPLATE = """<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>TACO Specification</title>
-<link rel="stylesheet" href="style.css">
+<title>{title}</title>
+<link rel="stylesheet" href="{stylesheet}">
 </head>
 <body>
 <main>
@@ -120,16 +122,37 @@ def assert_local_links(output: Path) -> None:
         raise ValueError("; ".join(errors))
 
 
-def build_spec(output: Path) -> None:
-    source = DOCS_SOURCE / "spec" / "SPEC.md"
-    if not source.is_file():
-        raise FileNotFoundError(f"missing specification source: {source}")
+# A relative link to another Markdown page, which the site serves as HTML.
+MARKDOWN_LINK = re.compile(r'href="([^":#]+)\.md(#[^"]*)?"')
+
+
+def render_markdown(source: Path, target: Path, *, title: str, stylesheet: str) -> None:
     content = markdown.markdown(
         source.read_text(encoding="utf-8"),
         extensions=["fenced_code", "sane_lists", "tables", "toc"],
         output_format="html5",
     )
-    (output / "spec" / "index.html").write_text(SPEC_TEMPLATE.format(content=content), encoding="utf-8")
+    content = MARKDOWN_LINK.sub(lambda match: f'href="{match[1]}.html{match[2] or ""}"', content)
+    page = SPEC_TEMPLATE.format(title=title, stylesheet=stylesheet, content=content)
+    target.write_text(page, encoding="utf-8")
+
+
+def build_spec(output: Path) -> None:
+    source = DOCS_SOURCE / "spec" / "SPEC.md"
+    if not source.is_file():
+        raise FileNotFoundError(f"missing specification source: {source}")
+    render_markdown(source, output / "spec" / "index.html", title="TACO Specification", stylesheet="style.css")
+    # Each extension document becomes a page beside its schema and examples.
+    for document in sorted((DOCS_SOURCE / "spec" / "extensions").glob("*.md")):
+        heading = next(
+            (line[2:] for line in document.read_text(encoding="utf-8").splitlines() if line.startswith("# ")), ""
+        )
+        render_markdown(
+            document,
+            output / "spec" / "extensions" / f"{document.stem}.html",
+            title=f"TACO {heading or document.stem}",
+            stylesheet="../style.css",
+        )
 
 
 def build(output: Path, *, clean: bool = False) -> None:

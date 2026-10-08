@@ -1,7 +1,6 @@
 struct Contract
     structure::Vector{String}
     metadata::Dict{String,Any}
-    derived::Dict{String,Any}
     levels::Vector{String}
 end
 
@@ -18,8 +17,7 @@ function _build_contract(collection, levels)
     raw_structure = collection["taco:structure"]
     structure = String.(raw_structure)
     metadata = Dict{String,Any}(collection["taco:metadata"])
-    derived = Dict{String,Any}(get(collection, "taco:derived", Dict{String,Any}()))
-    return Contract(structure, metadata, derived, levels)
+    return Contract(structure, metadata, levels)
 end
 
 

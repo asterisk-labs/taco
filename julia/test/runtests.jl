@@ -28,7 +28,7 @@ const NESTED_FIXTURE = joinpath(@__DIR__, "data", "taco_nested.zip")
         @test dataset.collection["id"] == "taco-fixture"
         @test dataset.contract.structure == ["image.bin", "mask.bin"]
         @test dataset.contract.levels == ["sample", "children"]
-        @test isempty(dataset.contract.derived)
+        @test !hasproperty(dataset.contract, :derived)
         @test size(Taco.read(dataset), 1) == 3
         @test occursin("Taco.Dataset", sprint(show, dataset))
         @test Taco.sql(dataset, "SELECT id FROM dataset WHERE \"taco:sample_index\" = 1").id == ["sample-1"]

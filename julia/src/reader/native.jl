@@ -5,7 +5,7 @@ using ProgressMeter: Progress, ProgressUnknown, update!, finish!
 
 
 const _LIBRARY_ENV = "TACO_LIB"
-const _API_VERSION = 2
+const _API_VERSION = 3
 const _HANDLE = Ref{Ptr{Cvoid}}(C_NULL)
 const _SYMBOLS = Dict{Symbol,Ptr{Cvoid}}()
 const _LIBRARY_LOCK = ReentrantLock()

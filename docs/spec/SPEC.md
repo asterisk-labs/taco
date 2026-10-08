@@ -388,7 +388,7 @@ Collection metadata is stored directly in `COLLECTION.json` as qualified fields.
 }
 ```
 
-The Python writer takes these values as groups, one keyword argument of `Collection` per namespace, but the serialized form remains flat and language-independent. Collection groups and sample groups are separate. A collection group MUST NOT be attached to a sample, folder, or asset.
+The Python writer accepts one `Collection` keyword per namespace. The serialized form remains flat. Collection groups MUST NOT be attached to metadata levels.
 
 Collection metadata values MUST be valid JSON. Non-finite numbers such as NaN and Infinity are not allowed.
 
@@ -408,8 +408,8 @@ An extension gives a namespace a published meaning. It defines the fields of tha
 
 | Extension | Namespaces | Scope |
 | --- | --- | --- |
-| [STAC](extensions/stac.md) | `temporal`, `spatial`, `stac` | Sample, Folder |
-| [Rumi](extensions/rumi.md) | `rumi` | Sample, Asset |
+| [STAC](extensions/stac.md) | `temporal`, `spatial`, `stac` | Sample |
+| [Rumi](extensions/rumi.md) | `rumi` | Sample |
 | [MajorTOM](extensions/majortom.md) | `majortom` | Sample |
 | [GeoEnrich](extensions/geoenrich.md) | `geoenrich` | Sample |
 
@@ -421,17 +421,14 @@ An extension is identified by the URL of its JSON Schema. The URL contains the e
 https://asterisk.coop/taco/spec/extensions/stac/v1.0.0/schema.json
 ```
 
-An extension document starts with its title, identifier, namespaces, scope, maturity, and owner. Scope is one or more of Collection, Sample, Folder, and Asset.
+Fields have sample or collection scope. One extension MAY define both.
 
-Scope belongs to each field, not to the extension. One extension MAY define fields with different scopes, and its document lists collection fields and level fields separately. The scope of a field follows from where it appears in `COLLECTION.json`.
+| Scope | Where the field is stored | What it describes |
+| --- | --- | --- |
+| Sample | A column of any metadata level in `taco:metadata` | The sample, or a folder or file inside it |
+| Collection | A qualified key at the root of `COLLECTION.json` | The dataset |
 
-| Scope | Where the field appears |
-| --- | --- |
-| Collection | A qualified key at the root of `COLLECTION.json`, such as `majortom:dist_km` |
-| Sample | An entry of `taco:metadata.sample`, such as `majortom:code` |
-| Folder, Asset | An entry of a `children` level in `taco:metadata` |
-
-A `children` level may hold folder rows and file rows. Which kind a row is follows from `taco:structure`, so the JSON Schema cannot tell Folder from Asset. `taco.validate()` MUST check that a field appears only on rows its scope allows.
+File-dependent extensions MUST reject rows without files.
 
 #### Declaration
 
@@ -745,9 +742,9 @@ Metadata for the complete dataset is not a separate object. It is passed to `Col
 
 #### Metadata schema
 
-Built-in extensions live under `taco.extensions`, one module per extension: `taco.extensions.stac`, `taco.extensions.rumi`, `taco.extensions.majortom`, and `taco.extensions.geoenrich`. A dataset may use them or define Pydantic models and `taco.Extension` subclasses.
+Built-ins live under `taco.extensions.sample` or `taco.extensions.collection`. A dataset may also define Pydantic models and `taco.Extension` subclasses.
 
-The writer rejects an extension group used outside its declared scope.
+The writer MUST reject a group used at the wrong scope.
 
 ```
 import taco
@@ -763,9 +760,9 @@ contract = taco.Contract(
     metadata=[
         taco.Level(
             "sample",
-            stac=taco.extensions.STAC(),
+            stac=taco.extensions.sample.stac.STAC,
             ml=ML,
-            majortom=taco.extensions.MajorTOM(dist_km=100),
+            majortom=taco.extensions.sample.majortom.MajorTOM(dist_km=100),
         ),
     ],
 )
@@ -811,7 +808,7 @@ Pass `extensions=[schema_url, ...]` for published extensions outside the built-i
 `Collection` adds the built-in identifiers from the namespaces the contract uses and
 preserves an explicitly declared version when rewriting a dataset.
 
-Groups must be non-empty, use valid qualified field names, and contain JSON values. Models scoped to samples, folders, or assets are rejected, as are values that conflict with an active extension. Validation failures raise `CollectionError`.
+Groups must be non-empty, use valid qualified field names, and contain JSON values. Sample groups are rejected, as are values that conflict with an active extension. Validation failures raise `CollectionError`.
 
 Group names cannot be `metadata` or a named parameter of `Collection`. Readers still preserve those namespaces when they occur in a file. `Collection.replace(poi={...})` replaces the entire `poi` group; `poi=None` removes it. `taco.export()` accepts the same overrides.
 
@@ -833,7 +830,7 @@ Assets are passed as a list. In a flat structure, the contract path is inferred 
 sample = taco.Sample(
     id="lima-0001",
     metadata=taco.Metadata(
-        stac=taco.extensions.stac.STAC(...),
+        stac=taco.extensions.sample.stac.STAC(...),
         ml=ML(split="train"),
     ),
     assets=[
@@ -857,7 +854,7 @@ sample = taco.Sample(
 
 An extension declares the columns it requires and produces. It may also declare a Pydantic model for values supplied by the producer. The contract is invalid when a required column is missing.
 
-For example, `taco.extensions.MajorTOM` requires the centroid produced by `taco.extensions.STAC` and produces `majortom:code`.
+For example, `taco.extensions.sample.majortom.MajorTOM` requires the centroid computed for `taco.extensions.sample.stac.STAC` and produces `majortom:code`.
 
 The writer computes extension outputs from batches of validated metadata during `run()`. Each context also contains the local asset associated with every row, allowing format extensions to inspect payloads without asking producers to duplicate file metadata.
 
@@ -915,9 +912,9 @@ contract = taco.Contract(
     metadata=[
         taco.Level(
             "sample",
-            stac=taco.extensions.STAC(),
+            stac=taco.extensions.sample.stac.STAC,
             ml=ML,
-            majortom=taco.extensions.MajorTOM(dist_km=100),
+            majortom=taco.extensions.sample.majortom.MajorTOM(dist_km=100),
         ),
     ],
 )
@@ -935,7 +932,7 @@ collection = taco.Collection(
 sample = taco.Sample(
     id="lima-0001",
     metadata=taco.Metadata(
-        stac=taco.extensions.stac.STAC(
+        stac=taco.extensions.sample.stac.STAC(
             proj_code="EPSG:4326",
             proj_shape=(256, 256),
             proj_transform=(0.1 / 256, 0, -76.55, 0, -0.1 / 256, -9.15),
@@ -1142,7 +1139,7 @@ TACO v3 is not compatible with v2 datasets. Existing datasets MUST be rebuilt to
 | Irregular structures | Padding with `__TACOPAD__` placeholders | Variable sequences (`prefix*[a,b].ext`) |
 | Metadata storage | Dual system (consolidated `levelX.parquet` + local `__meta__` per folder) | Consolidated only (one Parquet per contract level, no local metadata) |
 | Parquet naming | By depth (`level0.parquet`, `level1.parquet`, ...) | By row level (`sample.parquet`, `children.parquet`, `children__before.parquet`, ...) |
-| Extension system | Formal `extend_with()` interface with SampleExtension, TortillaExtension, TacoExtension classes | Scoped Pydantic groups for sample, folder, asset, and collection metadata |
+| Extension system | Formal `extend_with()` interface with SampleExtension, TortillaExtension, TacoExtension classes | Pydantic groups for sample and collection metadata |
 | Structural constraint | Position-Invariant Tree inferred at runtime | Structure and metadata declared in a contract |
 | Library dependency | GDAL required | VSI path convention. GDAL is one implementation. |
 | Reader implementation | TacoReader with separate container backends | One C++ core that generates SQL for every binding |

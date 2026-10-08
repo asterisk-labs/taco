@@ -13,7 +13,7 @@ This extension assigns each sample the cell of the spherical [MajorTOM](https://
 
 ## Dependencies
 
-A centroid from the [STAC extension](stac.md): `stac:centroid` by default, or `spatial:centroid`.
+A centroid from the [STAC extension](stac.md), normally `stac:centroid` or `spatial:centroid`.
 
 ## Level fields
 
@@ -44,7 +44,7 @@ An append whose parameters differ from the stored ones MUST fail. For example, `
 ```python
 taco.Level(
     "sample",
-    stac=taco.extensions.STAC(),
-    majortom=taco.extensions.MajorTOM(dist_km=100, extra={"code_10km": 10}),
+    stac=taco.extensions.sample.stac.STAC,
+    majortom=taco.extensions.sample.majortom.MajorTOM(dist_km=100, extra={"code_10km": 10}),
 )
 ```

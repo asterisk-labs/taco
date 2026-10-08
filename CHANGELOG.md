@@ -8,17 +8,14 @@ JavaScript reader are documented here. The format follows
 
 ### Changed
 
-- Built-in extensions moved to `taco.extensions.stac`, `rumi`, `majortom` and
-  `geoenrich`. Their specifications and JSON Schemas live under
-  `docs/spec/extensions`.
-- `Collection.extensions` lists the extensions a dataset uses, and `validate`
-  checks `COLLECTION.json` against their schemas. Datasets without the list
-  still read, but no longer validate.
-- `Collection(extensions=...)` declares third-party extensions, and rewriting a
-  dataset preserves the declared version of a built-in extension.
-- Each built-in extension owns its namespaces.
-- A STAC, Spatial or Temporal profile holds only its own fields. Store extra
-  fields such as cloud cover in another namespace.
+- Built-ins now live under `taco.extensions.sample` or
+  `taco.extensions.collection`. Sample fields cover samples, folders and files.
+- STAC profiles use the same class in contracts and rows and fill a missing
+  `centroid`. The old aliases and folder-specific models are gone.
+- `Contract.extensions` is now `Contract.operations`.
+- `Collection.extensions` records schema URLs. `validate` checks those schemas,
+  and rewrites preserve declared built-in versions.
+- Built-ins reserve their namespaces. STAC profiles reject extra fields.
 - `jsonschema` is part of the `writer` extra.
 
 ### Removed
@@ -26,6 +23,7 @@ JavaScript reader are documented here. The format follows
 - `taco.metadata`, with `Split`, `Scaling`, `Labels`, `Optical`, `Publications`
   and `SplitStrategy`. Define a Pydantic model or pass a mapping in your own
   namespace instead.
+- `taco.DerivedMetadata`; use `taco.Extension`.
 - `taco:derived`, `Contract(..., derived=...)` and the readers' `derived` field.
   Removing `taco_dataset_derived` raises the C API version to 3.
 

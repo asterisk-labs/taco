@@ -69,7 +69,7 @@ contract = taco.Contract(
     metadata=[
         taco.Level(
             "sample",
-            stac=taco.extensions.STAC(),
+            stac=taco.extensions.sample.stac.STAC,
             ocean=OceanWindow,
             ml=ML,
         ),
@@ -239,7 +239,7 @@ with taco.open_writer(collection, "oceantaco.zip", overwrite=True) as writer:
         ]
 
         # One affine grid cannot describe the clipped swath, so the sample supplies its footprint instead.
-        stac = taco.extensions.stac.STAC(
+        stac = taco.extensions.sample.stac.STAC(
             geometry=polygon(window["ring"]),
             start_datetime=window["time"],
             end_datetime=window["time"] + timedelta(minutes=18),

@@ -3,7 +3,7 @@
 - **Title:** STAC
 - **Identifier:** `https://asterisk.coop/taco/spec/extensions/stac/v1.0.0/schema.json`
 - **Namespaces:** `temporal`, `spatial`, `stac`
-- **Scope:** Sample, Folder
+- **Scope:** Sample
 - **Maturity:** Pilot
 - **Owner:** Asterisk Labs
 
@@ -92,10 +92,11 @@ For `stac`, the temporal interval starts at the earliest `start_datetime` or `da
 
 ## Writer
 
-`spatial=taco.extensions.Spatial()` and `stac=taco.extensions.STAC()` declare the producer inputs and compute `centroid`. Temporal computes nothing, so it is declared as a model, as in `temporal=taco.extensions.stac.Temporal`. Inputs use the matching model from `taco.extensions.stac`, or from `taco.extensions.stac.folder` at a folder level.
-
-A level MAY bind the Spatial or STAC model without its extension; the producer then supplies `centroid`.
+`taco.extensions.sample.stac` provides `Temporal`, `Spatial` and `STAC`. Bind the
+class to a level and pass instances in row metadata. The writer fills a missing
+`centroid`.
 
 ```python
-taco.Level("sample", stac=taco.extensions.STAC())
+taco.Level("sample", stac=taco.extensions.sample.stac.STAC)
+taco.Metadata(stac=taco.extensions.sample.stac.STAC(proj_code="EPSG:32718", proj_shape=(256, 256), proj_transform=..., datetime=...))
 ```

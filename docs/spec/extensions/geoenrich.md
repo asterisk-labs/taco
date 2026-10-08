@@ -9,7 +9,7 @@
 
 [JSON Schema](geoenrich/v1.0.0/schema.json) · [Example](geoenrich/examples/COLLECTION.json)
 
-This extension attaches environmental, socioeconomic and administrative variables to each sample: elevation, climate, soil, population and administrative names.
+This extension adds environmental, socioeconomic and administrative variables to samples.
 
 ## Backends
 
@@ -56,9 +56,9 @@ With the `majortom-index` backend the writer stores where the values came from.
 ```python
 taco.Level(
     "sample",
-    stac=taco.extensions.STAC(),
-    majortom=taco.extensions.MajorTOM(dist_km=10),
-    geoenrich=taco.extensions.GeoEnrich(["elevation", "population"]),
+    stac=taco.extensions.sample.stac.STAC,
+    majortom=taco.extensions.sample.majortom.MajorTOM(dist_km=10),
+    geoenrich=taco.extensions.sample.geoenrich.GeoEnrich(["elevation", "population"]),
 )
 ```
 

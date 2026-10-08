@@ -3,7 +3,7 @@
 - **Title:** Rumi
 - **Identifier:** `https://asterisk.coop/taco/spec/extensions/rumi/v1.0.0/schema.json`
 - **Namespace:** `rumi`
-- **Scope:** Sample, Asset
+- **Scope:** Sample
 - **Maturity:** Pilot
 - **Owner:** Asterisk Labs
 
@@ -13,7 +13,8 @@ This extension stores the canonical header and selected statistics of `.rumi` fi
 
 ## Level fields
 
-The extension operates on one local `.rumi` asset per row. It owns the `rumi` namespace: no other metadata group may use it. It stores `rumi:header` unless configured with `header=False`, and the statistics selected with `stats`. At least one of the two MUST be enabled.
+The extension reads one local `.rumi` file per row. It stores `rumi:header` unless
+`header=False`, plus any selected statistics. At least one output MUST be enabled.
 
 | Field | Type | Nullable | Description |
 | --- | --- | --- | --- |
@@ -46,7 +47,7 @@ Statistics exclude non-finite values; booleans count as 0 and 1. The extension h
 `stats` MAY instead map a complete structure declaration to its own selection. The mapping MUST be non-empty, and each value MUST be `True`, a statistic name, or a non-empty list of statistic names. A declaration omitted from the mapping gets no statistics; it MUST NOT be represented by `False` or an empty list. The mapping is declared at the metadata level that owns those assets. For a variable sequence, the key is the declaration itself, including `*[min,max]`.
 
 ```python
-taco.extensions.Rumi(
+taco.extensions.sample.rumi.Rumi(
     stats={
         "rumi/image.rumi": ["mean", "p98"],
         "rumi/cube.rumi": ["mean_t0", "p98_t0_b3"],
@@ -90,7 +91,7 @@ A Rumi variable sequence has a `LIST(BLOB)` column named after its prefix, such 
 ## Writer
 
 ```python
-taco.Level("sample", rumi=taco.extensions.Rumi(stats=True))
+taco.Level("sample", rumi=taco.extensions.sample.rumi.Rumi(stats=True))
 ```
 
-`taco.extensions.Rumi` requires a local `.rumi` asset and the `taco-eo[rumi]` extra.
+`taco.extensions.sample.rumi.Rumi` requires a local `.rumi` asset and the `taco-eo[rumi]` extra.

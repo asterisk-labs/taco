@@ -45,10 +45,10 @@ contract = taco.Contract(
     metadata=[
         taco.Level(
             "sample",
-            stac=taco.extensions.STAC(),
+            stac=taco.extensions.sample.stac.STAC,
             chip=Chip,
             ml=ML,
-            majortom=taco.extensions.MajorTOM(
+            majortom=taco.extensions.sample.majortom.MajorTOM(
                 dist_km=100,
                 latitude_range=(-20, 0),
                 longitude_range=(-90, -60),
@@ -140,7 +140,7 @@ with taco.open_writer(collection, "stac-segmentation.zip", overwrite=True) as wr
         dominant_land_cover = class_names[int(np.bincount(label.ravel()).argmax())]
         easting, northing = chip["origin"]
 
-        stac = taco.extensions.stac.STAC(
+        stac = taco.extensions.sample.stac.STAC(
             proj_code=chip["crs"],
             proj_shape=image.shape[-2:],
             proj_transform=(10, 0, easting, 0, -10, northing),

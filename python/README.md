@@ -40,7 +40,7 @@ source = "https://data.source.coop/major-tom/core-dem/"
 taco.export(
     source,
     "core-dem-sample.zip",
-    sql='SELECT * FROM sample ORDER BY id LIMIT 10',
+    sql="SELECT * FROM sample ORDER BY id LIMIT 10",
 )
 ```
 
@@ -56,9 +56,9 @@ the same metadata level before using it:
 ```python
 taco.Level(
     "sample",
-    stac=taco.extensions.STAC(),
-    majortom=taco.extensions.MajorTOM(dist_km=10),
-    geoenrich=taco.extensions.GeoEnrich(
+    stac=taco.extensions.sample.stac.STAC,
+    majortom=taco.extensions.sample.majortom.MajorTOM(dist_km=10),
+    geoenrich=taco.extensions.sample.geoenrich.GeoEnrich(
         ["elevation", "temperature", "admin_countries"],
     ),
 )

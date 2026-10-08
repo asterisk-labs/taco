@@ -12,6 +12,7 @@ import pytest
 from pydantic import BaseModel
 
 import taco
+from taco.contract.extension_registry import OWNERS
 from taco.errors import CollectionError, ConsolidationError, ContractError
 from taco.writer.base import render_collection
 
@@ -228,7 +229,7 @@ def test_export_and_consolidation_keep_the_list(
     assert taco.validate(catalog).ok
 
 
-@pytest.mark.parametrize("namespace", ["stac", "spatial", "temporal", "rumi", "majortom", "geoenrich", "split"])
+@pytest.mark.parametrize("namespace", sorted(OWNERS))
 def test_a_user_model_cannot_take_an_owned_namespace(namespace: str) -> None:
     class Grid(BaseModel):
         code: int

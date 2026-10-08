@@ -12,6 +12,7 @@ import pyarrow.parquet as pq
 from ..container.parquet import encoding_hints, parquet_writer_options
 from ..contract.contract import SAMPLE_ID, SAMPLE_LEVEL, Contract
 from ..contract.extension import CollectionSummary
+from ..contract.extension_registry import models
 from ..contract.naming import (
     CURRENT_ID,
     DATA_DIR,
@@ -25,7 +26,6 @@ from ..contract.naming import (
     level_to_filename,
 )
 from ..contract.sample import _PreparedSample
-from ..extensions.sample import MODELS
 
 
 # Summary reducers refer to fields without a namespace. Keep the namespace
@@ -56,7 +56,7 @@ def _level_summaries(contract: Contract, level: str) -> list[tuple[str, type[Col
     namespaces = {name.partition(":")[0] for name in contract.metadata[level]}
     return [
         (namespace, summary)
-        for namespace, model in MODELS.items()
+        for namespace, model in models().items()
         if namespace in namespaces
         for summary in getattr(model, "__taco_summaries__", ())
     ]

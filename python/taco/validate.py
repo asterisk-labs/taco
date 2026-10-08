@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import importlib
-import importlib.util
 import struct
 import zipfile
 from collections import Counter, defaultdict
@@ -17,7 +15,7 @@ from .container.cozip import INDEX_NAME
 from .container.view import DatasetView, open_view
 from .contract.collection import KNOWN_TASKS
 from .contract.contract import CHILDREN_LEVEL, SAMPLE_ID, SAMPLE_LEVEL, Contract
-from .contract.extension_registry import OWNERS, builtin_name, schema, used_namespaces
+from .contract.extension_registry import OWNERS, builtin_name, checks, schema, used_builtins, used_namespaces
 from .contract.naming import (
     COLLECTION_FILENAME,
     CURRENT_ID,
@@ -194,18 +192,10 @@ def _check_extensions(dataset: DatasetView, collector: _Collector) -> None:
 
 def _check_extension_rules(dataset: DatasetView, collector: _Collector) -> None:
     """Run checks not covered by JSON Schema."""
-    names = {
-        builtin_name(OWNERS[namespace]) for namespace in used_namespaces(dataset.collection_json) if namespace in OWNERS
-    }
-    for name in sorted(name for name in names if name is not None):
-        for scope in ("sample", "collection"):
-            module = f"taco.extensions.{scope}.{name}.checks"
-            if (
-                importlib.util.find_spec(f"taco.extensions.{scope}.{name}") is None
-                or importlib.util.find_spec(module) is None
-            ):
-                continue
-            for code, message in importlib.import_module(module).check_dataset(dataset):
+    for builtin in used_builtins(dataset.collection_json):
+        check = checks(builtin)
+        if check is not None:
+            for code, message in check(dataset):
                 collector.error(code, message)
 
 

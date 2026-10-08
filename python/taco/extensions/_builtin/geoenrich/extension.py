@@ -38,7 +38,7 @@ def _morton_key(longitude: float, latitude: float, bits: int = 24) -> int:
 
 @lru_cache(maxsize=3)
 def _admin_names(level: int) -> dict[int, str]:
-    resource = files("taco.extensions.sample.geoenrich").joinpath("data", "admin", f"admin{level}.parquet")
+    resource = files("taco.extensions._builtin.geoenrich").joinpath("data", "admin", f"admin{level}.parquet")
     with as_file(resource) as path:
         table = pq.read_table(path, columns=[f"admin_code{level}", "name"])
     codes, names = table.columns

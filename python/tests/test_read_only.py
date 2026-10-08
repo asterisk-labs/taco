@@ -75,7 +75,7 @@ def test_writer_names_load_on_first_use() -> None:
     from taco.container import INDEX_NAME, cozip_plan, cozip_write
 
     assert callable(taco.open_writer)
-    assert taco.extensions.sample.stac.STAC is taco.extensions.sample.stac.models.STAC
+    assert taco.extensions.sample.stac.STAC is taco.extensions._builtin.stac.models.STAC
     assert "open_writer" in dir(taco)
     assert "open_writer" in taco.__all__
     assert INDEX_NAME == "__cozip__"

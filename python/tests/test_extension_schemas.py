@@ -11,6 +11,7 @@ import pytest
 
 import taco
 from taco.contract.extension_registry import BUILTINS, declared
+from taco.contract.extension_registry import load as load_package
 from taco.contract.extension_registry import schema as schema_of_package
 from taco.writer.metadata import summary_types
 
@@ -18,7 +19,7 @@ jsonschema = pytest.importorskip("jsonschema")
 
 EXTENSIONS = Path(__file__).resolve().parents[2] / "docs" / "spec" / "extensions"
 BASE = "https://asterisk.coop/taco/spec/extensions"
-NAMES = ["stac", "rumi", "majortom", "geoenrich", "split"]
+NAMES = sorted(BUILTINS)
 
 
 def identifier(name: str) -> str:
@@ -81,8 +82,27 @@ def test_schema_is_valid_and_matches_its_identifier(name: str) -> None:
 
 @pytest.mark.parametrize("name", NAMES)
 def test_package_ships_the_published_schema(name: str) -> None:
-    assert BUILTINS[name][0] == identifier(name)
+    assert BUILTINS[name].identifier == identifier(name)
     assert schema_of_package(identifier(name)) == load(EXTENSIONS / name / "v1.0.0" / "schema.json")
+
+
+@pytest.mark.parametrize("name", NAMES)
+def test_builtin_packages_share_one_shape(name: str) -> None:
+    builtin = BUILTINS[name]
+    package = load_package(builtin)
+    assert builtin.name == name
+    for namespace, model in package.MODELS.items():
+        assert namespace in builtin.namespaces
+        assert model.__taco_namespace__ == namespace
+    assert schema_of_package(builtin.identifier)["$id"] == builtin.identifier
+    public = getattr(taco.extensions.sample, name, None) or getattr(taco.extensions.collection, name)
+    for exported in public.__all__:
+        assert getattr(public, exported) is getattr(package, exported)
+
+
+def test_builtin_namespaces_have_one_owner() -> None:
+    namespaces = [namespace for builtin in BUILTINS.values() for namespace in builtin.namespaces]
+    assert len(namespaces) == len(set(namespaces))
 
 
 @pytest.mark.parametrize("name", NAMES)

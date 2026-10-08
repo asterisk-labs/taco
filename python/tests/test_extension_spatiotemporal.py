@@ -11,7 +11,7 @@ from shapely.geometry import Point, Polygon
 
 import taco
 from taco.container.view import open_view
-from taco.extensions.sample.stac.models import (
+from taco.extensions._builtin.stac.models import (
     footprint_bbox,
     footprint_center,
     grid_bbox,

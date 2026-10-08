@@ -19,7 +19,7 @@ from shapely.geometry import MultiPolygon, box
 import taco
 from taco.container.view import open_view
 from taco.errors import SampleError, WriterError
-from taco.extensions.sample.stac.models import STAC
+from taco.extensions._builtin.stac.models import STAC
 from taco.writer.identity import IdentifierIndex
 
 

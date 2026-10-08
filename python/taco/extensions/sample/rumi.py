@@ -1,5 +1,5 @@
 """Rumi metadata."""
 
-from .extension import Rumi
+from .._builtin.rumi import Rumi
 
 __all__ = ["Rumi"]

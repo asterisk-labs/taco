@@ -32,7 +32,7 @@ def centroid(x: float, y: float) -> dict[str, float]:
 def test_extensions_are_grouped_by_scope() -> None:
     assert taco.extensions.sample.__all__ == ["geoenrich", "majortom", "rumi", "split", "stac"]
     assert taco.extensions.collection.__all__ == []
-    assert taco.extensions.sample.stac.STAC is taco.extensions.sample.stac.models.STAC
+    assert taco.extensions.sample.stac.STAC is taco.extensions._builtin.stac.models.STAC
     assert taco.extensions.sample.stac.STAC.__taco_scopes__ == frozenset({"sample"})
     for name in ("STAC", "Spatial", "Rumi", "MajorTOM", "GeoEnrich", "stac", "rumi", "majortom", "geoenrich"):
         assert not hasattr(taco.extensions, name)
@@ -306,7 +306,7 @@ def test_geoenrich_batches_requests(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_geoenrich_replaces_missing_admin_name(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setitem(sys.modules, "ee", fake_earth_engine())
     monkeypatch.setattr(
-        taco.extensions.sample.geoenrich.extension, "_admin_names", lambda level: {0: "Afghanistan", 53343: None}
+        taco.extensions._builtin.geoenrich.extension, "_admin_names", lambda level: {0: "Afghanistan", 53343: None}
     )
 
     def reduce_regions(self, *, collection, reducer, scale, crs):
@@ -355,7 +355,7 @@ def test_geoenrich_converts_units_and_keeps_missing_values(monkeypatch: pytest.M
 def test_geoenrich_retries_failed_requests(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setitem(sys.modules, "ee", fake_earth_engine())
     delays: list[int] = []
-    monkeypatch.setattr(taco.extensions.sample.geoenrich.extension.time, "sleep", delays.append)
+    monkeypatch.setattr(taco.extensions._builtin.geoenrich.extension.time, "sleep", delays.append)
     failures = [RuntimeError("Too many concurrent aggregations")]
 
     def reduce_regions(self, *, collection, reducer, scale, crs):
@@ -376,7 +376,7 @@ def test_geoenrich_retries_failed_requests(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 def test_geoenrich_ships_admin_names() -> None:
-    from taco.extensions.sample.geoenrich.extension import _admin_names
+    from taco.extensions._builtin.geoenrich.extension import _admin_names
 
     for level in (0, 1, 2):
         names = _admin_names(level)

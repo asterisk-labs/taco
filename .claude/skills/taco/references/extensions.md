@@ -36,6 +36,7 @@ publish the matching schema and example under `docs/spec/extensions/`.
 | `split.Split` (the class) | nothing | `split:split`: `train`, `validation`, `test` or `excluded`, at the `sample` level only; summarized as `split:counts` with all four keys | sample |
 | `collection.instrument.Instrument(files=..., instruments=...)` | nothing | `instrument:files` from the producer; `instrument:instruments` (AEOI records with only the used bands) and `instrument:catalogue` from the writer | collection |
 | `collection.labels.Labels(files=...)` | nothing | `labels:files`: each file's values and their class names, such as `{"mask.tif": {"0": "clear", "255": "unlabeled"}}`; no ignore value, an unannotated code is one more named class | collection |
+| `collection.ml.ML(inputs=..., targets=...)` | nothing | `ml:inputs` and `ml:targets`: structure declarations or metadata fields; at least one target, with no entry in both lists | collection |
 
 The same profile class is used in a level and its rows. `Spatial` and `STAC` fill a
 missing `centroid`; `Temporal` has no operation. `STAC | None` makes the whole group
@@ -266,3 +267,9 @@ handle the antimeridian without loading the table.
 ordered bands. Every named instrument must provide every listed band. Known ids come
 from the bundled AEOI catalogue. Use `instruments=...` for custom records and pass the
 model rather than a plain mapping. Refresh the catalogue with `python tools/update_aeoi.py`.
+
+## ML
+
+`ML` records the files and metadata fields a model reads and predicts. A metadata
+field must occur at only one contract level. Use the `split` extension for train,
+validation, test and excluded samples.

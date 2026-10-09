@@ -172,11 +172,11 @@ class CaseFields(BaseModel):
 
 
 def test_metadata_fields_must_differ_beyond_case() -> None:
-    message = "metadata fields 'ml:split' and 'ml:Split' at sample differ only in case"
+    message = "metadata fields 'info:split' and 'info:Split' at sample differ only in case"
     with pytest.raises(ContractError, match=message):
-        taco.Contract(structure=["a.bin"], metadata=[taco.Level("sample", ml=CaseFields)])
+        taco.Contract(structure=["a.bin"], metadata=[taco.Level("sample", info=CaseFields)])
     with pytest.raises(ContractError, match=message):
-        taco.Contract(structure=["a.bin"], metadata={"sample": {"ml:split": "string", "ml:Split": "string"}})
+        taco.Contract(structure=["a.bin"], metadata={"sample": {"info:split": "string", "info:Split": "string"}})
 
 
 def test_profiles_require_canonical_nullability() -> None:
@@ -222,7 +222,7 @@ def test_scope_is_enforced() -> None:
             description="Scoped metadata",
             licenses=["MIT"],
             providers=["me"],
-            ml=models.Split(split="train"),
+            info=models.Split(split="train"),
         )
     taco.Contract(
         structure=["folder/a.tif"],

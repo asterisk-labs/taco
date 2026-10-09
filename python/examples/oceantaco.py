@@ -8,10 +8,7 @@ import pyarrow as pa
 from pydantic import BaseModel, Field
 
 import taco
-
-
-class ML(BaseModel):
-    split: str = Field(description="Dataset split")
+from taco.extensions.sample.split import Split
 
 
 class OceanWindow(BaseModel):
@@ -71,7 +68,7 @@ contract = taco.Contract(
             "sample",
             stac=taco.extensions.sample.stac.STAC,
             ocean=OceanWindow,
-            ml=ML,
+            split=Split,
         ),
         taco.Level(
             "children",
@@ -277,7 +274,7 @@ with taco.open_writer(collection, "oceantaco.zip", overwrite=True) as writer:
                         argo_float_id=window["argo"],
                         collocation_distance_km=window["distance"],
                     ),
-                    ml=ML(split=window["split"]),
+                    split=Split(split=window["split"]),
                 ),
             )
         )

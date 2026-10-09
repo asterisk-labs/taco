@@ -57,7 +57,7 @@ def nested_samples() -> list[taco.Sample]:
     return [
         taco.Sample(
             id=f"s{index}",
-            metadata=taco.Metadata(ml=Split(split="train" if index % 2 == 0 else "val", n_images=index)),
+            metadata=taco.Metadata(info=Split(split="train" if index % 2 == 0 else "val", n_images=index)),
             folders=[
                 taco.Folder("before", metadata=taco.Metadata(node=Kind(kind="imagery"))),
                 taco.Folder("after", metadata=taco.Metadata(node=Kind(kind="imagery"))),
@@ -84,7 +84,7 @@ def nested_samples() -> list[taco.Sample]:
 NESTED = taco.Contract(
     structure=["before/B02.bin", "before/B03.bin", "after/B02.bin", "change.bin"],
     metadata=[
-        taco.Level("sample", ml=Split),
+        taco.Level("sample", info=Split),
         taco.Level("children", node=Kind),
         taco.Level("children/before", raster=Raster),
         taco.Level("children/after", raster=Raster),
@@ -100,7 +100,7 @@ def data(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
     variable = taco.Contract(
         structure=["img*[1,3].bin", "mask.bin"],
-        metadata=[taco.Level("sample", ml=Split), taco.Level("children", node=Kind)],
+        metadata=[taco.Level("sample", info=Split), taco.Level("children", node=Kind)],
     )
     samples = []
     for index in range(3):
@@ -116,7 +116,7 @@ def data(tmp_path_factory: pytest.TempPathFactory) -> Path:
         samples.append(
             taco.Sample(
                 id=f"s{index}",
-                metadata=taco.Metadata(ml=Split(split="train", n_images=index + 1)),
+                metadata=taco.Metadata(info=Split(split="train", n_images=index + 1)),
                 assets=assets,
             )
         )
@@ -138,7 +138,7 @@ def data(tmp_path_factory: pytest.TempPathFactory) -> Path:
     shadow = taco.Contract(
         structure=["before/B02.bin", "change.bin"],
         metadata=[
-            taco.Level("sample", ml=Split),
+            taco.Level("sample", info=Split),
             taco.Level("children", raster=Raster),
             taco.Level("children/before", raster=Raster),
         ],
@@ -146,7 +146,7 @@ def data(tmp_path_factory: pytest.TempPathFactory) -> Path:
     samples = [
         taco.Sample(
             id=f"s{index}",
-            metadata=taco.Metadata(ml=Split(split="train", n_images=1)),
+            metadata=taco.Metadata(info=Split(split="train", n_images=1)),
             folders=[taco.Folder("before", metadata=taco.Metadata(raster=Raster(resolution=1)))],
             assets=[
                 taco.Asset(
@@ -161,12 +161,12 @@ def data(tmp_path_factory: pytest.TempPathFactory) -> Path:
     ]
     write("shadow", shadow, samples, root / "shadow.zip")
 
-    single = taco.Contract(structure=["data.bin"], metadata=[taco.Level("sample", ml=Split)])
+    single = taco.Contract(structure=["data.bin"], metadata=[taco.Level("sample", info=Split)])
     samples = [
         taco.Sample(
             id=f"s{index}",
             assets=payload("sample", index),
-            metadata=taco.Metadata(ml=Split(split="train", n_images=index)),
+            metadata=taco.Metadata(info=Split(split="train", n_images=index)),
         )
         for index in range(6)
     ]
@@ -174,7 +174,7 @@ def data(tmp_path_factory: pytest.TempPathFactory) -> Path:
     write("single", single, samples, root / "single")
 
     (root / "catalog").mkdir()
-    write("nested", NESTED, nested_samples(), root / "catalog" / "part.zip", partition_by="ml:split")
+    write("nested", NESTED, nested_samples(), root / "catalog" / "part.zip", partition_by="info:split")
     return root
 
 
@@ -269,7 +269,7 @@ def test_dataset_and_raw_sql_relations(data: Path) -> None:
 def test_variable_leaves_are_ordered_lists(data: Path) -> None:
     path = data / "variable.zip"
     rows = by_sample(taco.read(path))
-    assert [(row["ml:n_images"], len(row["img::location"])) for row in rows] == [(1, 1), (2, 2), (3, 3)]
+    assert [(row["info:n_images"], len(row["img::location"])) for row in rows] == [(1, 1), (2, 2), (3, 3)]
     assert "img::location" in taco.open_dataset(path).sql("SELECT * FROM dataset").column_names
 
     nested = taco.read(data / "nested-variable.zip")

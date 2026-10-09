@@ -89,7 +89,7 @@ def test_zip_layout_and_offsets(archive: Path) -> None:
     assert collection["taco:version"] == "3.0.0"
     assert collection["legend:num_classes"] == 2
     assert schema.metadata == {b"taco:level": b"sample"}
-    assert schema.field("ml:cloud_cover").nullable
+    assert schema.field("info:cloud_cover").nullable
     assert schema.field("stac:geometry").type == pa.binary()
     assert schema.field("stac:geometry").nullable
     assert schema.field("stac:bbox").type == pa.list_(pa.field("item", pa.float64(), nullable=False))
@@ -382,7 +382,7 @@ def test_variable_structure_requires_data(tmp_path: Path) -> None:
 
 def test_partition_by_sample_metadata(tmp_path: Path, collection: taco.Collection, make_sample) -> None:
     output = tmp_path / "parts.zip"
-    with taco.open_writer(collection, output, partition_by="ml:split") as writer:
+    with taco.open_writer(collection, output, partition_by="info:split") as writer:
         writer.extend(make_sample(index) for index in range(4))
         result = writer.run()
     assert result.path == (tmp_path / ".tacocat").resolve()
@@ -426,7 +426,7 @@ def test_partition_by_size(tmp_path: Path, collection: taco.Collection, make_sam
 
 def test_partition_by_metadata_and_size(tmp_path: Path, collection: taco.Collection, make_sample) -> None:
     output = tmp_path / "parts.zip"
-    with taco.open_writer(collection, output, partition_by="ml:split", partition_size=1) as writer:
+    with taco.open_writer(collection, output, partition_by="info:split", partition_size=1) as writer:
         writer.extend(make_sample(index) for index in range(4))
         result = writer.run()
 

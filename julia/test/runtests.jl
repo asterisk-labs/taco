@@ -36,8 +36,8 @@ const NESTED_FIXTURE = joinpath(@__DIR__, "data", "taco_nested.zip")
 
         wide = Taco.read(FIXTURE)
         @test size(wide, 1) == 3
-        @test issubset(["taco:sample_index", "ml:split", "image.bin::location", "mask.bin::location"], names(wide))
-        @test wide[!, "ml:split"] == ["train", "train", "test"]
+        @test issubset(["taco:sample_index", "split:split", "image.bin::location", "mask.bin::location"], names(wide))
+        @test wide[!, "split:split"] == ["train", "train", "test"]
 
         queried = Taco.sql(dataset, "SELECT * FROM dataset")
         @test size(queried, 1) == 3

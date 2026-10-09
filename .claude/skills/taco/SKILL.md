@@ -55,17 +55,13 @@ Trust the source and `docs/spec/SPEC.md` for current behavior.
 from datetime import datetime, timezone
 
 import taco
-from pydantic import BaseModel, Field
-
-
-class ML(BaseModel):
-    split: str = Field(description="Dataset split")
-
+from taco.extensions.collection.ml import ML
+from taco.extensions.sample.split import Split
 
 contract = taco.Contract(
     structure=["before/B02.tif", "after/B02.tif", "mask.tif", "extra*[1,3].png"],
     metadata=[
-        taco.Level("sample", stac=taco.extensions.sample.stac.STAC, ml=ML),
+        taco.Level("sample", stac=taco.extensions.sample.stac.STAC, split=Split),
     ],
 )
 collection = taco.Collection(
@@ -75,6 +71,7 @@ collection = taco.Collection(
     licenses=["CC-BY-4.0"],
     providers=[{"name": "Asterisk Labs", "roles": ["producer"]}],
     tasks=["change-detection"],
+    ml=ML(inputs=["before/B02.tif", "after/B02.tif"], targets=["mask.tif"]),
 )
 
 payloads = {                                         # bytes or paths, one per declaration
@@ -96,7 +93,7 @@ with taco.open_writer(collection, "tiny.zip", overwrite=True) as writer:
                     proj_transform=(0.2 / 256, 0, -76.6, 0, -0.2 / 256, -12.0),
                     datetime=datetime(2024, 1, 1, tzinfo=timezone.utc),
                 ),
-                ml=ML(split="train"),
+                split=Split(split="train"),
             ),
         )
     )
@@ -105,7 +102,7 @@ with taco.open_writer(collection, "tiny.zip", overwrite=True) as writer:
 dataset = taco.open_dataset("tiny.zip")
 table = dataset.read()                               # taco:sample_index, id, metadata, locations
 masks = dataset.read(files="mask.tif")               # one generated column instead of four
-train = dataset.sql('SELECT * FROM dataset WHERE "ml:split" = \'train\'')
+train = dataset.sql('SELECT * FROM dataset WHERE "split:split" = \'train\'')
 assert taco.validate("tiny.zip").ok
 ```
 
@@ -115,7 +112,7 @@ assert taco.validate("tiny.zip").ok
 | --- | --- | --- |
 | Building over time, adding samples later | FOLDER: `open_writer(c, "ds")`, then `append=True` | The only container that appends |
 | Publishing one finished dataset | ZIP: `open_writer(c, "ds.zip")` | Immutable, one object, byte-range reads |
-| Publishing more than one object holds | `partition_size="4GB"`, `partition_by="ml:split"`, or both | Writes ZIP parts beside a `.tacocat/` |
+| Publishing more than one object holds | `partition_size="4GB"`, `partition_by="split:split"`, or both | Writes ZIP parts beside a `.tacocat/` |
 | Combining archives built separately | `taco.consolidate([...])` | Checks contract, collection metadata and `id` uniqueness |
 | A subset of an existing dataset | `taco.export(src, out, sql=...)` | Whole samples, new indices, `id` preserved |
 
@@ -150,8 +147,8 @@ and only ZIP metadata carries the byte offsets that make random access possible.
   dataset-specific masks belong in another extension. The `rumi` namespace
   accepts only `header` and the current statistic columns; old `rumi:stats` datasets
   must be rebuilt.
-- **Every user field needs double quotes in SQL.** `WHERE ml:split = 'train'` is a
-  DuckDB parser error; write `WHERE "ml:split" = 'train'`. So does a level relation
+- **Every user field needs double quotes in SQL.** `WHERE split:split = 'train'` is a
+  DuckDB parser error; write `WHERE "split:split" = 'train'`. So does a level relation
   with `/`: `FROM "children/before"`.
 - **`Dataset.sql` raises DuckDB exceptions, not `TacoError`.** A wrong relation is
   `CatalogException`, bad syntax is `ParserException`. Only opening, contract and

@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://asterisk.coop/taco/spec/extensions/ml/v1.0.0/schema.json",
+  "title": "ML",
+  "description": "What a model reads and what it predicts.",
+  "type": "object",
+  "required": [
+    "taco:extensions",
+    "taco:metadata",
+    "ml:targets"
+  ],
+  "properties": {
+    "taco:extensions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "contains": {
+        "const": "https://asterisk.coop/taco/spec/extensions/ml/v1.0.0/schema.json"
+      }
+    },
+    "taco:metadata": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/level"
+      }
+    },
+    "ml:inputs": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "\\S"
+      }
+    },
+    "ml:targets": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "\\S"
+      },
+      "minItems": 1
+    }
+  },
+  "propertyNames": {
+    "anyOf": [
+      {
+        "not": {
+          "pattern": "^ml:"
+        }
+      },
+      {
+        "enum": [
+          "ml:inputs",
+          "ml:targets"
+        ]
+      }
+    ]
+  },
+  "$defs": {
+    "level": {
+      "type": "object",
+      "propertyNames": {
+        "not": {
+          "pattern": "^ml:"
+        }
+      }
+    }
+  }
+}

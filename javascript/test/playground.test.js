@@ -123,14 +123,14 @@ test("a SQL filter needs the sample identity", () => {
     identityColumns(["internal:current_id", "internal:source_file", "id"], true),
     ["internal:current_id", "internal:source_file"],
   );
-  assert.throws(() => identityColumns(["id", "ml:split"]), /must return taco:sample_index/);
+  assert.throws(() => identityColumns(["id", "split:split"]), /must return taco:sample_index/);
   assert.throws(() => identityColumns(["internal:current_id"], true), /internal:source_file/);
 });
 
 test("the dataset view hides reader columns like the Python reader", () => {
   assert.equal(
-    datasetView(["internal:current_id", "internal:relative_path", "id", "ml:split", "taco:location"]),
-    'SELECT file_row_number AS "taco:sample_index", "id", "ml:split" FROM taco_rows',
+    datasetView(["internal:current_id", "internal:relative_path", "id", "split:split", "taco:location"]),
+    'SELECT file_row_number AS "taco:sample_index", "id", "split:split" FROM taco_rows',
   );
   assert.equal(
     datasetView(["internal:current_id", "internal:source_file", "id", 'odd"name:x']),

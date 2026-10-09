@@ -95,7 +95,7 @@ fixture; do the same when a test touches a remote source.
 
 | Symptom | Cause |
 | --- | --- |
-| `ParserException: syntax error at or near ":"` | An unquoted metadata field. Write `"ml:split"` |
+| `ParserException: syntax error at or near ":"` | An unquoted metadata field. Write `"split:split"` |
 | `ParserException: syntax error at or near "/"` | An unquoted level relation. Write `"children/before"` |
 | `CatalogException: Table with name children__before does not exist!` | Level relations keep their `/`: `"children/before"` |
 | A file column is missing | It was excluded by `files=`, or the leaf name is not the full declaration |

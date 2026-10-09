@@ -157,7 +157,7 @@ class Contract:
 
     @staticmethod
     def _check_field_case(metadata: Mapping[str, Mapping[str, Field]]) -> None:
-        # DuckDB matches column names without case, so a query for 'ml:Split' would read 'ml:split'.
+        # DuckDB matches column names without case, so a query for 'quality:Score' would read 'quality:score'.
         for level, fields in metadata.items():
             seen: dict[str, str] = {}
             for name in fields:

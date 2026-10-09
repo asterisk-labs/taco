@@ -51,12 +51,12 @@ test("preserves network failures while probing a suffixless URL", async () => {
 test("raw level reads never synthesize a location", async () => {
   const dataset = await openDataset(`${fixture.baseUrl}/dataset.zip`);
   const rows = await dataset.readLevel("sample", {
-    columns: ["internal:current_id", "ml:split", "taco:location", "cozip:location"],
+    columns: ["internal:current_id", "split:split", "taco:location", "cozip:location"],
     rowStart: 0,
     rowEnd: 2,
   });
   assert.equal(rows.length, 2);
-  assert.deepEqual(Object.keys(rows[0]).sort(), ["internal:current_id", "ml:split"].sort());
+  assert.deepEqual(Object.keys(rows[0]).sort(), ["internal:current_id", "split:split"].sort());
   assert.ok(!("taco:location" in rows[0]));
   assert.ok(!("cozip:location" in rows[0]));
 });
@@ -64,22 +64,22 @@ test("raw level reads never synthesize a location", async () => {
 test("raw level reads delegate projection and filters to Parquet", async () => {
   const dataset = await openDataset(`${fixture.baseUrl}/dataset.zip`);
   const rows = await dataset.readLevel("sample", {
-    columns: ["internal:current_id", "ml:split"],
-    filter: { "ml:split": { $eq: "test" } },
+    columns: ["internal:current_id", "split:split"],
+    filter: { "split:split": { $eq: "test" } },
   });
-  assert.deepEqual(rows, [{ "internal:current_id": 2n, "ml:split": "test" }]);
+  assert.deepEqual(rows, [{ "internal:current_id": 2n, "split:split": "test" }]);
 });
 
 test("raw level reads select sparse physical row indexes", async () => {
   const dataset = await openDataset(`${fixture.baseUrl}/dataset.zip`);
   const rows = await dataset.readLevel("sample", {
-    columns: ["internal:current_id", "ml:split"],
+    columns: ["internal:current_id", "split:split"],
     rowIndexes: [2, 0, 2],
   });
   assert.deepEqual(rows, [
-    { "internal:current_id": 2n, "ml:split": "test" },
-    { "internal:current_id": 0n, "ml:split": "train" },
-    { "internal:current_id": 2n, "ml:split": "test" },
+    { "internal:current_id": 2n, "split:split": "test" },
+    { "internal:current_id": 0n, "split:split": "train" },
+    { "internal:current_id": 2n, "split:split": "test" },
   ]);
   await assert.rejects(
     () => dataset.readLevel("sample", { rowIndexes: [3] }),
@@ -98,10 +98,10 @@ test("caches compressed metadata before projected queries", async () => {
   assert.equal(progress.at(-1).loaded, progress.at(-1).total);
   assert.ok(progress.at(-1).total > 0);
   const rows = await dataset.readLevel("sample", {
-    columns: ["internal:current_id", "ml:split"],
-    filter: { "ml:split": { $eq: "test" } },
+    columns: ["internal:current_id", "split:split"],
+    filter: { "split:split": { $eq: "test" } },
   });
-  assert.deepEqual(rows, [{ "internal:current_id": 2n, "ml:split": "test" }]);
+  assert.deepEqual(rows, [{ "internal:current_id": 2n, "split:split": "test" }]);
   await assert.rejects(() => dataset.cacheLevel("missing"), /unknown metadata level/);
 });
 
@@ -136,7 +136,7 @@ test("reads wide and long views with calculated TACO locations", async () => {
     {
       "taco:sample_index": 0,
       id: "sample-0",
-      "ml:split": "train",
+      "split:split": "train",
       "image.bin::location": `/vsisubfile/225_64,/vsicurl/${fixture.baseUrl}/dataset.zip`,
       "mask.bin::location": `/vsisubfile/334_32,/vsicurl/${fixture.baseUrl}/dataset.zip`,
     },
@@ -144,7 +144,7 @@ test("reads wide and long views with calculated TACO locations", async () => {
 
   const long = await dataset.read({ idx: 0, layout: "long" });
   assert.deepEqual(
-    long.map((row) => [row["taco:sample_index"], row.path, row["file:role"], row["ml:split"]]),
+    long.map((row) => [row["taco:sample_index"], row.path, row["file:role"], row["split:split"]]),
     [
       [0, "image.bin", "image", "train"],
       [0, "mask.bin", "mask", "train"],
@@ -218,10 +218,10 @@ test("supports idx, files, semantic filters, and location opt-out", async () => 
     idx: [0, 3],
     files: ["mask.bin"],
     location: false,
-    filter: { "ml:split": { $eq: "test" } },
+    filter: { "split:split": { $eq: "test" } },
   });
   assert.deepEqual(rows, [
-    { "taco:sample_index": 2, id: "sample-2", "ml:split": "test", "mask.bin::location": null },
+    { "taco:sample_index": 2, id: "sample-2", "split:split": "test", "mask.bin::location": null },
   ]);
 
   const long = await dataset.read({ idx: [0, 2], layout: "long", files: ["image.bin"] });
@@ -279,7 +279,7 @@ test("top-level read() opens and materializes a source", async () => {
   const rows = await read(`${fixture.baseUrl}/dataset.zip`, { idx: 1, files: ["image.bin"] });
   assert.equal(rows.length, 1);
   assert.equal(rows[0]["taco:sample_index"], 1);
-  assert.equal(rows[0]["ml:split"], "train");
+  assert.equal(rows[0]["split:split"], "train");
 });
 
 test("rejects non-TACO profiles and corrupt archives", async () => {

@@ -31,7 +31,7 @@ def centroid(x: float, y: float) -> dict[str, float]:
 
 def test_extensions_are_grouped_by_scope() -> None:
     assert taco.extensions.sample.__all__ == ["geoenrich", "majortom", "rumi", "split", "stac"]
-    assert taco.extensions.collection.__all__ == ["instrument", "labels"]
+    assert taco.extensions.collection.__all__ == ["instrument", "labels", "ml"]
     assert taco.extensions.sample.stac.STAC is taco.extensions._builtin.stac.models.STAC
     assert taco.extensions.sample.stac.STAC.__taco_scopes__ == frozenset({"sample"})
     for name in ("STAC", "Spatial", "Rumi", "MajorTOM", "GeoEnrich", "stac", "rumi", "majortom", "geoenrich"):

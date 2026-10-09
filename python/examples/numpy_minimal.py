@@ -1,13 +1,9 @@
 import io
 
 import numpy as np
-from pydantic import BaseModel
 
 import taco
-
-
-class ML(BaseModel):
-    split: str
+from taco.extensions.sample.split import Split
 
 
 def encode(array: np.ndarray) -> bytes:
@@ -18,7 +14,7 @@ def encode(array: np.ndarray) -> bytes:
 
 contract = taco.Contract(
     structure=["image.npy", "mask.npy"],
-    metadata=[taco.Level("sample", ml=ML)],
+    metadata=[taco.Level("sample", split=Split)],
 )
 collection = taco.Collection(
     contract=contract,
@@ -34,7 +30,7 @@ with taco.open_writer(collection, "numpy-demo.zip", overwrite=True) as writer:
         writer.add(
             taco.Sample(
                 id=f"chip-{index:03d}",
-                metadata=taco.Metadata(ml=ML(split="train" if index < 8 else "test")),
+                metadata=taco.Metadata(split=Split(split="train" if index < 8 else "test")),
                 assets=[
                     taco.Asset(encode(image), path="image.npy"),
                     taco.Asset(encode(image[0] > 0.5), path="mask.npy"),

@@ -16,8 +16,8 @@ describe("read a TACO dataset", {
     result <- taco::read(taco_fixture())
     expect_s3_class(result, "tbl_df")
     expect_identical(nrow(result), 3L)
-    expect_true(all(c("taco:sample_index", "ml:split", "image.bin::location", "mask.bin::location") %in% names(result)))
-    expect_identical(result[["ml:split"]], c("train", "train", "test"))
+    expect_true(all(c("taco:sample_index", "split:split", "image.bin::location", "mask.bin::location") %in% names(result)))
+    expect_identical(result[["split:split"]], c("train", "train", "test"))
   })
 
   it("reads an open dataset", {

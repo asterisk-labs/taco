@@ -251,6 +251,17 @@ INVALID: dict[str, tuple[str, Callable[[dict[str, Any]], Any]]] = {
     ),
     "split missing": ("split", lambda d: sample(d).pop("split:split")),
     "counts missing": ("split", drop("split:counts")),
+    # ML
+    "ml not listed": ("ml", without_extension("ml")),
+    "ml targets missing": ("ml", drop("ml:targets")),
+    "ml targets empty": ("ml", lambda d: d.update({"ml:targets": []})),
+    "ml entry repeated": ("ml", lambda d: d.update({"ml:inputs": ["s2.tif", "s2.tif"]})),
+    "ml entry not a string": ("ml", lambda d: d.update({"ml:inputs": [1]})),
+    "unknown ml field": ("ml", lambda d: d.update({"ml:task": "segmentation"})),
+    "ml level field": (
+        "ml",
+        lambda d: sample(d).update({"ml:split": {"type": "string", "nullable": False, "description": ""}}),
+    ),
     # Labels
     "labels not listed": ("labels", without_extension("labels")),
     "labels files missing": ("labels", drop("labels:files")),
@@ -311,6 +322,6 @@ def test_earthengine_needs_stac_listed() -> None:
 
 def test_user_namespaces_pass() -> None:
     doc = copy.deepcopy(example("stac"))
-    sample(doc)["ml:split"] = {"type": "string", "nullable": False, "description": "Dataset split"}
+    sample(doc)["info:split"] = {"type": "string", "nullable": False, "description": "Dataset split"}
     doc["poi:category"] = "volcano"
     assert errors(doc) == []

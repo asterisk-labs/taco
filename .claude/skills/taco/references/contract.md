@@ -115,7 +115,7 @@ own list. See reading.md.
 sample = taco.Sample(
     id="lima-0001",                                  # non-empty, unique in the dataset
     assets=[...],                                    # Asset, a source, or a sequence
-    metadata=taco.Metadata(ml=ML(split="train")),    # sample-level groups
+    metadata=taco.Metadata(split=Split(split="train")),  # sample-level groups
     folders=[taco.Folder("before", metadata=...)],   # only folders that carry metadata
 )
 ```

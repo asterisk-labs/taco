@@ -171,12 +171,12 @@ def single_file() -> DatasetCase:
 def flat_assets() -> DatasetCase:
     contract = taco.Contract(
         structure=["image.tif", "label.tif"],
-        metadata=[taco.Level("sample", ml=models.Split)],
+        metadata=[taco.Level("sample", info=models.Split)],
     )
     samples = tuple(
         taco.Sample(
             id=f"s{index}",
-            metadata=taco.Metadata(ml=models.Split(split="train" if index == 0 else "validation")),
+            metadata=taco.Metadata(info=models.Split(split="train" if index == 0 else "validation")),
             assets=[asset("flat", index, "image.tif"), asset("flat", index, "label.tif")],
         )
         for index in range(2)
@@ -426,7 +426,7 @@ def derived_metadata() -> DatasetCase:
                 "sample",
                 stac=taco.extensions.sample.stac.STAC,
                 quality=Quality,
-                ml=models.Split,
+                info=models.Split,
                 majortom=taco.extensions.sample.majortom.MajorTOM(dist_km=100),
             ),
             taco.Level(
@@ -455,7 +455,7 @@ def derived_metadata() -> DatasetCase:
                 metadata=taco.Metadata(
                     stac=metadata,
                     quality=Quality(cloud_cover=index * 12.5),
-                    ml=models.Split(split=split),
+                    info=models.Split(split=split),
                 ),
                 assets=assets,
             )

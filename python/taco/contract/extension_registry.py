@@ -40,6 +40,7 @@ BUILTINS = {
         Builtin("split", "1.0.0", ("split",)),
         Builtin("instrument", "1.0.0", ("instrument",)),
         Builtin("labels", "1.0.0", ("labels",)),
+        Builtin("ml", "1.0.0", ("ml",)),
     )
 }
 OWNERS = {namespace: builtin.identifier for builtin in BUILTINS.values() for namespace in builtin.namespaces}

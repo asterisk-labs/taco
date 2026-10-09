@@ -102,7 +102,7 @@ level and may not be `id`:
 
 ```
 partition_by cannot be 'id'; it is unique, so every sample would be its own partition
-partition_by field 'ml:splt' is not sample metadata; available: ['stac:geometry', ..., 'ml:split']
+partition_by field 'split:splt' is not sample metadata; available: ['stac:geometry', ..., 'split:split']
 partition values 'a/b' and 'a_b' collide on file name 'a_b'
 ```
 
@@ -122,7 +122,7 @@ bar. Metadata models and extensions must be importable (not defined in a noteboo
 scripts need an `if __name__ == "__main__":` guard.
 
 ```python
-with taco.open_writer(collection, "ds.zip", partition_by="ml:split", overwrite=True) as writer:
+with taco.open_writer(collection, "ds.zip", partition_by="split:split", overwrite=True) as writer:
     writer.extend(samples)
     catalog = writer.run().path          # .../.tacocat
 taco.open_dataset(catalog)               # or its parent directory

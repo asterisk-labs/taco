@@ -8,16 +8,13 @@ from pathlib import Path
 from pydantic import BaseModel
 
 import taco
+from taco.extensions.sample.split import Split
 
 ROOT = Path(__file__).resolve().parents[1]
 R_FIXTURE = ROOT / "r/tests/testthat/data/taco.zip"
 JULIA_FIXTURE = ROOT / "julia/test/data/taco.zip"
 # The nested core fixture covers level relations and generated columns with "/".
 NESTED_FIXTURE = ROOT / "core/tests/data/taco_nested.zip"
-
-
-class ML(BaseModel):
-    split: str
 
 
 class File(BaseModel):
@@ -28,7 +25,7 @@ def main() -> None:
     contract = taco.Contract(
         structure=["image.bin", "mask.bin"],
         metadata=[
-            taco.Level("sample", ml=ML),
+            taco.Level("sample", split=Split),
             taco.Level("children", file=File),
         ],
     )
@@ -47,7 +44,7 @@ def main() -> None:
             writer.add(
                 taco.Sample(
                     id=f"sample-{index}",
-                    metadata=taco.Metadata(ml=ML(split=split)),
+                    metadata=taco.Metadata(split=Split(split=split)),
                     assets=[
                         taco.Asset(
                             bytes([index + 1]) * 64,

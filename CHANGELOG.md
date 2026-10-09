@@ -16,6 +16,7 @@ JavaScript reader are documented here. The format follows
 - The `instrument` extension records file bands and embeds instrument metadata
   from the bundled AEOI catalogue.
 - The `labels` extension maps file values to class names.
+- The `ml` extension records model inputs and targets and owns the `ml` namespace.
 
 ### Changed
 

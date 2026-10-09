@@ -26,7 +26,7 @@ parts = taco.read(["part-0.zip", "part-1.zip"])
 
 dataset = taco.open_dataset("dataset.zip")
 targets = dataset.read(files="target.tif")
-train = dataset.sql("SELECT * FROM dataset WHERE \"ml:split\" = 'train'")
+train = dataset.sql("SELECT * FROM dataset WHERE \"split:split\" = 'train'")
 ```
 
 `export()` writes the complete samples selected by a SQL query. The query may

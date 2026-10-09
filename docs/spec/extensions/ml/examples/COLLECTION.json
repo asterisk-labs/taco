@@ -1,0 +1,36 @@
+{
+  "taco:version": "3.0.0",
+  "id": "ml-example",
+  "description": "Example collection using the ml extension",
+  "licenses": [
+    "CC-BY-4.0"
+  ],
+  "providers": [
+    {
+      "name": "Asterisk Labs",
+      "roles": [
+        "producer"
+      ]
+    }
+  ],
+  "taco:structure": [
+    "s2.tif",
+    "mask.tif"
+  ],
+  "taco:metadata": {
+    "sample": {},
+    "children": {}
+  },
+  "taco:extensions": [
+    "https://asterisk.coop/taco/spec/extensions/ml/v1.0.0/schema.json"
+  ],
+  "tasks": [
+    "segmentation"
+  ],
+  "ml:inputs": [
+    "s2.tif"
+  ],
+  "ml:targets": [
+    "mask.tif"
+  ]
+}

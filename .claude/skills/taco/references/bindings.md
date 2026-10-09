@@ -46,7 +46,7 @@ and a `taco_dataset`, and returns a tibble.
 ```r
 dataset <- taco::open_dataset("dataset.zip")
 samples <- taco::read(dataset)
-train   <- taco::sql(dataset, 'SELECT * FROM dataset WHERE "ml:split" = \'train\'')
+train   <- taco::sql(dataset, 'SELECT * FROM dataset WHERE "split:split" = \'train\'')
 ```
 
 WebAssembly is not supported: the reader core needs DuckDB, libcurl and OpenSSL.

@@ -106,7 +106,7 @@ def test_consolidate_preserves_schema_metadata(tmp_path: Path, collection: taco.
     ]
     table = open_view(taco.consolidate(parts)).level("sample")
     assert table.schema.metadata == {b"taco:level": b"sample"}
-    assert table.schema.field("ml:split").metadata == {b"description": b"Dataset split"}
+    assert table.schema.field("info:split").metadata == {b"description": b"Dataset split"}
 
 
 def test_consolidate_rejects_contract_mismatch(tmp_path: Path, collection: taco.Collection, make_sample) -> None:

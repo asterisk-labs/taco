@@ -17,6 +17,7 @@ import pyarrow as pa
 from pydantic import BaseModel
 
 import taco
+from taco.extensions.sample.split import Split
 
 DATA = Path(__file__).resolve().parent / "data"
 PAYLOAD = 40
@@ -28,13 +29,11 @@ class Geo(BaseModel):
     time_start: Annotated[datetime, pa.timestamp("us", tz="UTC")]
 
 
-class ML(BaseModel):
-    split: str
+class Info(BaseModel):
     cloud_cover: float
 
 
-class VariableML(BaseModel):
-    split: str
+class VariableInfo(BaseModel):
     n_images: Annotated[int, pa.int32()]
 
 
@@ -63,7 +62,8 @@ def sample_metadata(index: int) -> taco.Metadata:
     lon, lat = CITIES[index % len(CITIES)]
     return taco.Metadata(
         geo=Geo(centroid=point(lon, lat), time_start=datetime(2024, 1, index + 1, tzinfo=timezone.utc)),
-        ml=ML(split="train" if index % 2 == 0 else "val", cloud_cover=12.5 * index),
+        split=Split(split="train" if index % 2 == 0 else "validation"),
+        info=Info(cloud_cover=12.5 * index),
     )
 
 
@@ -83,7 +83,7 @@ def write_flat(output: Path) -> None:
     contract = taco.Contract(
         structure=["image.bin", "label.bin"],
         metadata=[
-            taco.Level("sample", geo=Geo, ml=ML),
+            taco.Level("sample", geo=Geo, split=Split, info=Info),
             taco.Level("children", file=File),
         ],
     )
@@ -114,7 +114,7 @@ def write_nested(output: Path) -> None:
     contract = taco.Contract(
         structure=["before/B02.bin", "before/B03.bin", "after/B02.bin", "change.bin"],
         metadata=[
-            taco.Level("sample", geo=Geo, ml=ML),
+            taco.Level("sample", geo=Geo, split=Split, info=Info),
             taco.Level("children", node=Kind),
             taco.Level("children/before", raster=Raster),
             taco.Level("children/after", raster=Raster),
@@ -161,7 +161,7 @@ def write_variable(output: Path) -> None:
     contract = taco.Contract(
         structure=["img*[1,3].bin", "mask.bin"],
         metadata=[
-            taco.Level("sample", ml=VariableML),
+            taco.Level("sample", split=Split, info=VariableInfo),
             taco.Level("children", node=Kind),
         ],
     )
@@ -181,7 +181,7 @@ def write_variable(output: Path) -> None:
             writer.add(
                 taco.Sample(
                     id=f"variable-{index}",
-                    metadata=taco.Metadata(ml=VariableML(split="train", n_images=index + 1)),
+                    metadata=taco.Metadata(split=Split(split="train"), info=VariableInfo(n_images=index + 1)),
                     assets=assets,
                 )
             )
@@ -192,7 +192,7 @@ def write_shadow(output: Path) -> None:
     contract = taco.Contract(
         structure=["before/B02.bin", "change.bin"],
         metadata=[
-            taco.Level("sample", ml=VariableML),
+            taco.Level("sample", split=Split, info=VariableInfo),
             taco.Level("children", raster=Raster),
             taco.Level("children/before", raster=Raster),
         ],
@@ -202,7 +202,7 @@ def write_shadow(output: Path) -> None:
             writer.add(
                 taco.Sample(
                     id=f"shadow-{index}",
-                    metadata=taco.Metadata(ml=VariableML(split="train", n_images=1)),
+                    metadata=taco.Metadata(split=Split(split="train"), info=VariableInfo(n_images=1)),
                     folders=[taco.Folder("before", metadata=taco.Metadata(raster=Raster(resolution=1)))],
                     assets=[
                         taco.Asset(
@@ -225,10 +225,10 @@ def write_tacocat(output: Path) -> None:
     output.mkdir(parents=True)
     contract = taco.Contract(
         structure=["image.bin"],
-        metadata=[taco.Level("sample", geo=Geo, ml=ML)],
+        metadata=[taco.Level("sample", geo=Geo, split=Split, info=Info)],
     )
     with taco.open_writer(
-        collection(contract, "taco-cat"), output / "part.zip", partition_by="ml:split", overwrite=True
+        collection(contract, "taco-cat"), output / "part.zip", partition_by="split:split", overwrite=True
     ) as writer:
         for index in range(6):
             writer.add(

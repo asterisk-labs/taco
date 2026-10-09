@@ -75,9 +75,9 @@ Representative messages:
 [error] id: sample: id must be unique (1 duplicates)
 [error] metadata: unexpected Parquet files ['children__extra.parquet']
 [error] schema: children: Parquet schema must declare taco:level='children'
-[error] schema: sample: missing columns ['ml:split']
+[error] schema: sample: missing columns ['split:split']
 [error] schema: sample: column 'quality:score' nullability does not match the contract
-[error] schema: sample: column 'ml:split' contains null values
+[error] schema: sample: column 'split:split' contains null values
 [error] current_id: sample: internal:current_id must equal the row position
 [error] parent_id: children: 3 rows reference a missing parent (first row 12)
 [error] relative_path: children: internal:relative_path entries do not follow '<sample>/<name>'

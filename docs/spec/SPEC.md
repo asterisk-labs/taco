@@ -275,7 +275,7 @@ Every user column MUST follow the type and nullability declared in the contract.
 
 #### Namespaces
 
-Every user field MUST use the form `namespace:field`. Namespaces MUST match `[a-z][a-z0-9_]*`. Field names MUST be non-empty and MUST NOT contain `:`, `/`, or `__`. The qualified name MUST be unique within its level, ignoring letter case, because SQL does not distinguish `ml:split` from `ml:Split`.
+Every user field MUST use the form `namespace:field`. Namespaces MUST match `[a-z][a-z0-9_]*`. Field names MUST be non-empty and MUST NOT contain `:`, `/`, or `__`. The qualified name MUST be unique within its level, ignoring letter case, because SQL does not distinguish `quality:score` from `quality:Score`.
 
 The same namespace MAY appear at multiple levels and MAY use a different schema at each level. The `internal`, `taco`, and `cozip` namespaces are reserved. Producers MUST NOT create fields in these namespaces. Other namespaces may belong to an extension (Section 5.7).
 
@@ -305,7 +305,7 @@ Both examples use the `stac` profile of the [STAC extension](extensions/stac.md)
       "stac:proj_shape": {"type": "list<int64>", "nullable": true, "description": "Grid size as [height, width]"},
       "stac:proj_transform": {"type": "list<double>", "nullable": true, "description": "Affine transform of the grid"},
       "quality:cloud_cover": {"type": "double", "nullable": true, "description": "Cloud cover percentage (0-100)"},
-      "ml:split": {"type": "string", "nullable": false, "description": "Dataset split (train, val, test)"}
+      "split:split": {"type": "string", "nullable": false, "description": "Partition of the sample"}
     },
     "children": {}
   }
@@ -329,7 +329,7 @@ Both examples use the `stac` profile of the [STAC extension](extensions/stac.md)
       "stac:proj_code": {"type": "string", "nullable": true, "description": "CRS of the grid"},
       "stac:proj_shape": {"type": "list<int64>", "nullable": true, "description": "Grid size as [height, width]"},
       "stac:proj_transform": {"type": "list<double>", "nullable": true, "description": "Affine transform of the grid"},
-      "ml:split": {"type": "string", "nullable": false, "description": "Dataset split"},
+      "split:split": {"type": "string", "nullable": false, "description": "Partition of the sample"},
       "change:ratio": {"type": "double", "nullable": false, "description": "Percentage of changed pixels"}
     },
     "children": {
@@ -415,6 +415,7 @@ An extension gives a namespace a published meaning. It defines the fields of tha
 | [Split](extensions/split.md) | `split` | Sample |
 | [Instrument](extensions/instrument.md) | `instrument` | Collection |
 | [Labels](extensions/labels.md) | `labels` | Collection |
+| [ML](extensions/ml.md) | `ml` | Collection |
 
 #### Identity
 
@@ -754,8 +755,8 @@ import taco
 from pydantic import BaseModel, Field
 
 
-class ML(BaseModel):
-    split: str = Field(description="Dataset split")
+class Quality(BaseModel):
+    cloud_cover: float = Field(description="Cloud cover percentage")
 
 
 contract = taco.Contract(
@@ -764,14 +765,15 @@ contract = taco.Contract(
         taco.Level(
             "sample",
             stac=taco.extensions.sample.stac.STAC,
-            ml=ML,
+            split=taco.extensions.sample.split.Split,
+            quality=Quality,
             majortom=taco.extensions.sample.majortom.MajorTOM(dist_km=100),
         ),
     ],
 )
 ```
 
-The keyword passed to `Level` becomes the namespace. A Pydantic model defines fields, types, nullability, and descriptions. An extension also declares its required and produced fields. The writer stores qualified columns such as `stac:centroid`, `ml:split`, and `majortom:code`.
+The keyword passed to `Level` becomes the namespace. A Pydantic model defines fields, types, nullability, and descriptions. An extension also declares its required and produced fields. The writer stores qualified columns such as `stac:centroid`, `split:split`, `quality:cloud_cover`, and `majortom:code`.
 
 An extension that owns its namespace MUST be bound to it (Section 5.7).
 
@@ -833,7 +835,8 @@ sample = taco.Sample(
     id="lima-0001",
     metadata=taco.Metadata(
         stac=taco.extensions.sample.stac.STAC(...),
-        ml=ML(split="train"),
+        split=taco.extensions.sample.split.Split(split="train"),
+        quality=Quality(cloud_cover=12.5),
     ),
     assets=[
         taco.Asset(Path("/data/image.tif")),
@@ -905,8 +908,8 @@ import taco
 from pydantic import BaseModel, Field
 
 
-class ML(BaseModel):
-    split: str = Field(description="Dataset split")
+class Quality(BaseModel):
+    cloud_cover: float = Field(description="Cloud cover percentage")
 
 
 contract = taco.Contract(
@@ -915,7 +918,8 @@ contract = taco.Contract(
         taco.Level(
             "sample",
             stac=taco.extensions.sample.stac.STAC,
-            ml=ML,
+            split=taco.extensions.sample.split.Split,
+            quality=Quality,
             majortom=taco.extensions.sample.majortom.MajorTOM(dist_km=100),
         ),
     ],
@@ -929,6 +933,7 @@ collection = taco.Collection(
     providers=[{"name": "CSIC", "roles": ["producer"]}],
     tasks=["segmentation"],
     labels=taco.extensions.collection.labels.Labels(files={"label.tif": {0: "clear", 1: "cloud"}}),
+    ml=taco.extensions.collection.ml.ML(inputs=["image.tif"], targets=["label.tif"]),
 )
 
 sample = taco.Sample(
@@ -940,7 +945,8 @@ sample = taco.Sample(
             proj_transform=(0.1 / 256, 0, -76.55, 0, -0.1 / 256, -9.15),
             datetime=datetime(2025, 1, 1, tzinfo=timezone.utc),
         ),
-        ml=ML(split="train"),
+        split=taco.extensions.sample.split.Split(split="train"),
+        quality=Quality(cloud_cover=12.5),
     ),
     assets=[taco.Asset(Path("/data/image.tif")), taco.Asset(Path("/data/label.tif"))],
 )
@@ -1001,12 +1007,12 @@ Generated file columns follow the selected declarations in structure order. Each
 
 ```
 read("cloudsen12.zip")
-# taco:sample_index | id        | ml:split | quality:cloud_cover | s2_l1c.tif::location | s2_l2a.tif::location | target.tif::location
+# taco:sample_index | id        | split:split | quality:cloud_cover | s2_l1c.tif::location | s2_l2a.tif::location | target.tif::location
 # 0            | lima-001  | train    | 23.5                | /vsisubfile/...     | /vsisubfile/...     | /vsisubfile/...
 
 # Two selected files
 read("change_detection.zip", files=["before/B02.tif", "after/B02.tif"])
-# taco:sample_index | id | ml:split | before/B02.tif::location | after/B02.tif::location
+# taco:sample_index | id | split:split | before/B02.tif::location | after/B02.tif::location
 ```
 
 A generated column is named after its structure path, followed by `::location` or an extension column, so `before/B02.tif` becomes `before/B02.tif::location`. The double `::` distinguishes generated columns from metadata fields, which contain exactly one `:`.
@@ -1015,7 +1021,7 @@ A variable sequence uses the path to its prefix. `before/img*[1,16].tif` becomes
 
 ```
 read("multitemporal_s2.zip")
-# taco:sample_index | id       | ml:split | img::location
+# taco:sample_index | id       | split:split | img::location
 # 0            | lima-001 | train    | [/vsisubfile/..., /vsisubfile/..., ...]
 # 1            | lima-002 | val      | [/vsisubfile/..., /vsisubfile/..., ...]
 ```

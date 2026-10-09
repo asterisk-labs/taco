@@ -119,7 +119,7 @@ def test_schema_metadata_is_checked(folder_dataset: Path) -> None:
     path = folder_dataset / "METADATA/sample.parquet"
     table = pq.read_table(path)
     fields = list(table.schema)
-    index = table.schema.get_field_index("ml:split")
+    index = table.schema.get_field_index("info:split")
     field = fields[index]
     fields[index] = pa.field(field.name, field.type, nullable=not field.nullable, metadata={b"description": b"wrong"})
     schema = pa.schema(fields)

@@ -20,7 +20,7 @@ def isolated_cache(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("TACO_CACHE_SIZE", raising=False)
 
 
-class ML(BaseModel):
+class Info(BaseModel):
     split: str = Field(description="Dataset split")
     cloud_cover: float | None = Field(default=None, description="Cloud cover")
     tags: list[str] = Field(default_factory=list)
@@ -45,7 +45,7 @@ def contract() -> taco.Contract:
             taco.Level(
                 "sample",
                 stac=taco.extensions.sample.stac.STAC,
-                ml=ML,
+                info=Info,
                 majortom=taco.extensions.sample.majortom.MajorTOM(dist_km=100),
             ),
             taco.Level("children", node=Kind),
@@ -98,7 +98,7 @@ def make_sample(tmp_path: Path):
                     proj_transform=(0.25 / 256, 0, longitude - 0.125, 0, -0.25 / 256, latitude + 0.125),
                     datetime=datetime(2024, 1, index + 1, tzinfo=timezone.utc),
                 ),
-                ml=ML(split="train" if index % 2 == 0 else "val", cloud_cover=index * 10.5, tags=["a"]),
+                info=Info(split="train" if index % 2 == 0 else "val", cloud_cover=index * 10.5, tags=["a"]),
             ),
             folders=[
                 taco.Folder("before", metadata=taco.Metadata(node=Kind(kind="imagery"))),

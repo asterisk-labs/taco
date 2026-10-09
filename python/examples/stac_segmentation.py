@@ -8,10 +8,8 @@ from pydantic import BaseModel, Field
 
 import taco
 from taco.extensions.collection.labels import Labels
-
-
-class ML(BaseModel):
-    split: str = Field(description="Dataset split")
+from taco.extensions.collection.ml import ML
+from taco.extensions.sample.split import Split
 
 
 class Scaling(BaseModel):
@@ -48,7 +46,7 @@ contract = taco.Contract(
             "sample",
             stac=taco.extensions.sample.stac.STAC,
             chip=Chip,
-            ml=ML,
+            split=Split,
             majortom=taco.extensions.sample.majortom.MajorTOM(
                 dist_km=100,
                 latitude_range=(-20, 0),
@@ -78,6 +76,7 @@ collection = taco.Collection(
         "note": "The arrays are synthetic; only their shape and scale resemble reflectance chips",
     },
     labels=Labels(files={"label.npy": {0: "water", 1: "vegetation", 2: "urban"}}),
+    ml=ML(inputs=["image.npy"], targets=["label.npy"]),
     optical={
         "sensor": "Sentinel-2 MSI",
         "bands": [
@@ -170,7 +169,7 @@ with taco.open_writer(collection, "stac-segmentation.zip", overwrite=True) as wr
                         cloud_cover=chip["cloud"],
                         dominant_land_cover=dominant_land_cover,
                     ),
-                    ml=ML(split=chip["split"]),
+                    split=Split(split=chip["split"]),
                 ),
             )
         )

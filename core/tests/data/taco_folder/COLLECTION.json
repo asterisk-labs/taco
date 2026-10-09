@@ -29,12 +29,12 @@
         "nullable": false,
         "description": ""
       },
-      "ml:split": {
+      "split:split": {
         "type": "string",
         "nullable": false,
-        "description": ""
+        "description": "Partition of the sample; excluded keeps it out of every partition"
       },
-      "ml:cloud_cover": {
+      "info:cloud_cover": {
         "type": "double",
         "nullable": false,
         "description": ""
@@ -53,8 +53,17 @@
       }
     }
   },
+  "taco:extensions": [
+    "https://asterisk.coop/taco/spec/extensions/split/v1.0.0/schema.json"
+  ],
   "tasks": [
     "segmentation"
   ],
-  "title": "taco-flat"
+  "title": "taco-flat",
+  "split:counts": {
+    "train": 2,
+    "validation": 2,
+    "test": 0,
+    "excluded": 0
+  }
 }

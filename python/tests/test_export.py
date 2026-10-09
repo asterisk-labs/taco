@@ -117,7 +117,7 @@ def test_export_subset_matches_direct_write(
     result = taco.export(
         archive,
         output,
-        sql="SELECT * FROM sample WHERE \"ml:split\" = 'val'",
+        sql="SELECT * FROM sample WHERE \"info:split\" = 'val'",
         id="tiny-change-val",
         description="Validation samples",
     )
@@ -140,7 +140,7 @@ def test_export_subset_to_zip(archive: Path, tmp_path: Path) -> None:
 
     dataset = open_view(output)
     assert taco.validate(output).ok
-    assert dataset.level("sample").column("ml:cloud_cover").to_pylist() == [10.5, 21.0]
+    assert dataset.level("sample").column("info:cloud_cover").to_pylist() == [10.5, 21.0]
     with zipfile.ZipFile(output) as archive_file:
         assert archive_file.read("DATA/0/mask.tif") == b"1:mask.tif"
         assert archive_file.read("DATA/1/extra1.png") == b"2:extra1.png"
@@ -188,13 +188,13 @@ def test_export_tacocat(tmp_path: Path, collection: taco.Collection, make_sample
     taco.export(
         catalog,
         train,
-        sql="SELECT * FROM sample WHERE \"ml:split\" = 'train'",
+        sql="SELECT * FROM sample WHERE \"info:split\" = 'train'",
         id="tiny-change-train",
         description="Training samples",
     )
     dataset = open_view(train)
     assert taco.validate(train).ok
-    assert dataset.level("sample").column("ml:cloud_cover").to_pylist() == [0.0, 21.0]
+    assert dataset.level("sample").column("info:cloud_cover").to_pylist() == [0.0, 21.0]
     with zipfile.ZipFile(train) as archive_file:
         assert archive_file.read("DATA/1/mask.tif") == b"2:mask.tif"
 
@@ -449,7 +449,7 @@ def test_export_remote_subsets(tmp_path: Path) -> None:
     test_split = taco.export(
         catalog,
         tmp_path / "test",
-        sql="SELECT * FROM sample WHERE \"ml:split\" = 'test'",
+        sql="SELECT * FROM sample WHERE \"split:split\" = 'test'",
         id="change-detection-test",
         description="Test samples",
     )

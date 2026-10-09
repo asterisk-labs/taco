@@ -14,7 +14,7 @@ are separate systems and their objects are not interchangeable.
 
 ```python
 metadata=[
-    taco.Level("sample", stac=taco.extensions.sample.stac.STAC, ml=ML, majortom=taco.extensions.sample.majortom.MajorTOM()),
+    taco.Level("sample", stac=taco.extensions.sample.stac.STAC, quality=Quality, majortom=taco.extensions.sample.majortom.MajorTOM()),
     taco.Level("children", node=Kind | None),        # Model | None makes the group optional
     taco.Level("children/before", file=AssetInfo),
 ]
@@ -30,8 +30,8 @@ A namespace matches `[a-z][a-z0-9_]*`; `taco`, `internal` and `cozip` are reserv
 extensions: a model or extension that declares no namespace cannot bind them
 (`metadata namespace 'majortom' is reserved for the majortom extension`).
 A field name must be non-empty and contain no `:`, `/`, `__` or NUL. The qualified
-name `namespace:field` must be unique in its level, ignoring case: `ml:split` and
-`ml:Split` are rejected because DuckDB would read one for the other. The same
+name `namespace:field` must be unique in its level, ignoring case: `quality:score` and
+`quality:Score` are rejected because DuckDB would read one for the other. The same
 namespace may appear at several levels with different schemas.
 
 A raw mapping works too, and is what `COLLECTION.json` round-trips:

@@ -33,7 +33,7 @@ Column order is fixed:
 5. one generated column per structure leaf, in structure order.
 
 ```
-taco:sample_index | id | stac:geometry | ... | ml:split | before/B02.tif::location | extra::location
+taco:sample_index | id | stac:geometry | ... | split:split | before/B02.tif::location | extra::location
 ```
 
 A generated name is the structure path plus `::location`. It is followed by
@@ -66,7 +66,7 @@ stripped by the core before projection.
 ## Dataset.sql
 
 ```python
-dataset.sql('SELECT * FROM dataset WHERE "ml:split" = \'train\'')
+dataset.sql('SELECT * FROM dataset WHERE "split:split" = \'train\'')
 dataset.sql('SELECT id, "mask.tif::location" FROM dataset ORDER BY id')
 dataset.sql('SELECT * FROM "children/before"')
 ```
@@ -90,7 +90,7 @@ JOIN children AS c ON c."internal:parent_id" = s."internal:current_id"
 
 Three things to know:
 
-- **Quote every user field and every level with `/`.** `WHERE ml:split = 'train'`
+- **Quote every user field and every level with `/`.** `WHERE split:split = 'train'`
   and `FROM children/before` are both a `ParserException`.
 - **Errors come from DuckDB.** A wrong relation name raises `CatalogException: Table
   with name children/missing does not exist!`, not a `TacoError`. Only container,
@@ -172,7 +172,7 @@ value shadows its folder's, which shadows the sample's.
 ```python
 from taco.reader.inspect import native_sql
 sql = native_sql("ds.zip", layout="long", idx=0)
-# taco:sample_index | id | path | taco:location | band:name | ml:split | stac:geometry | ...
+# taco:sample_index | id | path | taco:location | band:name | split:split | stac:geometry | ...
 # 0 | s0 | mask.tif      | /vsisubfile/... | NULL | train | EPSG:4326
 # 0 | s0 | before/B02.tif| /vsisubfile/... | B02  | train | EPSG:4326
 ```

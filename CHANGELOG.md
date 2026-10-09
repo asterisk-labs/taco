@@ -15,6 +15,7 @@ JavaScript reader are documented here. The format follows
   `extent` and `split:counts`.
 - The `instrument` extension records file bands and embeds instrument metadata
   from the bundled AEOI catalogue.
+- The `labels` extension maps file values to class names.
 
 ### Changed
 

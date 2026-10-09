@@ -1,5 +1,5 @@
 """Collection extensions."""
 
-from . import instrument
+from . import instrument, labels
 
-__all__ = ["instrument"]
+__all__ = ["instrument", "labels"]

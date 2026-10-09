@@ -7,6 +7,7 @@ import pyarrow as pa
 from pydantic import BaseModel, Field
 
 import taco
+from taco.extensions.collection.labels import Labels
 
 
 class ML(BaseModel):
@@ -76,14 +77,7 @@ collection = taco.Collection(
         "bands": ["B02", "B03", "B04", "B08"],
         "note": "The arrays are synthetic; only their shape and scale resemble reflectance chips",
     },
-    labels={
-        "classes": [
-            {"name": "water", "category": 0},
-            {"name": "vegetation", "category": 1},
-            {"name": "urban", "category": 2},
-        ],
-        "description": "Dense land-cover classes stored in label.npy",
-    },
+    labels=Labels(files={"label.npy": {0: "water", 1: "vegetation", 2: "urban"}}),
     optical={
         "sensor": "Sentinel-2 MSI",
         "bands": [
@@ -189,5 +183,5 @@ assert dataset.sql('SELECT * FROM dataset ORDER BY "taco:sample_index"').equals(
 assert "majortom:code" in samples.column_names
 assert samples.column("stac:centroid").null_count == 0
 assert samples.column("stac:geometry").null_count == samples.num_rows
-assert len(dataset.collection.to_dict()["labels:classes"]) == 3
+assert dataset.collection.to_dict()["labels:files"]["label.npy"] == {"0": "water", "1": "vegetation", "2": "urban"}
 assert taco.validate("stac-segmentation.zip").ok

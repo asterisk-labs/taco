@@ -15,7 +15,7 @@ from . import models
 def test_collection_round_trip(collection: taco.Collection) -> None:
     data = collection.to_dict()
     assert data["taco:version"] == "3.0.0"
-    assert data["labels:num_classes"] == 2
+    assert data["legend:num_classes"] == 2
     assert data["majortom:dist_km"] == 100
     assert data["majortom:centroid"] == "stac:centroid"
     assert "metadata" not in data
@@ -26,7 +26,7 @@ def test_collection_round_trip(collection: taco.Collection) -> None:
 
 def test_collection_metadata_models(collection: taco.Collection) -> None:
     collection = collection.replace(
-        labels=models.Labels(classes=["cloud", "clear"]),
+        legend=models.Legend(classes=["cloud", "clear"]),
         optical=models.Optical(
             sensor="sentinel2msi",
             bands=[models.SpectralBand(name="B02", center_wavelength=490)],
@@ -34,7 +34,7 @@ def test_collection_metadata_models(collection: taco.Collection) -> None:
         strategy=models.SplitStrategy(strategy="stratified"),
     )
     values = collection.to_dict()
-    assert values["labels:num_classes"] == 2
+    assert values["legend:num_classes"] == 2
     assert values["optical:num_bands"] == 1
     assert values["strategy:strategy"] == "stratified"
     assert collection.metadata["strategy"] == {"strategy": "stratified"}
@@ -47,7 +47,7 @@ class POI(BaseModel):
 def test_collection_metadata_groups_are_keywords(collection: taco.Collection) -> None:
     grouped = collection.replace(poi={"category": "volcano", "tags": ("a", "b")}, source={"collection": "s2"})
     assert grouped.metadata["poi"] == {"category": "volcano", "tags": ["a", "b"]}
-    assert grouped.metadata["labels"]["num_classes"] == 2
+    assert grouped.metadata["legend"]["num_classes"] == 2
     data = grouped.to_dict()
     assert data["poi:category"] == "volcano"
     assert data["source:collection"] == "s2"
@@ -56,7 +56,7 @@ def test_collection_metadata_groups_are_keywords(collection: taco.Collection) ->
     assert loaded.to_dict() == data
     # Read back, the values MajorTOM stored are one more group.
     assert loaded.metadata["majortom"]["dist_km"] == 100
-    assert set(loaded.replace(poi=None).metadata) == {"labels", "majortom", "source"}
+    assert set(loaded.replace(poi=None).metadata) == {"legend", "majortom", "source"}
     assert taco.Collection(**_required(collection), poi=POI(category="volcano"), empty=None).metadata == {
         "poi": {"category": "volcano"}
     }

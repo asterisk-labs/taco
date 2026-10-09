@@ -181,10 +181,10 @@ def flat_assets() -> DatasetCase:
         )
         for index in range(2)
     )
-    labels = models.Labels(classes=["clear", "cloud"])
+    labels = models.Legend(classes=["clear", "cloud"])
     files = (("image.tif", "label.tif"),) * 2
     return DatasetCase(
-        "flat_assets", collection("flat-assets", contract, labels=labels), samples, contract.levels, files, (2, 4)
+        "flat_assets", collection("flat-assets", contract, legend=labels), samples, contract.levels, files, (2, 4)
     )
 
 
@@ -466,7 +466,7 @@ def derived_metadata() -> DatasetCase:
         collection(
             "derived-metadata",
             contract,
-            labels=models.Labels(classes=["clear", "cloud"]),
+            legend=models.Legend(classes=["clear", "cloud"]),
             optical=models.Optical(
                 sensor="synthetic",
                 bands=[models.SpectralBand(name="B02", index=0)],

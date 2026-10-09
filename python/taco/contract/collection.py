@@ -364,7 +364,7 @@ class Collection:
     ) -> None:
         if "metadata" in groups:
             raise CollectionError(
-                "pass collection metadata as groups, such as labels=... or poi={...}, instead of metadata="
+                "pass collection metadata as groups, such as source=... or poi={...}, instead of metadata="
             )
         parameters = {
             "contract": contract,
@@ -454,7 +454,7 @@ class Collection:
     def replace(self, **changes: Any) -> Collection:
         """Return a copy with some parameters or groups replaced; a group set to None is removed."""
         if "metadata" in changes:
-            raise CollectionError("replace collection metadata by group, such as labels=..., instead of metadata=")
+            raise CollectionError("replace collection metadata by group, such as poi=..., instead of metadata=")
         parameters = {name: getattr(self, name) for name in _PARAMETERS}
         groups: dict[str, Any] = dict(self.metadata)
         if "contract" in changes:

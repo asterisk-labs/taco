@@ -281,9 +281,9 @@ def test_collection_fields_are_inherited_unless_given(archive: Path, tmp_path: P
 
 def test_export_replaces_and_removes_collection_metadata_groups(archive: Path, tmp_path: Path) -> None:
     output = tmp_path / "grouped.zip"
-    taco.export(archive, output, sql=ALL_SAMPLES, labels=None, poi={"category": "volcano"})
+    taco.export(archive, output, sql=ALL_SAMPLES, legend=None, poi={"category": "volcano"})
     exported = open_view(output).collection
-    assert "labels" not in exported.metadata
+    assert "legend" not in exported.metadata
     assert exported.metadata["poi"] == {"category": "volcano"}
     assert json.loads(zipfile.ZipFile(output).read("COLLECTION.json"))["poi:category"] == "volcano"
 

@@ -49,7 +49,7 @@ class LabelClass(Scoped):
         return str(value)
 
 
-class Labels(Scoped):
+class Legend(Scoped):
     __taco_scopes__ = frozenset({"collection"})
 
     classes: list[str | LabelClass]

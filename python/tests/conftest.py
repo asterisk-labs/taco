@@ -66,7 +66,7 @@ def collection(contract: taco.Contract) -> taco.Collection:
         tasks=["change-detection"],
         title="Tiny change",
         keywords=["fixture"],
-        labels=models.Labels(classes=["clear", "change"]),
+        legend=models.Legend(classes=["clear", "change"]),
     )
 
 

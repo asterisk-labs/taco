@@ -87,7 +87,7 @@ def test_zip_layout_and_offsets(archive: Path) -> None:
         collection = json.loads(zipped.read("COLLECTION.json"))
         schema = pq.read_schema(io.BytesIO(zipped.read("METADATA/sample.parquet")))
     assert collection["taco:version"] == "3.0.0"
-    assert collection["labels:num_classes"] == 2
+    assert collection["legend:num_classes"] == 2
     assert schema.metadata == {b"taco:level": b"sample"}
     assert schema.field("ml:cloud_cover").nullable
     assert schema.field("stac:geometry").type == pa.binary()

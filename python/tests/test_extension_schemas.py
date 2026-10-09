@@ -251,6 +251,18 @@ INVALID: dict[str, tuple[str, Callable[[dict[str, Any]], Any]]] = {
     ),
     "split missing": ("split", lambda d: sample(d).pop("split:split")),
     "counts missing": ("split", drop("split:counts")),
+    # Labels
+    "labels not listed": ("labels", without_extension("labels")),
+    "labels files missing": ("labels", drop("labels:files")),
+    "unknown labels field": ("labels", lambda d: d.update({"labels:scheme": "lc11"})),
+    "label value not an integer": ("labels", lambda d: d["labels:files"]["mask.tif"].update(water="x")),
+    "label value with leading zero": ("labels", lambda d: d["labels:files"]["mask.tif"].update({"01": "x"})),
+    "empty label name": ("labels", lambda d: d["labels:files"]["mask.tif"].update({"7": " "})),
+    "file without labels": ("labels", lambda d: d["labels:files"].update({"image.tif": {}})),
+    "labels level field": (
+        "labels",
+        lambda d: sample(d).update({"labels:class": {"type": "string", "nullable": True, "description": ""}}),
+    ),
     # Instrument
     "instrument not listed": ("instrument", without_extension("instrument")),
     "instrument files missing": ("instrument", drop("instrument:files")),

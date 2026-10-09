@@ -35,6 +35,7 @@ publish the matching schema and example under `docs/spec/extensions/`.
 | `GeoEnrich(variables=None, backend="majortom-index", scale_m=5120, batch_size=250, max_concurrency=8, centroid="stac:centroid", code="majortom:code", index_url=...)` | the 10 km MajorTOM code by default; the centroid field for `earthengine` | one column per variable | sample |
 | `split.Split` (the class) | nothing | `split:split`: `train`, `validation`, `test` or `excluded`, at the `sample` level only; summarized as `split:counts` with all four keys | sample |
 | `collection.instrument.Instrument(files=..., instruments=...)` | nothing | `instrument:files` from the producer; `instrument:instruments` (AEOI records with only the used bands) and `instrument:catalogue` from the writer | collection |
+| `collection.labels.Labels(files=...)` | nothing | `labels:files`: each file's values and their class names, such as `{"mask.tif": {"0": "clear", "255": "unlabeled"}}`; no ignore value, an unannotated code is one more named class | collection |
 
 The same profile class is used in a level and its rows. `Spatial` and `STAC` fill a
 missing `centroid`; `Temporal` has no operation. `STAC | None` makes the whole group

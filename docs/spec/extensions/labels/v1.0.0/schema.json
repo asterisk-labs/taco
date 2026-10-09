@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://asterisk.coop/taco/spec/extensions/labels/v1.0.0/schema.json",
+  "title": "Labels",
+  "description": "The class name of each value in a file.",
+  "type": "object",
+  "required": [
+    "taco:extensions",
+    "taco:metadata",
+    "labels:files"
+  ],
+  "properties": {
+    "taco:extensions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "contains": {
+        "const": "https://asterisk.coop/taco/spec/extensions/labels/v1.0.0/schema.json"
+      }
+    },
+    "taco:metadata": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/level"
+      }
+    },
+    "labels:files": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "minProperties": 1,
+        "propertyNames": {
+          "pattern": "^(0|[1-9][0-9]*)$"
+        },
+        "additionalProperties": {
+          "type": "string",
+          "pattern": "\\S"
+        }
+      }
+    }
+  },
+  "propertyNames": {
+    "anyOf": [
+      {
+        "not": {
+          "pattern": "^labels:"
+        }
+      },
+      {
+        "const": "labels:files"
+      }
+    ]
+  },
+  "$defs": {
+    "level": {
+      "type": "object",
+      "propertyNames": {
+        "not": {
+          "pattern": "^labels:"
+        }
+      }
+    }
+  }
+}

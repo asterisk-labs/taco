@@ -382,9 +382,9 @@ Collection metadata is stored directly in `COLLECTION.json` as qualified fields.
 
 ```
 {
-  "labels:classes": ["clear", "cloud", "shadow"],
-  "labels:description": "Cloud mask classes",
-  "optical:sensor": "Sentinel-2"
+  "source:mission": "Sentinel-2",
+  "source:level": "L1C",
+  "poi:category": "volcano"
 }
 ```
 
@@ -414,6 +414,7 @@ An extension gives a namespace a published meaning. It defines the fields of tha
 | [GeoEnrich](extensions/geoenrich.md) | `geoenrich` | Sample |
 | [Split](extensions/split.md) | `split` | Sample |
 | [Instrument](extensions/instrument.md) | `instrument` | Collection |
+| [Labels](extensions/labels.md) | `labels` | Collection |
 
 #### Identity
 
@@ -801,7 +802,6 @@ collection = taco.Collection(
     description="Cloud segmentation dataset",
     licenses=["CC-BY-4.0"],
     providers=[{"name": "CSIC", "roles": ["producer"]}],
-    labels={"classes": ["clear", "cloud", "shadow"], "description": "Cloud mask classes"},
     source={"mission": "Sentinel-2", "level": "L1C"},
 )
 ```
@@ -928,7 +928,7 @@ collection = taco.Collection(
     licenses=["CC-BY-4.0"],
     providers=[{"name": "CSIC", "roles": ["producer"]}],
     tasks=["segmentation"],
-    labels={"classes": ["clear", "cloud"], "description": "Cloud mask classes"},
+    labels=taco.extensions.collection.labels.Labels(files={"label.tif": {0: "clear", 1: "cloud"}}),
 )
 
 sample = taco.Sample(

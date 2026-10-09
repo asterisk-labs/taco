@@ -1,0 +1,36 @@
+{
+  "taco:version": "3.0.0",
+  "id": "labels-example",
+  "description": "Example collection using the labels extension",
+  "licenses": [
+    "CC-BY-4.0"
+  ],
+  "providers": [
+    {
+      "name": "Asterisk Labs",
+      "roles": [
+        "producer"
+      ]
+    }
+  ],
+  "taco:structure": [
+    "image.tif",
+    "mask.tif"
+  ],
+  "taco:metadata": {
+    "sample": {},
+    "children": {}
+  },
+  "taco:extensions": [
+    "https://asterisk.coop/taco/spec/extensions/labels/v1.0.0/schema.json"
+  ],
+  "labels:files": {
+    "mask.tif": {
+      "0": "clear",
+      "1": "thick_cloud",
+      "2": "thin_cloud",
+      "3": "shadow",
+      "255": "unlabeled"
+    }
+  }
+}

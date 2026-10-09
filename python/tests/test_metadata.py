@@ -31,7 +31,7 @@ def centroid(x: float, y: float) -> dict[str, float]:
 
 def test_extensions_are_grouped_by_scope() -> None:
     assert taco.extensions.sample.__all__ == ["geoenrich", "majortom", "rumi", "split", "stac"]
-    assert taco.extensions.collection.__all__ == ["instrument"]
+    assert taco.extensions.collection.__all__ == ["instrument", "labels"]
     assert taco.extensions.sample.stac.STAC is taco.extensions._builtin.stac.models.STAC
     assert taco.extensions.sample.stac.STAC.__taco_scopes__ == frozenset({"sample"})
     for name in ("STAC", "Spatial", "Rumi", "MajorTOM", "GeoEnrich", "stac", "rumi", "majortom", "geoenrich"):
@@ -170,7 +170,7 @@ def test_derived_centroid_dependency_is_configurable() -> None:
 
 def test_collection_models() -> None:
     label = models.LabelClass(name="cloud", category=1)
-    labels = models.Labels(classes=[label, "clear"])
+    labels = models.Legend(classes=[label, "clear"])
     publications = models.Publications(publications=[models.Publication(doi="10.0/x", citation="A et al.")])
     collection = taco.Collection(
         contract=taco.Contract(structure=["data.bin"]),
@@ -178,12 +178,12 @@ def test_collection_models() -> None:
         description="Collection models",
         licenses=["MIT"],
         providers=["me"],
-        labels=labels,
+        legend=labels,
         scientific=publications,
     )
     values = collection.to_dict()
-    assert values["labels:classes"][0]["category"] == "1"
-    assert values["labels:num_classes"] == 2
+    assert values["legend:classes"][0]["category"] == "1"
+    assert values["legend:num_classes"] == 2
     assert values["scientific:publications"][0]["doi"] == "10.0/x"
 
 

@@ -193,14 +193,14 @@ collection = taco.Collection(
     curators=[{"name": "Cesar Aybar", "email": "cesar@asterisk.coop"}],
     keywords=["clouds"],
     extensions=["https://example.com/quality/v1.0.0/schema.json"],
-    labels={"classes": ["clear", "cloud", "shadow"]},
-    optical={"sensor": "Sentinel-2"},
+    labels=taco.extensions.collection.labels.Labels(files={"mask.tif": {0: "clear", 1: "cloud", 2: "shadow"}}),
+    source={"sensor": "Sentinel-2"},
     poi={"category": "volcano", "catalog": "Wikidata"},
 )
 ```
 
 Every keyword that is not a `Collection` parameter is a **group**, and each field `x`
-of group `g` is written to `COLLECTION.json` as `g:x` (`labels:classes`,
+of group `g` is written to `COLLECTION.json` as `g:x` (`source:sensor`,
 `poi:category`). A group is a mapping or a Pydantic model instance; computed fields
 are stored too. Collection metadata never becomes a Parquet column or a row value.
 `collection.metadata` holds the groups as JSON values
@@ -213,7 +213,7 @@ inferred from the contract and an explicitly declared version is preserved.
 The groups are checked when the collection is built, always as `CollectionError`:
 
 ```
-pass collection metadata as groups, such as labels=... or poi={...}, instead of metadata=
+pass collection metadata as groups, such as source=... or poi={...}, instead of metadata=
 collection metadata group 'licences' must be a mapping or a Pydantic model, got list; did you mean 'licenses'?
 collection metadata group 'poi' needs an instance, such as POI(...)
 collection metadata group 'poi' is empty

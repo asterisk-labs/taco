@@ -405,6 +405,13 @@ class Collection:
 
         if not isinstance(self.contract, Contract):
             raise CollectionError("contract must be a Contract")
+        for value in groups.values():
+            check = getattr(value, "__taco_check_contract__", None)
+            if check is not None:
+                try:
+                    check(self.contract)
+                except ValueError as exc:
+                    raise CollectionError(str(exc)) from exc
         if not isinstance(self.id, str) or not self.id.strip() or any(char in self.id for char in "/\\:\x00"):
             raise CollectionError("collection id is invalid")
         if not isinstance(self.description, str) or not self.description.strip():

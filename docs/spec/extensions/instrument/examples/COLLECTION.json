@@ -1,0 +1,140 @@
+{
+  "taco:version": "3.0.0",
+  "id": "instrument-example",
+  "description": "Example collection using the instrument extension",
+  "licenses": [
+    "CC-BY-4.0"
+  ],
+  "providers": [
+    {
+      "name": "Asterisk Labs",
+      "roles": [
+        "producer"
+      ]
+    }
+  ],
+  "taco:structure": [
+    "s2.tif",
+    "mask.tif"
+  ],
+  "taco:metadata": {
+    "sample": {},
+    "children": {}
+  },
+  "taco:extensions": [
+    "https://asterisk.coop/taco/spec/extensions/instrument/v1.0.0/schema.json"
+  ],
+  "instrument:files": {
+    "s2.tif": {
+      "instruments": [
+        "MSI_S2A",
+        "MSI_S2B"
+      ],
+      "bands": [
+        "B2",
+        "B3",
+        "B4",
+        "B8"
+      ]
+    }
+  },
+  "instrument:instruments": {
+    "MSI_S2A": {
+      "name": "MultiSpectral Instrument",
+      "acronym": "MSI",
+      "type": "multispectral",
+      "platform": [
+        "Sentinel-2A"
+      ],
+      "operator": [
+        "ESA",
+        "Copernicus"
+      ],
+      "bands": {
+        "B2": {
+          "center_wavelength": 492.7,
+          "bandwidth": 64,
+          "band_description": "Blue",
+          "common_name": "blue",
+          "gsd": 10,
+          "snr": 154
+        },
+        "B3": {
+          "center_wavelength": 559.8,
+          "bandwidth": 35,
+          "band_description": "Green",
+          "common_name": "green",
+          "gsd": 10,
+          "snr": 168
+        },
+        "B4": {
+          "center_wavelength": 664.6,
+          "bandwidth": 30,
+          "band_description": "Red",
+          "common_name": "red",
+          "gsd": 10,
+          "snr": 142
+        },
+        "B8": {
+          "center_wavelength": 832.8,
+          "bandwidth": 118,
+          "band_description": "NIR",
+          "common_name": "nir",
+          "gsd": 10,
+          "snr": 174
+        }
+      }
+    },
+    "MSI_S2B": {
+      "name": "MultiSpectral Instrument",
+      "acronym": "MSI",
+      "type": "multispectral",
+      "platform": [
+        "Sentinel-2B"
+      ],
+      "operator": [
+        "ESA",
+        "Copernicus"
+      ],
+      "bands": {
+        "B2": {
+          "center_wavelength": 492.3,
+          "bandwidth": 65,
+          "band_description": "Blue",
+          "common_name": "blue",
+          "gsd": 10,
+          "snr": 154
+        },
+        "B3": {
+          "center_wavelength": 558.9,
+          "bandwidth": 35,
+          "band_description": "Green",
+          "common_name": "green",
+          "gsd": 10,
+          "snr": 168
+        },
+        "B4": {
+          "center_wavelength": 664.9,
+          "bandwidth": 31,
+          "band_description": "Red",
+          "common_name": "red",
+          "gsd": 10,
+          "snr": 142
+        },
+        "B8": {
+          "center_wavelength": 832.9,
+          "bandwidth": 115,
+          "band_description": "NIR",
+          "common_name": "nir",
+          "gsd": 10,
+          "snr": 174
+        }
+      }
+    }
+  },
+  "instrument:catalogue": {
+    "name": "Awesome Earth Observation Instruments",
+    "version": "0.4.0",
+    "link": "https://github.com/awesome-spectral-indices/awesome-earth-observation-instruments/raw/refs/heads/main/catalogue/catalogue.json"
+  }
+}

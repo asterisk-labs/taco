@@ -1,0 +1,8 @@
+TACO includes third-party material.
+
+Awesome Earth Observation Instruments
+https://github.com/awesome-spectral-indices/awesome-earth-observation-instruments
+Copyright (c) 2026 Awesome Spectral Indices
+MIT License; see python/taco/extensions/_builtin/instrument/aeoi/LICENSE
+The instrument extension ships its catalogue in
+python/taco/extensions/_builtin/instrument/aeoi/catalogue.json.

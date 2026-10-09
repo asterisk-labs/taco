@@ -413,6 +413,7 @@ An extension gives a namespace a published meaning. It defines the fields of tha
 | [MajorTOM](extensions/majortom.md) | `majortom` | Sample |
 | [GeoEnrich](extensions/geoenrich.md) | `geoenrich` | Sample |
 | [Split](extensions/split.md) | `split` | Sample |
+| [Instrument](extensions/instrument.md) | `instrument` | Collection |
 
 #### Identity
 

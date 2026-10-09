@@ -13,6 +13,8 @@ JavaScript reader are documented here. The format follows
   `excluded`, and the writer counts them in `split:counts`.
 - `consolidate` combines the collection summaries of its partitions, such as
   `extent` and `split:counts`.
+- The `instrument` extension records file bands and embeds instrument metadata
+  from the bundled AEOI catalogue.
 
 ### Changed
 

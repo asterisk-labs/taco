@@ -251,6 +251,26 @@ INVALID: dict[str, tuple[str, Callable[[dict[str, Any]], Any]]] = {
     ),
     "split missing": ("split", lambda d: sample(d).pop("split:split")),
     "counts missing": ("split", drop("split:counts")),
+    # Instrument
+    "instrument not listed": ("instrument", without_extension("instrument")),
+    "instrument files missing": ("instrument", drop("instrument:files")),
+    "instrument records missing": ("instrument", drop("instrument:instruments")),
+    "instrument catalogue missing": ("instrument", drop("instrument:catalogue")),
+    "unknown instrument field": ("instrument", lambda d: d.update({"instrument:sensor": "MSI"})),
+    "instrument file option": ("instrument", lambda d: d["instrument:files"]["s2.tif"].update(nodata=0)),
+    "instrument band without bandwidth": (
+        "instrument",
+        lambda d: d["instrument:instruments"]["MSI_S2A"]["bands"]["B2"].pop("bandwidth"),
+    ),
+    "negative center wavelength": (
+        "instrument",
+        lambda d: d["instrument:instruments"]["MSI_S2A"]["bands"]["B2"].update(center_wavelength=-1),
+    ),
+    "catalogue without link": ("instrument", lambda d: d["instrument:catalogue"].pop("link")),
+    "instrument level field": (
+        "instrument",
+        lambda d: sample(d).update({"instrument:id": {"type": "string", "nullable": True, "description": ""}}),
+    ),
     "count missing": ("split", lambda d: d["split:counts"].pop("excluded")),
     "unknown count": ("split", lambda d: d["split:counts"].update(val=1)),
     "negative count": ("split", lambda d: d["split:counts"].update(test=-1)),

@@ -1,3 +1,5 @@
 """Collection extensions."""
 
-__all__: list[str] = []
+from . import instrument
+
+__all__ = ["instrument"]

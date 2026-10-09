@@ -38,6 +38,7 @@ BUILTINS = {
         Builtin("majortom", "1.0.0", ("majortom",)),
         Builtin("geoenrich", "1.0.0", ("geoenrich",)),
         Builtin("split", "1.0.0", ("split",)),
+        Builtin("instrument", "1.0.0", ("instrument",)),
     )
 }
 OWNERS = {namespace: builtin.identifier for builtin in BUILTINS.values() for namespace in builtin.namespaces}

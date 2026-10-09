@@ -34,6 +34,7 @@ publish the matching schema and example under `docs/spec/extensions/`.
 | `MajorTOM(dist_km=100, extra=(), latitude_range=(-85, 85), longitude_range=(-180, 180), sep="_", centroid="stac:centroid")` | the centroid field | `majortom:code` plus one per extra grid | sample |
 | `GeoEnrich(variables=None, backend="majortom-index", scale_m=5120, batch_size=250, max_concurrency=8, centroid="stac:centroid", code="majortom:code", index_url=...)` | the 10 km MajorTOM code by default; the centroid field for `earthengine` | one column per variable | sample |
 | `split.Split` (the class) | nothing | `split:split`: `train`, `validation`, `test` or `excluded`, at the `sample` level only; summarized as `split:counts` with all four keys | sample |
+| `collection.instrument.Instrument(files=..., instruments=...)` | nothing | `instrument:files` from the producer; `instrument:instruments` (AEOI records with only the used bands) and `instrument:catalogue` from the writer | collection |
 
 The same profile class is used in a level and its rows. `Spatial` and `STAC` fill a
 missing `centroid`; `Temporal` has no operation. `STAC | None` makes the whole group
@@ -257,3 +258,10 @@ summary must be equal in every partition or the partitions are rejected.
 `_SpatialExtent` and `_SpatioTemporalExtent` use each row's `bbox`, `geometry`, or grid.
 They stream longitude intervals to disk; `longitude_cover` omits the widest gap to
 handle the antimeridian without loading the table.
+
+## Instrument
+
+`Instrument(files=...)` maps structure declarations to compatible instrument ids and
+ordered bands. Every named instrument must provide every listed band. Known ids come
+from the bundled AEOI catalogue. Use `instruments=...` for custom records and pass the
+model rather than a plain mapping. Refresh the catalogue with `python tools/update_aeoi.py`.

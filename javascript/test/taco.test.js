@@ -1,7 +1,8 @@
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { openDataset, read, SUPPORTED_TACO_VERSION, TacoError } from "../src/index.js";
-import { arrayBuffer } from "../src/container/http.js";
+import { TacoAsset } from "../src/container/asset.js";
+import { arrayBuffer, HttpClient, openHttpObject } from "../src/container/http.js";
 import { parseCollection } from "../src/contract/collection.js";
 import { fixtureServer } from "./server.js";
 
@@ -240,6 +241,196 @@ test("resolves a VSI location and fetches only the payload range", async () => {
   assert.ok(fixture.requests.some((request) => request.range === "bytes=225-288"));
 });
 
+test("reads part of an asset without downloading the complete payload", async () => {
+  const dataset = await openDataset(`${fixture.baseUrl}/dataset.zip`);
+  const [row] = await dataset.read({ idx: 0 });
+  const asset = dataset.resolveAsset(row["image.bin::location"]);
+  const before = fixture.requests.length;
+  assert.equal(await asset.byteLength(), 64);
+  assert.deepEqual(
+    await asset.read(7, 5),
+    fixture.entries.get("DATA/0/image.bin").subarray(7, 12),
+  );
+  assert.equal(fixture.requests[before].range, "bytes=232-236");
+  await assert.rejects(() => asset.read(63, 2), /invalid asset range/);
+});
+
+test("rejects an asset that changes between range requests", async () => {
+  let request = 0;
+  const fetch = async (_url, init) => {
+    const offset = request++;
+    assert.equal(init.headers.get("range"), `bytes=${offset}-${offset}`);
+    assert.equal(init.headers.get("if-match"), null);
+    return new Response(Uint8Array.of(offset), {
+      status: 206,
+      headers: {
+        "content-range": `bytes ${offset}-${offset}/4`,
+        ...(offset === 0 ? { etag: '"first"' } : {}),
+      },
+    });
+  };
+  const asset = new TacoAsset(
+    "/vsisubfile/0_4,/vsicurl/https://example.test/data.zip",
+    new HttpClient({ fetch }),
+  );
+  assert.deepEqual(await asset.read(0, 1), Uint8Array.of(0));
+  await assert.rejects(
+    () => asset.read(1, 1),
+    (error) => error instanceof TacoError && error.code === "SOURCE_CHANGED",
+  );
+});
+
+test("rejects an asset when its archive changed after opening", async () => {
+  const fetch = async () => new Response(Uint8Array.of(0), {
+    status: 206,
+    headers: { "content-range": "bytes 0-0/4", etag: '"second"' },
+  });
+  const asset = new TacoAsset(
+    "/vsisubfile/0_4,/vsicurl/https://example.test/data.zip",
+    new HttpClient({ fetch }),
+    { sourceSize: 4, etag: '"first"' },
+  );
+  await assert.rejects(
+    () => asset.read(0, 1),
+    (error) => error instanceof TacoError && error.code === "SOURCE_CHANGED",
+  );
+});
+
+test("rejects an object when its ETag disappears", async () => {
+  let request = 0;
+  const fetch = async (_url, init) => {
+    const range = init.headers.get("range");
+    const [start, end] = range.slice(6).split("-").map(Number);
+    return new Response(new Uint8Array(end - start + 1), {
+      status: 206,
+      headers: {
+        "content-range": `bytes ${start}-${end}/2`,
+        ...(request++ === 0 ? { etag: '"first"' } : {}),
+      },
+    });
+  };
+  const { object } = await openHttpObject(
+    new HttpClient({ fetch }),
+    "https://example.test/data.zip",
+  );
+  await assert.rejects(
+    () => object.sliceBytes(1, 2),
+    (error) => error instanceof TacoError && error.code === "SOURCE_CHANGED",
+  );
+});
+
+test("does not expose cached asset bytes to callers", async () => {
+  const source = Uint8Array.from({ length: 32 }, (_, index) => index);
+  const fetch = async () => new Response(source, {
+    status: 200,
+    headers: { "content-length": String(source.byteLength) },
+  });
+  const asset = new TacoAsset(
+    "/vsisubfile/8_8,/vsicurl/https://example.test/data.zip",
+    new HttpClient({ fetch }),
+  );
+  const first = await asset.read(0, 4);
+  first.fill(255);
+  assert.deepEqual(await asset.read(0, 4), source.slice(8, 12));
+  const whole = new Uint8Array(await asset.arrayBuffer());
+  whole.fill(0);
+  assert.deepEqual(await asset.read(0, 4), source.slice(8, 12));
+  const controller = new AbortController();
+  controller.abort();
+  await assert.rejects(() => asset.read(0, 1, { signal: controller.signal }), /aborted/i);
+});
+
+test("bounds full responses when a server ignores Range", async () => {
+  const fetch = async () => new Response(new Uint8Array(32), {
+    status: 200,
+    headers: { "content-length": "32" },
+  });
+  const asset = new TacoAsset(
+    "/vsisubfile/0_8,/vsicurl/https://example.test/data.zip",
+    new HttpClient({ fetch }),
+  );
+  await assert.rejects(
+    () => asset.read(0, 1, { maxFullBytes: 16 }),
+    (error) => error instanceof TacoError && error.code === "FULL_RESPONSE_TOO_LARGE",
+  );
+});
+
+test("shares the first full response between concurrent asset reads", async () => {
+  const source = Uint8Array.from({ length: 32 }, (_, index) => index);
+  let requests = 0;
+  const fetch = async () => {
+    requests += 1;
+    return new Response(source, {
+      status: 200,
+      headers: { "content-length": String(source.byteLength) },
+    });
+  };
+  const asset = new TacoAsset(
+    "/vsisubfile/0_8,/vsicurl/https://example.test/data.zip",
+    new HttpClient({ fetch }),
+  );
+  const reads = Array.from(
+    { length: 8 },
+    (_, offset) => asset.read(offset, 1, { maxFullBytes: offset === 1 ? 16 : 64 }),
+  );
+  const results = await Promise.allSettled(reads);
+  assert.deepEqual(
+    results.map((result) => result.status),
+    ["fulfilled", "rejected", "fulfilled", "fulfilled", "fulfilled", "fulfilled", "fulfilled", "fulfilled"],
+  );
+  assert.equal(results[1].reason.code, "FULL_RESPONSE_TOO_LARGE");
+  assert.equal(requests, 1);
+});
+
+test("a waiting asset read keeps its own abort signal", async () => {
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const fetch = async (_url, init) => {
+    await gate;
+    const range = init.headers.get("range");
+    const [start, end] = range.slice(6).split("-").map(Number);
+    return new Response(new Uint8Array(end - start + 1), {
+      status: 206,
+      headers: { "content-range": `bytes ${start}-${end}/8` },
+    });
+  };
+  const asset = new TacoAsset(
+    "/vsisubfile/0_8,/vsicurl/https://example.test/data.zip",
+    new HttpClient({ fetch }),
+  );
+  const first = asset.read(0, 1);
+  const controller = new AbortController();
+  const waiting = asset.read(1, 1, { signal: controller.signal });
+  controller.abort();
+  await assert.rejects(waiting, /aborted/i);
+  release();
+  await first;
+});
+
+test("combines request and per-read abort signals", async () => {
+  const shared = new AbortController();
+  const local = new AbortController();
+  shared.abort();
+  const fetch = async (_url, init) => {
+    assert.equal(init.signal.aborted, true);
+    throw init.signal.reason;
+  };
+  const client = new HttpClient({ fetch, requestInit: { signal: shared.signal } });
+  await assert.rejects(
+    () => client.range("https://example.test/data", 0, 0, undefined, { signal: local.signal }),
+    /aborted/i,
+  );
+});
+
+test("stops reading an oversized partial response", async () => {
+  const fetch = async () => new Response(Uint8Array.of(1, 2), {
+    status: 206,
+    headers: { "content-range": "bytes 0-0/2" },
+  });
+  const client = new HttpClient({ fetch });
+  await assert.rejects(() => client.range("https://example.test/data", 0, 0), /exceeds/);
+});
+
 test("opens a FOLDER without using ZIP offsets", async () => {
   const dataset = await openDataset(`${fixture.baseUrl}/folder`);
   assert.equal(dataset.container, "folder");
@@ -270,9 +461,16 @@ test("finds a TACOCAT from its dataset root", async () => {
 });
 
 test("works when a server ignores byte ranges", async () => {
+  const before = fixture.requests.length;
   const dataset = await openDataset(`${fixture.baseUrl}/full.zip`);
   const rows = await dataset.read({ idx: 2, files: ["mask.bin"] });
   assert.equal(rows[0]["mask.bin::location"], `/vsisubfile/708_32,/vsicurl/${fixture.baseUrl}/full.zip`);
+  const asset = dataset.resolveAsset(rows[0]["mask.bin::location"]);
+  assert.equal((await asset.read(0, 1))[0], fixture.entries.get("DATA/2/mask.bin")[0]);
+  assert.equal(
+    fixture.requests.slice(before).filter(({ path }) => path === "/full.zip").length,
+    1,
+  );
 });
 
 test("top-level read() opens and materializes a source", async () => {

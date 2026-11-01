@@ -43,6 +43,14 @@ class Source {
   location(_row) {
     throw new Error("not implemented");
   }
+
+  /**
+   * @param {string} _location
+   * @returns {{ sourceSize: number, etag: string | null, fullBytes: Uint8Array | null } | undefined}
+   */
+  assetSnapshot(_location) {
+    return undefined;
+  }
 }
 
 class FolderSource extends Source {
@@ -85,6 +93,19 @@ class ZipSource extends Source {
   location(row) {
     const { offset, size } = offsetAndSize(row);
     return `/vsisubfile/${offset}_${size},/vsicurl/${this.url}`;
+  }
+
+  /** @param {string} location */
+  assetSnapshot(location) {
+    const marker = ",/vsicurl/";
+    if (!location.startsWith("/vsisubfile/")) return undefined;
+    const position = location.indexOf(marker);
+    if (position < 0 || location.slice(position + marker.length) !== this.url) return undefined;
+    return {
+      sourceSize: this.archive.byteLength,
+      etag: this.archive.object.etag,
+      fullBytes: this.archive.object.fullBytes,
+    };
   }
 }
 

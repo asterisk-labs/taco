@@ -161,7 +161,7 @@ export class Dataset {
    * @param {string} location
    */
   resolveAsset(location) {
-    return new TacoAsset(location, this.#client);
+    return new TacoAsset(location, this.#client, this.#source.assetSnapshot(location));
   }
 
   /** @param {string} level */

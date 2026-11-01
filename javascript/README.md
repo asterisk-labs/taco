@@ -126,10 +126,16 @@ console.log(asset.size);
 
 const bytes = await asset.arrayBuffer();
 const blob = await asset.blob("application/octet-stream");
+
+const length = await asset.byteLength();
+const header = await asset.read(0, Math.min(length, 256));
 ```
 
 ZIP and TACOCAT assets are fetched with one HTTP byte-range request. FOLDER
-assets are fetched from their direct URL.
+assets are fetched from their direct URL. `read(offset, length)` keeps partial
+reads inside the asset even when it is embedded in a ZIP. Pass an optional
+signal as `read(offset, length, { signal })`. `maxFullBytes` can bound the
+fallback when a server ignores the Range header.
 
 The package treats payloads as opaque bytes; Rumi decoding remains the
 responsibility of a Rumi library.

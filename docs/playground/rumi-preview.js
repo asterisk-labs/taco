@@ -95,6 +95,35 @@ export function previewDecodedBytes(header, request) {
   return total;
 }
 
+export function fitPreviewRequest(header, request, maxDecodedBytes) {
+  if (!Number.isSafeInteger(maxDecodedBytes) || maxDecodedBytes <= 0) {
+    throw new RangeError("preview decode limit must be a positive safe integer");
+  }
+  let fitted = { ...request, window: [...request.window] };
+  while (previewDecodedBytes(header, fitted) > maxDecodedBytes) {
+    const [y, x, height, width] = fitted.window;
+    if (height === 1 && width === 1) return null;
+    const tileRows = Math.ceil((y % header.tileHeight + height) / header.tileHeight);
+    const tileColumns = Math.ceil((x % header.tileWidth + width) / header.tileWidth);
+    const shrinkWidth = width > 1 && (height === 1 || tileColumns >= tileRows);
+    const nextWidth = shrinkWidth ? Math.ceil(width / 2) : width;
+    const nextHeight = shrinkWidth ? height : Math.ceil(height / 2);
+    fitted = {
+      ...fitted,
+      window: [
+        y + Math.floor((height - nextHeight) / 2),
+        x + Math.floor((width - nextWidth) / 2),
+        nextHeight,
+        nextWidth,
+      ],
+      width: nextWidth,
+      height: nextHeight,
+      cropped: true,
+    };
+  }
+  return fitted;
+}
+
 export function tacoAssetSource(asset, signal, maxFullBytes) {
   const options = { signal, maxFullBytes };
   let sizePromise;
@@ -214,11 +243,33 @@ export function affineWindowCorners(transform, window, pixelIsPoint = false) {
 export function mapCorners(corners) {
   if (!Array.isArray(corners) || corners.length !== 4) return null;
   const limit = 85.051129;
-  const result = [];
+  const longitudes = [];
   for (const corner of corners) {
     if (!Array.isArray(corner) || corner.length !== 2 || !corner.every(Number.isFinite)) return null;
-    result.push([corner[0], Math.max(-limit, Math.min(limit, corner[1]))]);
+    longitudes.push(corner[0]);
   }
+  const west = Math.min(...longitudes);
+  const east = Math.max(...longitudes);
+  if (east - west >= 180) return null;
+
+  const firstWorld = Math.ceil((-180 - west) / 360);
+  const lastWorld = Math.floor((180 - east) / 360);
+  if (firstWorld > lastWorld) return null;
+  const centeredWorld = Math.round(-(west + east) / 720);
+  const world = Math.max(firstWorld, Math.min(lastWorld, centeredWorld));
+  const shift = world * 360;
+  const result = corners.map(([longitude, latitude]) => [
+    longitude + shift,
+    Math.max(-limit, Math.min(limit, latitude)),
+  ]);
+
+  let area = 0;
+  for (let index = 0; index < result.length; index += 1) {
+    const [x0, y0] = result[index];
+    const [x1, y1] = result[(index + 1) % result.length];
+    area += x0 * y1 - x1 * y0;
+  }
+  if (Math.abs(area) <= 1e-12) return null;
   return result;
 }
 

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   affineWindowCorners,
+  fitPreviewRequest,
   mapCorners,
   previewDecodedBytes,
   previewFrameCount,
@@ -94,6 +95,30 @@ test("counts all bytes decoded for a preview", () => {
   }, { ...request, window: [15, 15, 5, 10] }), 3_000);
 });
 
+test("shrinks a preview to its decoded-byte budget", () => {
+  const header = {
+    width: 1024,
+    height: 1024,
+    tileWidth: 256,
+    tileHeight: 256,
+    bands: 13,
+    timeCount: 10,
+    frameAxes: ["band", "time"],
+    dtype: { bytes: 2 },
+  };
+  const request = previewRequest(info([10, 13, 1024, 1024]));
+  const fitted = fitPreviewRequest(header, request, 256 * 1024 * 1024);
+  assert.ok(fitted);
+  assert.equal(fitted.cropped, true);
+  assert.ok(previewDecodedBytes(header, fitted) <= 256 * 1024 * 1024);
+
+  const hugeTile = { ...header, width: 256, height: 256, bands: 4096, timeCount: 1, dtype: { bytes: 8 } };
+  assert.equal(
+    fitPreviewRequest(hugeTile, previewRequest(info([4096, 256, 256])), 256 * 1024 * 1024),
+    null,
+  );
+});
+
 test("rejects data types the canvas preview cannot interpret", () => {
   assert.throws(() => previewRequest(info([1, 2, 2], null, "float16")), /cannot render/);
   assert.throws(() => previewRequest(info([1, 2, 2], null, "complex64")), /cannot render/);
@@ -108,11 +133,28 @@ test("places a cropped PixelIsPoint window at pixel boundaries", () => {
 
 test("clips map corners to the Web Mercator latitude domain", () => {
   assert.deepEqual(mapCorners([
-    [-180, 90.125], [180, 90.125], [180, -90.125], [-180, -90.125],
+    [-10, 90.125], [10, 90.125], [10, -90.125], [-10, -90.125],
   ]), [
-    [-180, 85.051129], [180, 85.051129], [180, -85.051129], [-180, -85.051129],
+    [-10, 85.051129], [10, 85.051129], [10, -85.051129], [-10, -85.051129],
   ]);
   assert.equal(mapCorners([[0, 0], [1, 0], [1, NaN], [0, 1]]), null);
+});
+
+test("normalizes other world copies and rejects unsafe map quads", () => {
+  assert.deepEqual(mapCorners([
+    [200, 20], [250, 20], [250, 10], [200, 10],
+  ]), [
+    [-160, 20], [-110, 20], [-110, 10], [-160, 10],
+  ]);
+  assert.equal(mapCorners([
+    [170, 20], [190, 20], [190, 10], [170, 10],
+  ]), null);
+  assert.equal(mapCorners([
+    [-180, 80], [180, 80], [180, -80], [-180, -80],
+  ]), null);
+  assert.equal(mapCorners([
+    [-10, 89], [10, 89], [10, 86], [-10, 86],
+  ]), null);
 });
 
 test("stretches BigInt samples and makes invalid pixels transparent", () => {

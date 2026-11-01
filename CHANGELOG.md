@@ -41,7 +41,8 @@ JavaScript reader are documented here. The format follows
   private, bound oversized HTTP responses, and handle chunked or encoded full
   responses without losing range-read concurrency.
 - Rumi previews bound total decode work, remain cancellable with cached files,
-  and handle Sentinel-2 band suffixes and polar grids.
+  adapt their crop to the decode budget, and handle Sentinel-2 band suffixes,
+  polar grids and unsupported map footprints.
 
 ### Removed
 

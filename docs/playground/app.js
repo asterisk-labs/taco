@@ -1,10 +1,9 @@
-import { openRumi } from "@asterisk-labs/rumi";
 import { openDataset } from "../javascript/src/index.js?v=19";
 import * as maplibregl from "https://cdn.jsdelivr.net/npm/maplibre-gl@6.9.0/dist/maplibre-gl.mjs";
 import {
   affineWindowCorners,
+  fitPreviewRequest,
   mapCorners,
-  previewDecodedBytes,
   previewFrameCount,
   previewRequest,
   rasterRgba,
@@ -42,6 +41,19 @@ const RUMI_MAX_DECODED_TOTAL = 256 * 1024 * 1024;
 const RUMI_MAX_FULL_DOWNLOAD = 64 * 1024 * 1024;
 const RUMI_MAX_OUTPUT_BYTES = 32 * 1024 * 1024;
 const RUMI_MAX_RANGES = 4096;
+let rumiModule = null;
+
+async function loadRumi() {
+  const pending = rumiModule ?? import("@asterisk-labs/rumi");
+  rumiModule = pending;
+  try {
+    return await pending;
+  } catch (error) {
+    if (rumiModule === pending) rumiModule = null;
+    throw error;
+  }
+}
+
 const LANGUAGE_ICONS = {
   python: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#3776AB" d="M11.9 2c-4.6 0-4.3 2-4.3 2v2.1h4.4v.6H5.8S3 6.4 3 11s2.5 4.4 2.5 4.4H7v-2.1s-.1-2.5 2.5-2.5h4.3s2.4 0 2.4-2.3V4.6S16.6 2 11.9 2zM9.5 3.4a.8.8 0 1 1 0 1.6.8.8 0 0 1 0-1.6z"/><path fill="#FFD43B" d="M12.1 22c4.6 0 4.3-2 4.3-2v-2.1H12v-.6h6.2S21 17.6 21 13s-2.5-4.4-2.5-4.4H17v2.1s.1 2.5-2.5 2.5h-4.3s-2.4 0-2.4 2.3v3.9S7.4 22 12.1 22zm2.4-1.4a.8.8 0 1 1 0-1.6.8.8 0 0 1 0 1.6z"/></svg>',
   r: '<svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="11" cy="10" rx="9.5" ry="6.2" fill="none" stroke="#9aa3ad" stroke-width="2.6"/><text x="14" y="20" fill="#276DC3" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="900" text-anchor="middle">R</text></svg>',
@@ -1256,7 +1268,8 @@ function renderMetadataNavigation() {
     button.style.setProperty("--depth", String(page.depth));
     button.setAttribute("aria-current", index === state.metadataPageIndex ? "page" : "false");
     button.addEventListener("click", () => {
-      if (index !== state.metadataPageIndex) clearPreview();
+      clearPreview();
+      if (index === state.metadataPageIndex) return;
       state.metadataPageIndex = index;
       renderMetadataNavigation();
       renderMetadataPage();
@@ -1519,6 +1532,7 @@ async function plotRumi(container, asset, metadata, button) {
   container.replaceChildren(status);
 
   try {
+    const { openRumi } = await loadRumi();
     const dataset = await openRumi(
       tacoAssetSource(asset, controller.signal, RUMI_MAX_FULL_DOWNLOAD),
       {
@@ -1529,12 +1543,16 @@ async function plotRumi(container, asset, metadata, button) {
       },
     );
     const info = dataset.info();
-    const request = previewRequest(info);
+    const request = fitPreviewRequest(
+      dataset.header,
+      previewRequest(info),
+      RUMI_MAX_DECODED_TOTAL,
+    );
+    if (!request) {
+      throw new RangeError(`One Rumi tile exceeds the ${formatBytes(RUMI_MAX_DECODED_TOTAL)} decode limit.`);
+    }
     if (previewFrameCount(dataset.header, request) > RUMI_MAX_RANGES) {
       throw new RangeError(`Rumi preview needs more than ${RUMI_MAX_RANGES} frame ranges.`);
-    }
-    if (previewDecodedBytes(dataset.header, request) > RUMI_MAX_DECODED_TOTAL) {
-      throw new RangeError(`Rumi preview exceeds the ${formatBytes(RUMI_MAX_DECODED_TOTAL)} decode limit.`);
     }
     const ranges = dataset.planRanges(request);
     if (ranges.length > RUMI_MAX_RANGES) {
@@ -1568,13 +1586,16 @@ async function plotRumi(container, asset, metadata, button) {
       : mapCorners(await sampleFootprint(info, request.window, metadata));
     if (token !== state.previewToken || controller.signal.aborted) return;
 
+    let shown = false;
     if (corners) {
-      const shown = await showPreviewOnMap(image, corners, token);
-      if (!shown) return;
+      shown = await showPreviewOnMap(image, corners, token);
       if (token !== state.previewToken || controller.signal.aborted) return;
-      caption.textContent = `On the map · ${summary}`;
-      container.replaceChildren(caption);
-    } else {
+      if (shown) {
+        caption.textContent = `On the map · ${summary}`;
+        container.replaceChildren(caption);
+      }
+    }
+    if (!shown) {
       const canvas = document.createElement("canvas");
       canvas.width = request.width;
       canvas.height = request.height;
@@ -1603,39 +1624,35 @@ function clearPreview() {
 }
 
 async function showPreviewOnMap(image, corners, token) {
-  await mapReady;
-  if (token !== state.previewToken) return false;
-  map.addSource(PREVIEW_SOURCE, { type: "image", coordinates: corners });
   try {
-    await map.getSource(PREVIEW_SOURCE).updateImage({ image });
-  } catch (error) {
+    await mapReady;
     if (token !== state.previewToken) return false;
-    if (map.getLayer(PREVIEW_LAYER)) map.removeLayer(PREVIEW_LAYER);
-    if (map.getSource(PREVIEW_SOURCE)) map.removeSource(PREVIEW_SOURCE);
-    throw error;
-  }
-  if (token !== state.previewToken) return false;
-  try {
+    map.addSource(PREVIEW_SOURCE, { type: "image", coordinates: corners });
+    await map.getSource(PREVIEW_SOURCE).updateImage({ image });
+    if (token !== state.previewToken) return false;
     map.addLayer({
       id: PREVIEW_LAYER,
       type: "raster",
       source: PREVIEW_SOURCE,
       paint: { "raster-opacity": 0, "raster-opacity-transition": { duration: 450 }, "raster-fade-duration": 0 },
     });
-  } catch (error) {
-    if (map.getSource(PREVIEW_SOURCE)) map.removeSource(PREVIEW_SOURCE);
-    throw error;
-  }
-  requestAnimationFrame(() => {
-    if (token === state.previewToken && map.getLayer(PREVIEW_LAYER)) {
-      map.setPaintProperty(PREVIEW_LAYER, "raster-opacity", .95);
+    requestAnimationFrame(() => {
+      if (token === state.previewToken && map.getLayer(PREVIEW_LAYER)) {
+        map.setPaintProperty(PREVIEW_LAYER, "raster-opacity", .95);
+      }
+    });
+    const bounds = new maplibregl.LngLatBounds();
+    corners.forEach((corner) => bounds.extend(corner));
+    const panel = element.metadataPanel.getBoundingClientRect().width;
+    map.fitBounds(bounds, { padding: { top: 60, bottom: 60, left: 60, right: panel + 60 }, maxZoom: 14, duration: 900 });
+    return true;
+  } catch {
+    if (token === state.previewToken) {
+      if (map.getLayer(PREVIEW_LAYER)) map.removeLayer(PREVIEW_LAYER);
+      if (map.getSource(PREVIEW_SOURCE)) map.removeSource(PREVIEW_SOURCE);
     }
-  });
-  const bounds = new maplibregl.LngLatBounds();
-  corners.forEach((corner) => bounds.extend(corner));
-  const panel = element.metadataPanel.getBoundingClientRect().width;
-  map.fitBounds(bounds, { padding: { top: 60, bottom: 60, left: 60, right: panel + 60 }, maxZoom: 14, duration: 900 });
-  return true;
+    return false;
+  }
 }
 
 async function sampleFootprint(info, window, metadata) {

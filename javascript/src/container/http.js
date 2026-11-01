@@ -204,10 +204,15 @@ export class HttpClient {
       };
     }
 
-    const declaredLength = Number(response.headers.get("content-length"));
-    const expected = Number.isSafeInteger(declaredLength) && declaredLength >= 0
-      ? declaredLength
-      : undefined;
+    const lengthHeader = response.headers.get("content-length");
+    const encoded = response.headers.has("content-encoding");
+    let expected;
+    if (!encoded && lengthHeader !== null) {
+      const declaredLength = Number(lengthHeader);
+      if (Number.isSafeInteger(declaredLength) && declaredLength >= 0) {
+        expected = declaredLength;
+      }
+    }
     if (expected !== undefined && options.maxFullBytes !== undefined && expected > options.maxFullBytes) {
       await response.body?.cancel();
       fail("FULL_RESPONSE_TOO_LARGE", `server ignored Range and returned more than ${options.maxFullBytes} bytes for ${url}`);

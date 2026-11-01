@@ -38,7 +38,8 @@ JavaScript reader are documented here. The format follows
 - `consolidate` matches partition columns by name, so a partition that stores
   its columns in another order no longer swaps or rejects their values.
 - JavaScript asset reads detect archive size or ETag changes, keep cached bytes
-  private, and bound oversized HTTP responses.
+  private, bound oversized HTTP responses, and handle chunked or encoded full
+  responses without losing range-read concurrency.
 - Rumi previews bound total decode work, remain cancellable with cached files,
   and handle Sentinel-2 band suffixes and polar grids.
 

@@ -41,6 +41,8 @@ export class TacoAsset {
   /** @type {Promise<Uint8Array> | null} */
   #initialRead = null;
 
+  #rangeSupported = false;
+
   /**
    * @param {string} location
    * @param {import("./http.js").HttpClient} client
@@ -140,6 +142,10 @@ export class TacoAsset {
     const cached = this.#cached(start, end, length, options.maxFullBytes);
     if (cached) return cached;
 
+    if (this.#rangeSupported) {
+      return this.#readRange(start, end, length, options);
+    }
+
     if (this.#initialRead) {
       await waitFor(this.#initialRead, options.signal);
       options.signal?.throwIfAborted();
@@ -191,6 +197,7 @@ export class TacoAsset {
       },
     );
     this.#remember(result);
+    if (result.fullBytes === null) this.#rangeSupported = true;
     if (result.bytes.byteLength !== length) {
       fail(
         "TRUNCATED_ASSET",

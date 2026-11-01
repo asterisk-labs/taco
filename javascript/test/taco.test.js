@@ -355,6 +355,52 @@ test("bounds full responses when a server ignores Range", async () => {
   );
 });
 
+test("reads full responses without a usable Content-Length", async () => {
+  const source = Uint8Array.from({ length: 32 }, (_, index) => index);
+  for (const headers of [{}, { "content-length": "8", "content-encoding": "gzip" }]) {
+    const client = new HttpClient({
+      fetch: async () => new Response(source, { status: 200, headers }),
+    });
+    const result = await client.range(
+      "https://example.test/data.zip",
+      8,
+      15,
+      undefined,
+      { maxFullBytes: 64 },
+    );
+    assert.deepEqual(result.bytes, source.slice(8, 16));
+    assert.equal(result.totalSize, source.byteLength);
+  }
+});
+
+test("keeps range reads parallel after the server answers with 206", async () => {
+  let active = 0;
+  let peak = 0;
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const fetch = async (_url, init) => {
+    const [start, end] = init.headers.get("range").slice(6).split("-").map(Number);
+    active += 1;
+    peak = Math.max(peak, active);
+    if (start !== 0) await gate;
+    active -= 1;
+    return new Response(new Uint8Array(end - start + 1), {
+      status: 206,
+      headers: { "content-range": `bytes ${start}-${end}/16` },
+    });
+  };
+  const asset = new TacoAsset(
+    "/vsisubfile/0_16,/vsicurl/https://example.test/data.zip",
+    new HttpClient({ fetch }),
+  );
+  await asset.read(0, 1);
+  const reads = Array.from({ length: 8 }, (_, index) => asset.read(index + 1, 1));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(peak, 8);
+  release();
+  await Promise.all(reads);
+});
+
 test("shares the first full response between concurrent asset reads", async () => {
   const source = Uint8Array.from({ length: 32 }, (_, index) => index);
   let requests = 0;

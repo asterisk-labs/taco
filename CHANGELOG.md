@@ -17,6 +17,9 @@ JavaScript reader are documented here. The format follows
   from the bundled AEOI catalogue.
 - The `labels` extension maps file values to class names.
 - The `ml` extension records model inputs and targets and owns the `ml` namespace.
+- The JavaScript reader can read byte ranges from an asset. The playground uses
+  them to render Rumi files through Rumi's JavaScript reader instead of
+  downloading the whole file.
 
 ### Changed
 
@@ -34,6 +37,10 @@ JavaScript reader are documented here. The format follows
 
 - `consolidate` matches partition columns by name, so a partition that stores
   its columns in another order no longer swaps or rejects their values.
+- JavaScript asset reads detect archive size or ETag changes, keep cached bytes
+  private, and bound oversized HTTP responses.
+- Rumi previews bound total decode work, remain cancellable with cached files,
+  and handle Sentinel-2 band suffixes and polar grids.
 
 ### Removed
 

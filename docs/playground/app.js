@@ -1,5 +1,16 @@
-import { openDataset } from "../javascript/src/index.js?v=18";
+import { openRumi } from "@asterisk-labs/rumi";
+import { openDataset } from "../javascript/src/index.js?v=19";
 import * as maplibregl from "https://cdn.jsdelivr.net/npm/maplibre-gl@6.9.0/dist/maplibre-gl.mjs";
+import {
+  affineWindowCorners,
+  mapCorners,
+  previewDecodedBytes,
+  previewFrameCount,
+  previewRequest,
+  rasterRgba,
+  supportsMemory64,
+  tacoAssetSource,
+} from "./rumi-preview.js?v=2";
 import { extendRandomRowIndexes, populationRows, randomRowIndexes } from "./sampling.js?v=3";
 import { DEFAULT_QUERY, normalizeQuery, prepareSql, selectSampleRows } from "./sql.js?v=3";
 import { normalizedDatasetUrl } from "./source.js?v=2";
@@ -24,6 +35,13 @@ const CODE_LANGUAGES = [["python", "Python"], ["r", "R"], ["julia", "Julia"]];
 const PREVIEW_SOURCE = "taco-preview";
 const PREVIEW_LAYER = "taco-preview";
 const PROJ4_URL = "https://cdn.jsdelivr.net/npm/proj4@2.15.0/+esm";
+const RUMI_MAX_DECODED_FRAME = 64 * 1024 * 1024;
+const RUMI_MAX_COMPRESSED_FRAME = 32 * 1024 * 1024;
+const RUMI_MAX_COMPRESSED_TOTAL = 64 * 1024 * 1024;
+const RUMI_MAX_DECODED_TOTAL = 256 * 1024 * 1024;
+const RUMI_MAX_FULL_DOWNLOAD = 64 * 1024 * 1024;
+const RUMI_MAX_OUTPUT_BYTES = 32 * 1024 * 1024;
+const RUMI_MAX_RANGES = 4096;
 const LANGUAGE_ICONS = {
   python: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#3776AB" d="M11.9 2c-4.6 0-4.3 2-4.3 2v2.1h4.4v.6H5.8S3 6.4 3 11s2.5 4.4 2.5 4.4H7v-2.1s-.1-2.5 2.5-2.5h4.3s2.4 0 2.4-2.3V4.6S16.6 2 11.9 2zM9.5 3.4a.8.8 0 1 1 0 1.6.8.8 0 0 1 0-1.6z"/><path fill="#FFD43B" d="M12.1 22c4.6 0 4.3-2 4.3-2v-2.1H12v-.6h6.2S21 17.6 21 13s-2.5-4.4-2.5-4.4H17v2.1s.1 2.5-2.5 2.5h-4.3s-2.4 0-2.4 2.3v3.9S7.4 22 12.1 22zm2.4-1.4a.8.8 0 1 1 0-1.6.8.8 0 0 1 0 1.6z"/></svg>',
   r: '<svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="11" cy="10" rx="9.5" ry="6.2" fill="none" stroke="#9aa3ad" stroke-width="2.6"/><text x="14" y="20" fill="#276DC3" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="900" text-anchor="middle">R</text></svg>',
@@ -31,8 +49,6 @@ const LANGUAGE_ICONS = {
 };
 const DOWNLOAD_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10.5l5 5 5-5M5 20h14"/></svg>';
 const PLOT_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="1.5"/><path d="M3 16l5-5 4 4 3-3 6 6"/><circle cx="16" cy="9" r="1.5"/></svg>';
-const PREVIEW_SIZE = 256;
-const PLACEHOLDER_EMOJIS = ["🌮", "🌍", "🛰️", "🌋", "🏔️", "🌊", "🌵", "🌲", "🌾", "🏝️", "🌪️", "🔥", "🐢", "🦙", "🐙", "🦜", "🌻", "🍄", "❄️", "🌈"];
 const COPY_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="1.5"/><path d="M5 15V5.5A1.5 1.5 0 0 1 6.5 4H15"/></svg>';
 const CHECK_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
 const requestedUrl = new URL(window.location.href).searchParams.get("url");
@@ -216,6 +232,8 @@ const state = {
   metadataPageIndex: -1,
   parquetCachePromise: null,
   metadataToken: 0,
+  previewToken: 0,
+  previewController: null,
   messageTimer: null,
   loadToken: 0,
   changingPointCount: false,
@@ -1075,6 +1093,7 @@ function metersPerPixel(zoom, latitude) {
 
 function selectPoint(index) {
   if (!state.points.length) return;
+  clearPreview();
   const normalized = (index + state.points.length) % state.points.length;
   const token = ++state.metadataToken;
   const firstOpen = !element.metadataPanel.classList.contains("open");
@@ -1111,6 +1130,7 @@ async function hydrateSampleMetadata(point, token, selectedIndex) {
   try {
     const pages = await metadataPagesForPoint(point);
     if (token !== state.metadataToken || selectedIndex !== state.selectedPoint) return;
+    clearPreview();
     state.metadataPages = pages;
     renderMetadataNavigation();
     renderMetadataPage();
@@ -1236,6 +1256,7 @@ function renderMetadataNavigation() {
     button.style.setProperty("--depth", String(page.depth));
     button.setAttribute("aria-current", index === state.metadataPageIndex ? "page" : "false");
     button.addEventListener("click", () => {
+      if (index !== state.metadataPageIndex) clearPreview();
       state.metadataPageIndex = index;
       renderMetadataNavigation();
       renderMetadataPage();
@@ -1272,6 +1293,7 @@ function navigateMetadata(direction) {
   if (!state.metadataPages.length) return;
   const next = Math.max(0, Math.min(state.metadataPages.length - 1, state.metadataPageIndex + direction));
   if (next === state.metadataPageIndex) return;
+  clearPreview();
   state.metadataPageIndex = next;
   renderMetadataNavigation();
   renderMetadataPage();
@@ -1300,7 +1322,13 @@ function appendMetadataRecord(record) {
     const detail = document.createElement("dd");
     if (name === "taco:location") {
       wrapper.classList.add("location-row");
-      appendLocation(detail, String(value), String(record.values.path || record.title), rumiHeaderBytes(record.values["rumi:header"]));
+      appendLocation(
+        detail,
+        String(value),
+        String(record.values.path || record.title),
+        rumiHeaderBytes(record.values["rumi:header"]),
+        record.values,
+      );
     } else if (name === "rumi:header" && rumiHeaderBytes(value)) {
       wrapper.classList.add("location-row");
       const bytes = rumiHeaderBytes(value);
@@ -1315,7 +1343,7 @@ function appendMetadataRecord(record) {
   element.metadataBody.append(section);
 }
 
-function appendLocation(parent, location, filename, header) {
+function appendLocation(parent, location, filename, header, metadata) {
   const actions = document.createElement("div");
   actions.className = "file-actions";
   const result = document.createElement("span");
@@ -1353,9 +1381,9 @@ function appendLocation(parent, location, filename, header) {
     window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
     result.textContent = `${anchor.download} · ${formatBytes(blob.size)}`;
   }));
-  if (/\.rumi$/i.test(filename) && header) {
+  if (/\.rumi$/i.test(filename)) {
     const plot = iconAction(PLOT_ICON, "Plot", result, async (button) => {
-      await plotRumi(preview, state.dataset.resolveAsset(location), header, button);
+      await plotRumi(preview, state.dataset.resolveAsset(location), metadata, button);
     });
     plot.classList.add("plot-action");
     tools.append(plot);
@@ -1473,85 +1501,171 @@ function rumiReadCall(location, header, language = codeLanguage()) {
   return `rumi.read(${source}, header=${bytes})`;
 }
 
-function parseRumiHeader(bytes) {
-  if (bytes.length < 32 || rumiMagic(bytes) !== "LOVE") throw new Error("This is not a Rumi header.");
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  const bits = view.getUint8(24);
-  const format = ({ 1: "uint", 2: "int", 3: "float" })[view.getUint8(25)] ?? "unknown";
-  return {
-    version: view.getUint16(4, true),
-    width: view.getUint32(6, true),
-    height: view.getUint32(10, true),
-    time: view.getUint32(14, true),
-    tile: [view.getUint16(20, true), view.getUint16(18, true)],
-    bands: view.getUint16(22, true),
-    dtype: `${format}${bits}`,
-  };
-}
-
-async function plotRumi(container, asset, headerBytes, button) {
+async function plotRumi(container, asset, metadata, button) {
   if (button.classList.contains("active")) {
     clearPreview();
     return;
   }
-  const header = parseRumiHeader(headerBytes);
-  const raster = decodeRumi(asset, header);
-  const canvas = document.createElement("canvas");
-  canvas.width = raster.width;
-  canvas.height = raster.height;
-  canvas.getContext("2d").putImageData(colorizeRaster(stretchRaster(raster)), 0, 0);
-  const time = header.time > 1 ? ` · ${header.time} times` : "";
-  const summary = `${header.width}×${header.height} · ${header.bands} ${header.bands === 1 ? "band" : "bands"}${time} · ${header.dtype} · placeholder until geozl 0.3`;
-
   clearPreview();
-  const caption = document.createElement("small");
-  const corners = window.matchMedia("(max-width: 760px)").matches ? null : await sampleFootprint(header);
-  if (corners) {
-    showPreviewOnMap(canvas, corners);
-    caption.textContent = `On the map · ${summary}`;
-    container.replaceChildren(caption);
-  } else {
-    caption.textContent = summary;
-    container.replaceChildren(canvas, caption);
+  if (!supportsMemory64()) {
+    throw new Error("Rumi preview needs a browser with WebAssembly Memory64 support.");
   }
-  button.classList.add("active");
+
+  const token = state.previewToken;
+  const controller = new AbortController();
+  state.previewController = controller;
+  const status = document.createElement("small");
+  status.textContent = "Reading Rumi…";
+  container.replaceChildren(status);
+
+  try {
+    const dataset = await openRumi(
+      tacoAssetSource(asset, controller.signal, RUMI_MAX_FULL_DOWNLOAD),
+      {
+        maxFrameBytes: RUMI_MAX_DECODED_FRAME,
+        maxMetadataBytes: 8 * 1024 * 1024,
+        maxOutputBytes: RUMI_MAX_OUTPUT_BYTES,
+        maxTimeCoordinates: 100_000,
+      },
+    );
+    const info = dataset.info();
+    const request = previewRequest(info);
+    if (previewFrameCount(dataset.header, request) > RUMI_MAX_RANGES) {
+      throw new RangeError(`Rumi preview needs more than ${RUMI_MAX_RANGES} frame ranges.`);
+    }
+    if (previewDecodedBytes(dataset.header, request) > RUMI_MAX_DECODED_TOTAL) {
+      throw new RangeError(`Rumi preview exceeds the ${formatBytes(RUMI_MAX_DECODED_TOTAL)} decode limit.`);
+    }
+    const ranges = dataset.planRanges(request);
+    if (ranges.length > RUMI_MAX_RANGES) {
+      throw new RangeError(`Rumi preview needs more than ${RUMI_MAX_RANGES} frame ranges.`);
+    }
+    let compressedBytes = 0;
+    for (const range of ranges) {
+      if (range.length > RUMI_MAX_COMPRESSED_FRAME) {
+        throw new RangeError(`A Rumi frame exceeds the ${formatBytes(RUMI_MAX_COMPRESSED_FRAME)} compressed preview limit.`);
+      }
+      compressedBytes += range.length;
+      if (compressedBytes > RUMI_MAX_COMPRESSED_TOTAL) {
+        throw new RangeError(`Rumi preview exceeds the ${formatBytes(RUMI_MAX_COMPRESSED_TOTAL)} compressed input limit.`);
+      }
+    }
+    const result = await dataset.read({
+      bands: request.bands,
+      time: request.time,
+      window: request.window,
+    });
+    if (token !== state.previewToken || controller.signal.aborted) return;
+
+    const rgba = rasterRgba(result.data, request.width, request.height, request.bands.length);
+    const image = new ImageData(rgba, request.width, request.height);
+    const timeCount = info.shape.length === 4 ? info.shape[0] : 1;
+    const crop = request.cropped ? " · center crop" : "";
+    const summary = `${request.sourceWidth}×${request.sourceHeight} · ${info.shape.at(-3)} ${info.shape.at(-3) === 1 ? "band" : "bands"} · ${timeCount} ${timeCount === 1 ? "time" : "times"} · ${info.dtype.name}${crop}`;
+    const caption = document.createElement("small");
+    const corners = window.matchMedia("(max-width: 760px)").matches
+      ? null
+      : mapCorners(await sampleFootprint(info, request.window, metadata));
+    if (token !== state.previewToken || controller.signal.aborted) return;
+
+    if (corners) {
+      const shown = await showPreviewOnMap(image, corners, token);
+      if (!shown) return;
+      if (token !== state.previewToken || controller.signal.aborted) return;
+      caption.textContent = `On the map · ${summary}`;
+      container.replaceChildren(caption);
+    } else {
+      const canvas = document.createElement("canvas");
+      canvas.width = request.width;
+      canvas.height = request.height;
+      canvas.getContext("2d").putImageData(image, 0, 0);
+      caption.textContent = summary;
+      container.replaceChildren(canvas, caption);
+    }
+    button.classList.add("active");
+  } catch (error) {
+    if (controller.signal.aborted || token !== state.previewToken) return;
+    container.replaceChildren();
+    throw error;
+  } finally {
+    if (state.previewController === controller) state.previewController = null;
+  }
 }
 
 function clearPreview() {
+  state.previewToken += 1;
+  state.previewController?.abort();
+  state.previewController = null;
   if (map.getLayer(PREVIEW_LAYER)) map.removeLayer(PREVIEW_LAYER);
   if (map.getSource(PREVIEW_SOURCE)) map.removeSource(PREVIEW_SOURCE);
   document.querySelectorAll(".plot-action.active").forEach((button) => button.classList.remove("active"));
   document.querySelectorAll(".rumi-preview").forEach((preview) => preview.replaceChildren());
 }
 
-function showPreviewOnMap(canvas, corners) {
-  map.addSource(PREVIEW_SOURCE, { type: "image", url: canvas.toDataURL(), coordinates: corners });
-  map.addLayer({
-    id: PREVIEW_LAYER,
-    type: "raster",
-    source: PREVIEW_SOURCE,
-    paint: { "raster-opacity": 0, "raster-opacity-transition": { duration: 450 }, "raster-fade-duration": 0 },
+async function showPreviewOnMap(image, corners, token) {
+  await mapReady;
+  if (token !== state.previewToken) return false;
+  map.addSource(PREVIEW_SOURCE, { type: "image", coordinates: corners });
+  try {
+    await map.getSource(PREVIEW_SOURCE).updateImage({ image });
+  } catch (error) {
+    if (token !== state.previewToken) return false;
+    if (map.getLayer(PREVIEW_LAYER)) map.removeLayer(PREVIEW_LAYER);
+    if (map.getSource(PREVIEW_SOURCE)) map.removeSource(PREVIEW_SOURCE);
+    throw error;
+  }
+  if (token !== state.previewToken) return false;
+  try {
+    map.addLayer({
+      id: PREVIEW_LAYER,
+      type: "raster",
+      source: PREVIEW_SOURCE,
+      paint: { "raster-opacity": 0, "raster-opacity-transition": { duration: 450 }, "raster-fade-duration": 0 },
+    });
+  } catch (error) {
+    if (map.getSource(PREVIEW_SOURCE)) map.removeSource(PREVIEW_SOURCE);
+    throw error;
+  }
+  requestAnimationFrame(() => {
+    if (token === state.previewToken && map.getLayer(PREVIEW_LAYER)) {
+      map.setPaintProperty(PREVIEW_LAYER, "raster-opacity", .95);
+    }
   });
-  requestAnimationFrame(() => map.setPaintProperty(PREVIEW_LAYER, "raster-opacity", .95));
   const bounds = new maplibregl.LngLatBounds();
   corners.forEach((corner) => bounds.extend(corner));
   const panel = element.metadataPanel.getBoundingClientRect().width;
   map.fitBounds(bounds, { padding: { top: 60, bottom: 60, left: 60, right: panel + 60 }, maxZoom: 14, duration: 900 });
+  return true;
 }
 
-async function sampleFootprint(header) {
-  const values = state.metadataPages[0]?.records?.[0]?.values ?? {};
-  const prefix = ["stac", "spatial"].find((name) => values[`${name}:proj_code`] && values[`${name}:proj_transform`]);
-  if (!prefix) return null;
-  const epsg = Number(String(values[`${prefix}:proj_code`]).match(/^EPSG:(\d+)$/i)?.[1]);
-  const transform = Array.from(values[`${prefix}:proj_transform`], Number);
-  if (!epsg || transform.length !== 6) return null;
-  const toLonLat = await lonLatProjection(epsg);
-  if (!toLonLat) return null;
-  // STAC proj:transform order: x = a*column + b*row + c, y = d*column + e*row + f.
-  const [a, b, c, d, e, f] = transform;
-  return [[0, 0], [header.width, 0], [header.width, header.height], [0, header.height]]
-    .map(([column, row]) => toLonLat([a * column + b * row + c, d * column + e * row + f]));
+async function sampleFootprint(info, window, metadata) {
+  if (info.transform && info.epsg) {
+    const toLonLat = await lonLatProjection(info.epsg);
+    if (toLonLat) {
+      return affineWindowCorners(info.transform, window, info.pixelIsPoint).map(toLonLat);
+    }
+  }
+  const sample = state.metadataPages[0]?.records?.[0]?.values;
+  const candidates = metadata === sample ? [metadata] : [metadata, sample];
+  for (const values of candidates) {
+    if (!values) continue;
+    const prefix = ["stac", "spatial"].find((name) => {
+      const shape = Array.from(values[`${name}:proj_shape`] ?? [], Number);
+      return values[`${name}:proj_code`]
+        && values[`${name}:proj_transform`]
+        && shape.length === 2
+        && shape[0] === info.shape.at(-2)
+        && shape[1] === info.shape.at(-1);
+    });
+    if (!prefix) continue;
+    const epsg = Number(String(values[`${prefix}:proj_code`]).match(/^EPSG:(\d+)$/i)?.[1]);
+    const transform = Array.from(values[`${prefix}:proj_transform`], Number);
+    if (!epsg || transform.length !== 6) continue;
+    const toLonLat = await lonLatProjection(epsg);
+    if (!toLonLat) continue;
+    return affineWindowCorners(transform, window).map(toLonLat);
+  }
+  return null;
 }
 
 async function lonLatProjection(epsg) {
@@ -1566,79 +1680,9 @@ async function lonLatProjection(epsg) {
   return (point) => proj4(definition, "EPSG:4326", point);
 }
 
-function decodeRumi(_asset, header) {
-  // TODO: decode with geozl once it ships WASM (0.3)
-  const scale = Math.min(1, PREVIEW_SIZE / Math.max(header.width, header.height));
-  const width = Math.max(1, Math.round(header.width * scale));
-  const height = Math.max(1, Math.round(header.height * scale));
-  const bands = Math.max(1, header.bands);
-  const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
-  const context = canvas.getContext("2d");
-  context.textAlign = "center";
-  context.textBaseline = "middle";
-  context.font = `${Math.round(Math.min(width, height) * .78)}px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif`;
-  context.fillText(PLACEHOLDER_EMOJIS[Math.floor(Math.random() * PLACEHOLDER_EMOJIS.length)], width / 2, height / 2);
-  const pixels = context.getImageData(0, 0, width, height).data;
-
-  const data = new Float32Array(bands * width * height);
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      const pixel = y * width + x;
-      const alpha = pixels[pixel * 4 + 3] / 255;
-      const background = .12 + .22 * ((x / width + y / height) / 2);
-      const channel = (index) => background * (1 - alpha) + (pixels[pixel * 4 + index] / 255) * alpha;
-      const brightness = (channel(0) + channel(1) + channel(2)) / 3;
-      for (let band = 0; band < bands; band += 1) {
-        data[band * width * height + pixel] = bands >= 3 && band < 3 ? channel(band) : brightness;
-      }
-    }
-  }
-  return { width, height, bands, data };
-}
-
-function stretchRaster({ width, height, bands, data }) {
-  const pixels = width * height;
-  const stretched = new Float32Array(data.length);
-  for (let band = 0; band < bands; band += 1) {
-    let low = Infinity;
-    let high = -Infinity;
-    for (let index = band * pixels; index < (band + 1) * pixels; index += 1) {
-      if (!Number.isFinite(data[index])) continue;
-      low = Math.min(low, data[index]);
-      high = Math.max(high, data[index]);
-    }
-    const span = high > low ? high - low : 1;
-    for (let index = band * pixels; index < (band + 1) * pixels; index += 1) {
-      stretched[index] = Number.isFinite(data[index]) ? (data[index] - low) / span : NaN;
-    }
-  }
-  return { width, height, bands, data: stretched };
-}
-
-function colorizeRaster({ width, height, bands, data }) {
-  const pixels = width * height;
-  const image = new ImageData(width, height);
-  for (let index = 0; index < pixels; index += 1) {
-    const rgb = bands >= 3
-      ? [data[index], data[pixels + index], data[2 * pixels + index]].map((value) => Math.round(value * 255))
-      : viridis(data[index]);
-    image.data.set([...rgb, Number.isFinite(data[index]) ? 255 : 0], index * 4);
-  }
-  return image;
-}
-
-function viridis(value) {
-  const stops = [[68, 1, 84], [59, 82, 139], [33, 145, 140], [94, 201, 98], [253, 231, 37]];
-  const position = Math.max(0, Math.min(1, value)) * (stops.length - 1);
-  const lower = Math.min(stops.length - 2, Math.floor(position));
-  const fraction = position - lower;
-  return stops[lower].map((channel, index) => Math.round(channel + (stops[lower + 1][index] - channel) * fraction));
-}
-
 function showDatasetMetadata() {
   if (!state.dataset || state.fixtureIndex < 0) return;
+  clearPreview();
   state.metadataToken += 1;
   clearSelectedPoint();
   state.panelMode = "dataset";
@@ -1787,6 +1831,7 @@ function findCompatibleFixture(start, direction, preferredTopology) {
 }
 
 function closeMetadata() {
+  clearPreview();
   state.metadataToken += 1;
   element.metadataPanel.classList.remove("open");
   element.metadataPanel.setAttribute("aria-hidden", "true");

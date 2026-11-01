@@ -6,11 +6,19 @@ on:
     paths:
       - ".github/workflows/javascript.yml"
       - "javascript/**"
+      - "docs/playground/**"
+      - "core/tests/data/taco_rumi.zip"
+      - "core/tests/data/taco_nested.zip"
+      - "core/tests/data/taco_cat/.tacocat/**"
       - "r/tests/testthat/data/taco.zip"
   pull_request:
     paths:
       - ".github/workflows/javascript.yml"
       - "javascript/**"
+      - "docs/playground/**"
+      - "core/tests/data/taco_rumi.zip"
+      - "core/tests/data/taco_nested.zip"
+      - "core/tests/data/taco_cat/.tacocat/**"
       - "r/tests/testthat/data/taco.zip"
   workflow_dispatch:
 
@@ -19,14 +27,17 @@ permissions:
 
 jobs:
   test:
-    name: npm package
+    name: npm package (Node ${{ matrix.node }})
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: ["20", "24"]
     steps:
       - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v7
         with:
-          node-version: "24"
+          node-version: ${{ matrix.node }}
           cache: npm
           cache-dependency-path: javascript/package-lock.json
 
@@ -38,6 +49,10 @@ jobs:
 
       - working-directory: javascript
         run: npm test
+
+      - if: matrix.node == '24'
+        working-directory: javascript
+        run: npm run test:rumi
 
       - working-directory: javascript
         run: npm pack --dry-run

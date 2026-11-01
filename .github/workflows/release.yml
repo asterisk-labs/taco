@@ -552,6 +552,9 @@ jobs:
         run: npm test
 
       - working-directory: javascript
+        run: npm run test:rumi
+
+      - working-directory: javascript
         run: npm pack --dry-run
 
   release-archives:

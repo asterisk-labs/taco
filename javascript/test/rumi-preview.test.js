@@ -40,9 +40,9 @@ test("recognizes Landsat surface reflectance labels", () => {
   assert.deepEqual(request.bands, [2, 1, 0]);
 });
 
-test("falls back to the first three bands when RGB labels are incomplete", () => {
+test("starts in gray when RGB labels are incomplete", () => {
   const request = previewRequest(info([3, 20, 30], ["nir", "B04", "swir"]));
-  assert.deepEqual(request.bands, [0, 1, 2]);
+  assert.deepEqual(request.bands, [0]);
 });
 
 test("renders one band for two-band Rumi images", () => {
@@ -50,6 +50,14 @@ test("renders one band for two-band Rumi images", () => {
   assert.deepEqual(request.bands, [0]);
   assert.deepEqual(request.window, [0, 0, 20, 30]);
   assert.equal(request.cropped, false);
+});
+
+test("renders chosen gray and RGB channels from planar bands", () => {
+  const data = new Uint8Array([0, 100, 110, 10, 20, 120, 130, 30]);
+  const gray = rasterRgba(data, 2, 1, 4, [3]);
+  assert.deepEqual([...gray], [255, 255, 255, 255, 0, 0, 0, 255]);
+  const rgb = rasterRgba(data, 2, 1, 4, [3, 1, 2]);
+  assert.deepEqual([...rgb], [255, 255, 0, 255, 0, 0, 255, 255]);
 });
 
 test("counts frame ranges before materializing a large preview plan", () => {

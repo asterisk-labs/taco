@@ -63,17 +63,13 @@ main { position: relative; height: calc(100% - 66px); }
 .maplibregl-ctrl-group button { width: 30px; height: 30px; background-color: rgba(255, 255, 255, .96); }
 .maplibregl-ctrl-group button:hover { background-color: var(--accent-soft); }
 .map-mode-control { display: flex; border: 1px solid var(--line-strong); border-radius: 2px; padding: 3px; background: rgba(255, 255, 255, .96); box-shadow: var(--shadow); }
-.map-mode-control button { min-width: 42px; height: 30px; border: 0; border-radius: 1px; padding: 0 10px; color: var(--muted); background: transparent; cursor: pointer; font: 800 10px/1 var(--mono); letter-spacing: .04em; }
+.map-mode-control button { display: grid; place-items: center; width: 34px; height: 30px; border: 0; border-radius: 1px; padding: 0; color: var(--muted); background: transparent; cursor: pointer; }
+.map-mode-control button svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .map-mode-control button:hover { color: var(--accent); background: var(--accent-soft); }
 .map-mode-control button.active { color: #fff; background: var(--accent); }
-.map-mode-control button:disabled { cursor: wait; }
-#map .maplibregl-canvas-container { transform-origin: 50% 50%; }
-#map.projection-leaving .maplibregl-canvas-container { transform: scale(.985); transition: transform .14s ease-in; }
-#map.projection-entering .maplibregl-canvas-container { animation: projection-enter .3s cubic-bezier(.22, 1, .36, 1); }
-@keyframes projection-enter {
-  from { transform: scale(.985); }
-  to { transform: scale(1); }
-}
+.map-mode-control button.active:hover { color: #fff; background: var(--accent); }
+.map-mode-control .preview-toggle { margin-left: 4px; }
+.map-mode-control .preview-toggle[hidden] { display: none; }
 .sample-display { position: absolute; z-index: 750; top: 0; left: 0; right: 0; border-bottom: 1px solid var(--line); padding: 5px 12px 8px; color: #5f4305; background: rgba(255, 255, 255, .97); }
 .sample-display[hidden] { display: none; }
 .sample-display-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
@@ -205,9 +201,19 @@ main:has(.sample-display:not([hidden])) .maplibregl-ctrl-top-left { top: 40px; }
 .copy-icon:hover { color: #fff; border-color: var(--accent); background: var(--accent); }
 .copy-icon.copied { color: #fff; border-color: var(--accent); background: var(--accent); }
 .rumi-preview:empty { display: none; }
+.rumi-preview[hidden] { display: none; }
 .rumi-preview { margin-top: 8px; border: 1px solid var(--line); border-radius: 2px; padding: 8px; background: #fff; }
+.rumi-canvas-wrap { position: relative; }
 .rumi-preview canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; }
 .rumi-preview small { display: block; margin-top: 6px; color: var(--muted); font: 8px/1.35 var(--mono); }
+.rumi-channels { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 7px; }
+.rumi-channels label { display: grid; gap: 2px; flex: 1 1 65px; min-width: 0; color: var(--muted); font: 700 8px/1.2 var(--mono); }
+.rumi-channels label[hidden] { display: none; }
+.rumi-channels select { width: 100%; min-width: 0; height: 26px; border: 1px solid var(--line-strong); border-radius: 2px; padding: 0 4px; color: var(--ink); background: #fff; font: 9px var(--mono); text-overflow: ellipsis; }
+.pixel-inspector { position: absolute; z-index: 650; width: max-content; max-width: min(270px, calc(100% - 16px)); border: 1px solid rgba(255, 255, 255, .22); border-radius: 3px; padding: 7px 9px; color: #f8faf7; background: rgba(32, 37, 31, .96); box-shadow: 0 6px 18px rgba(0, 0, 0, .25); pointer-events: none; font: 10px/1.4 var(--mono); }
+.pixel-inspector[hidden] { display: none; }
+.pixel-inspector strong { color: #b9dfd7; }
+.pixel-inspector pre { max-height: min(65vh, 520px); margin: 4px 0 0; overflow: hidden; color: inherit; font: inherit; white-space: pre-wrap; overflow-wrap: anywhere; }
 .file-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
 .file-action { flex: 1 1 92px; min-height: 30px; border: 1px solid var(--line-strong); border-radius: 2px; padding: 6px 8px; color: var(--ink); background: #fff; cursor: pointer; font: 700 9px/1.2 var(--mono); }
 .file-action:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }

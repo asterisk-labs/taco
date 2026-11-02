@@ -21,20 +21,20 @@ function supportedDtype(dtype) {
     && !["float16", "bfloat16"].includes(name);
 }
 
-function rgbBands(labels, count) {
-  if (!Array.isArray(labels)) return [0, 1, 2];
+export function rgbBands(labels, count) {
+  if (!Array.isArray(labels)) return null;
   const patterns = [
-    [/^(?:SR_)?B0?4(?![0-9A-Za-z])/i, /^red$/i],
-    [/^(?:SR_)?B0?3(?![0-9A-Za-z])/i, /^green$/i],
-    [/^(?:SR_)?B0?2(?![0-9A-Za-z])/i, /^blue$/i],
+    [/^(?:SR_)?B0?4(?![0-9A-Za-z])/i, /(?:^|[,;\s])red(?=\s*[,;)]|$)/i],
+    [/^(?:SR_)?B0?3(?![0-9A-Za-z])/i, /(?:^|[,;\s])green(?=\s*[,;)]|$)/i],
+    [/^(?:SR_)?B0?2(?![0-9A-Za-z])/i, /(?:^|[,;\s])blue(?=\s*[,;)]|$)/i],
   ];
   const matches = patterns.map((names) => labels.findIndex(
-    (label) => names.some((pattern) => pattern.test(label)),
+    (label) => typeof label === "string" && names.some((pattern) => pattern.test(label)),
   ));
   return matches.every((index) => index >= 0 && index < count)
     && new Set(matches).size === 3
     ? matches
-    : [0, 1, 2];
+    : null;
 }
 
 export function previewRequest(info, maxSide = DEFAULT_MAX_SIDE) {
@@ -50,9 +50,7 @@ export function previewRequest(info, maxSide = DEFAULT_MAX_SIDE) {
   const x = Math.floor((source.width - width) / 2);
   const y = Math.floor((source.height - height) / 2);
   const labels = info.bands;
-  const bands = source.bands < 3
-    ? [0]
-    : rgbBands(labels, source.bands);
+  const bands = rgbBands(labels, source.bands) ?? [0];
   return {
     bands,
     time: [0],
@@ -195,17 +193,19 @@ function byte(value, low, high) {
   return Math.round(Math.max(0, Math.min(1, (value - low) / (high - low))) * 255);
 }
 
-export function rasterRgba(data, width, height, bands) {
-  if (bands !== 1 && bands !== 3) throw new Error("Rumi preview needs one or three bands");
+export function rasterRgba(data, width, height, bands, channels = bands < 3 ? [0] : [0, 1, 2]) {
+  if (![1, 3].includes(channels.length) || channels.some((band) => !Number.isInteger(band) || band < 0 || band >= bands)) {
+    throw new Error("Rumi preview needs one or three valid channels");
+  }
   const pixels = width * height;
   if (data.length !== pixels * bands) throw new Error("Rumi preview data has the wrong size");
-  const stretches = Array.from({ length: bands }, (_, band) => limits(data, band * pixels, pixels));
+  const stretches = channels.map((band) => limits(data, band * pixels, pixels));
   const rgba = new Uint8ClampedArray(pixels * 4);
 
   for (let pixel = 0; pixel < pixels; pixel += 1) {
     const target = pixel * 4;
-    if (bands === 1) {
-      const sample = data[pixel];
+    if (channels.length === 1) {
+      const sample = data[channels[0] * pixels + pixel];
       const value = byte(sample, ...stretches[0]);
       rgba[target] = value;
       rgba[target + 1] = value;
@@ -214,7 +214,7 @@ export function rasterRgba(data, width, height, bands) {
     } else {
       let valid = true;
       for (let channel = 0; channel < 3; channel += 1) {
-        const sample = data[channel * pixels + pixel];
+        const sample = data[channels[channel] * pixels + pixel];
         rgba[target + channel] = byte(sample, ...stretches[channel]);
         valid &&= typeof sample === "bigint" || Number.isFinite(sample);
       }

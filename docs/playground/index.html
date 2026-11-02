@@ -12,7 +12,7 @@
     }
   </script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@6.9.0/dist/maplibre-gl.css">
-  <link rel="stylesheet" href="styles.css?v=50">
+  <link rel="stylesheet" href="styles.css?v=59">
   <link rel="stylesheet" href="../shared/navigation.css">
   <script type="importmap">
     {
@@ -53,6 +53,9 @@
 
   <main>
     <div id="map" aria-label="Map of TACO sample centroids"></div>
+    <button id="previewToggle" class="preview-toggle" type="button" aria-label="Show image" aria-pressed="false" hidden>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-5.5 9.5-5.5 9.5 5.5 9.5 5.5-3.5 5.5-9.5 5.5S2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.5"/></svg>
+    </button>
 
     <aside id="sampleDisplay" class="sample-display" aria-live="polite" hidden>
       <div class="sample-display-heading">
@@ -118,7 +121,7 @@ WHERE "geoenrich:admin_countries" = 'Peru'</textarea>
       <div id="metadataBody" class="metadata-body"></div>
     </aside>
 
-    <div id="loading" class="loading" hidden>
+    <div id="loading" class="loading" role="status" aria-live="polite" hidden>
       <div class="taco-loader" aria-hidden="true">
         <div class="loader-center"><span class="loader-taco">🌮</span><span class="loader-earth">🌍</span></div>
         <div class="loader-orbit"><span class="loader-satellite">🛰️</span></div>
@@ -141,6 +144,6 @@ WHERE "geoenrich:admin_countries" = 'Peru'</textarea>
     </footer>
   </main>
 
-  <script type="module" src="app.js?v=72"></script>
+  <script type="module" src="app.js?v=82"></script>
 </body>
 </html>

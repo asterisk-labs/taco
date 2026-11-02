@@ -4,12 +4,14 @@ import {
   affineWindowCorners,
   fitPreviewRequest,
   mapCorners,
+  previewDecodedBytes,
   previewFrameCount,
   previewRequest,
   rasterRgba,
+  rgbBands,
   supportsMemory64,
   tacoAssetSource,
-} from "./rumi-preview.js?v=2";
+} from "./rumi-preview.js?v=3";
 import { extendRandomRowIndexes, populationRows, randomRowIndexes } from "./sampling.js?v=3";
 import { DEFAULT_QUERY, normalizeQuery, prepareSql, selectSampleRows } from "./sql.js?v=3";
 import { normalizedDatasetUrl } from "./source.js?v=2";
@@ -41,6 +43,10 @@ const RUMI_MAX_DECODED_TOTAL = 256 * 1024 * 1024;
 const RUMI_MAX_FULL_DOWNLOAD = 64 * 1024 * 1024;
 const RUMI_MAX_OUTPUT_BYTES = 32 * 1024 * 1024;
 const RUMI_MAX_RANGES = 4096;
+const RUMI_PREVIEW_CACHE_ITEMS = 4;
+const RUMI_EAGER_DOWNLOAD_BYTES = 32 * 1024 * 1024;
+const RUMI_HOVER_BLOCK_BYTES = 4 * 1024 * 1024;
+const RUMI_PREVIEW_CACHE_BYTES = 128 * 1024 * 1024;
 let rumiModule = null;
 
 async function loadRumi() {
@@ -61,6 +67,8 @@ const LANGUAGE_ICONS = {
 };
 const DOWNLOAD_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10.5l5 5 5-5M5 20h14"/></svg>';
 const PLOT_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="1.5"/><path d="M3 16l5-5 4 4 3-3 6 6"/><circle cx="16" cy="9" r="1.5"/></svg>';
+const BASEMAP_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 6 6-2 6 2 6-2v14l-6 2-6-2-6 2zM9 4v14M15 6v14"/></svg>';
+const SATELLITE_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 9 6 6M7 12l5-5M12 17l5-5M3 8l5-5 3 3-5 5zM13 18l5-5 3 3-5 5z"/></svg>';
 const COPY_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="1.5"/><path d="M5 15V5.5A1.5 1.5 0 0 1 6.5 4H15"/></svg>';
 const CHECK_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
 const requestedUrl = new URL(window.location.href).searchParams.get("url");
@@ -69,7 +77,7 @@ const element = Object.fromEntries(
   [
     "fixtureSelect", "datasetUrl", "plotPanel", "plotField", "plotMode", "plotLegend", "loadDataset", "status", "message",
     "metadataPanel", "pointPosition", "pointTitle", "pointCoordinates", "metadataBody", "closeMetadata",
-    "metadataPath", "metadataSource", "metadataCount", "loading", "loadingLabel",
+    "metadataPath", "metadataSource", "metadataCount", "loading", "loadingLabel", "previewToggle",
     "downloadProgress", "downloadBar", "downloadPercent", "downloadBytes",
     "sampleDisplay", "sampleDisplayPercent", "sampleDisplayCount", "sampleDisplayProgress",
     "sampleDisplayHint", "decreasePoints", "increasePoints",
@@ -80,67 +88,48 @@ const element = Object.fromEntries(
 const POINT_SOURCE = "taco-samples";
 const POINT_LAYER = "taco-points";
 
-function projectionControl() {
+function basemapControl() {
   let container;
-  let activeProjection = "globe";
-  let transitionToken = 0;
+  let activeBasemap = "basemap";
 
   return {
     onAdd(mapInstance) {
       container = document.createElement("div");
       container.className = "maplibregl-ctrl map-mode-control";
       container.setAttribute("role", "group");
-      container.setAttribute("aria-label", "Map projection");
+      container.setAttribute("aria-label", "Map layers");
 
-      for (const [label, projection] of [["3D", "globe"], ["2D", "mercator"]]) {
+      for (const [label, basemap] of [["Basemap", "basemap"], ["Satellite", "satellite"]]) {
         const button = document.createElement("button");
         button.type = "button";
-        button.textContent = label;
-        button.dataset.projection = projection;
-        button.setAttribute("aria-pressed", String(projection === "globe"));
-        button.classList.toggle("active", projection === "globe");
-        button.addEventListener("click", async () => {
-          if (projection === activeProjection) return;
-          const token = ++transitionToken;
-          const mapContainer = mapInstance.getContainer();
-          const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-          mapInstance.stop();
-
-          for (const sibling of container.querySelectorAll("button")) {
+        button.dataset.basemap = basemap;
+        button.innerHTML = basemap === "basemap" ? BASEMAP_ICON : SATELLITE_ICON;
+        button.title = label;
+        button.setAttribute("aria-label", label);
+        button.setAttribute("aria-pressed", String(basemap === activeBasemap));
+        button.classList.toggle("active", basemap === activeBasemap);
+        button.addEventListener("click", () => {
+          if (basemap === activeBasemap) return;
+          for (const id of ["basemap", "labels"]) {
+            mapInstance.setLayoutProperty(id, "visibility", basemap === "basemap" ? "visible" : "none");
+          }
+          for (const id of ["satellite", "satellite-labels"]) {
+            mapInstance.setLayoutProperty(id, "visibility", basemap === "satellite" ? "visible" : "none");
+          }
+          activeBasemap = basemap;
+          for (const sibling of container.querySelectorAll("button[data-basemap]")) {
             const active = sibling === button;
             sibling.classList.toggle("active", active);
             sibling.setAttribute("aria-pressed", String(active));
-            sibling.disabled = true;
           }
-
-          if (!reducedMotion) {
-            mapContainer.classList.remove("projection-entering");
-            mapContainer.classList.add("projection-leaving");
-            await new Promise((resolve) => setTimeout(resolve, 140));
-          }
-
-          if (token !== transitionToken) return;
-          mapInstance.setProjection({ type: projection });
-          activeProjection = projection;
-          mapInstance.triggerRepaint();
-          mapContainer.classList.remove("projection-leaving");
-
-          if (!reducedMotion) {
-            mapContainer.classList.add("projection-entering");
-            await new Promise((resolve) => setTimeout(resolve, 300));
-          }
-
-          if (token !== transitionToken) return;
-          mapContainer.classList.remove("projection-entering");
-          for (const sibling of container.querySelectorAll("button")) sibling.disabled = false;
         });
         container.append(button);
       }
+      container.append(element.previewToggle);
 
       return container;
     },
     onRemove() {
-      transitionToken += 1;
       container?.remove();
     },
   };
@@ -161,6 +150,7 @@ const map = new maplibregl.Map({
         tiles: ["https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}"],
         tileSize: 256,
         maxzoom: 16,
+        attribution: "© Esri, HERE, Garmin, © OpenStreetMap contributors, GIS User Community",
       },
       labels: {
         type: "raster",
@@ -168,18 +158,34 @@ const map = new maplibregl.Map({
         tileSize: 256,
         maxzoom: 16,
       },
+      satellite: {
+        type: "raster",
+        tiles: ["https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"],
+        tileSize: 256,
+        maxzoom: 16,
+        attribution: "© Esri, Vantor, Earthstar Geographics, GIS User Community",
+      },
+      "satellite-labels": {
+        type: "raster",
+        tiles: ["https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}"],
+        tileSize: 256,
+        maxzoom: 16,
+      },
     },
     layers: [
       { id: "basemap", type: "raster", source: "basemap" },
       { id: "labels", type: "raster", source: "labels" },
+      { id: "satellite", type: "raster", source: "satellite", layout: { visibility: "none" } },
+      { id: "satellite-labels", type: "raster", source: "satellite-labels", layout: { visibility: "none" } },
     ],
     sky: {
       "atmosphere-blend": ["interpolate", ["linear"], ["zoom"], 0, 1, 5, 1, 7, 0],
     },
   },
 });
-map.addControl(projectionControl(), "top-left");
+map.addControl(basemapControl(), "top-left");
 map.addControl(new maplibregl.NavigationControl({ showCompass: true, visualizePitch: true }), "bottom-right");
+map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-right");
 const mapReady = new Promise((resolve) => map.on("load", resolve));
 
 map.on("click", (event) => {
@@ -190,10 +196,12 @@ map.on("click", (event) => {
 map.on("mousemove", (event) => {
   if (!map.getLayer(POINT_LAYER)) return;
   const feature = nearestPointFeature(event.point);
-  map.getCanvas().style.cursor = feature ? "pointer" : "";
+  const onImage = inspectMapPixel(event);
+  map.getCanvas().style.cursor = onImage ? "crosshair" : feature ? "pointer" : "";
 });
 map.on("mouseout", () => {
   map.getCanvas().style.cursor = "";
+  hidePixelInspector();
 });
 
 function nearestPointFeature(cursor) {
@@ -246,6 +254,9 @@ const state = {
   metadataToken: 0,
   previewToken: 0,
   previewController: null,
+  previewView: null,
+  previewCache: new Map(),
+  loadingContext: null,
   messageTimer: null,
   loadToken: 0,
   changingPointCount: false,
@@ -326,6 +337,7 @@ function bindEvents() {
     if (event.key === "Enter") void loadDatasetUrl(element.datasetUrl.value);
   });
   element.closeMetadata.addEventListener("click", closeMetadata);
+  element.previewToggle.addEventListener("click", togglePreview);
   document.addEventListener("keydown", (event) => {
     if (!element.metadataPanel.classList.contains("open")) return;
     if (event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement || event.target instanceof HTMLButtonElement) return;
@@ -378,6 +390,7 @@ async function loadDatasetUrl(value, { fixture = null, index = -1 } = {}) {
   const token = ++state.loadToken;
   setLoading(true);
   closeMetadata();
+  state.previewCache.clear();
   clearMarkers();
   state.points = [];
   state.sampledIndexes = null;
@@ -1106,6 +1119,7 @@ function metersPerPixel(zoom, latitude) {
 function selectPoint(index) {
   if (!state.points.length) return;
   clearPreview();
+  hideDetailLoading("metadata");
   const normalized = (index + state.points.length) % state.points.length;
   const token = ++state.metadataToken;
   const firstOpen = !element.metadataPanel.classList.contains("open");
@@ -1147,7 +1161,15 @@ async function hydrateSampleMetadata(point, token, selectedIndex) {
     renderMetadataNavigation();
     renderMetadataPage();
   } catch (error) {
-    if (token === state.metadataToken && selectedIndex === state.selectedPoint) showMessage(messageOf(error));
+    if (token === state.metadataToken && selectedIndex === state.selectedPoint) {
+      const message = messageOf(error);
+      state.metadataPages = state.metadataPages.map((page) =>
+        page.records === null ? { ...page, error: message } : page,
+      );
+      renderMetadataNavigation();
+      renderMetadataPage();
+      showMessage(message);
+    }
   }
 }
 
@@ -1263,13 +1285,13 @@ function renderMetadataNavigation() {
     label.textContent = page.label;
     const count = document.createElement("span");
     count.className = "level-count";
-    count.textContent = page.records === null ? "…" : `${page.records.length} ${page.records.length === 1 ? "row" : "rows"}`;
+    count.textContent = page.error ? "error" : page.records === null ? "…" : `${page.records.length} ${page.records.length === 1 ? "row" : "rows"}`;
     button.append(label, count);
     button.style.setProperty("--depth", String(page.depth));
     button.setAttribute("aria-current", index === state.metadataPageIndex ? "page" : "false");
     button.addEventListener("click", () => {
-      clearPreview();
       if (index === state.metadataPageIndex) return;
+      clearPreview();
       state.metadataPageIndex = index;
       renderMetadataNavigation();
       renderMetadataPage();
@@ -1288,11 +1310,19 @@ function renderMetadataPage() {
   const page = state.metadataPages[state.metadataPageIndex];
   if (!page) return;
   element.metadataSource.textContent = page.label;
-  if (page.records === null) {
-    element.metadataCount.textContent = "reading";
-    element.metadataBody.replaceChildren(metadataMessage("Reading this level from the cached metadata…"));
+  if (page.error) {
+    hideDetailLoading("metadata", state.metadataToken);
+    element.metadataCount.textContent = "error";
+    element.metadataBody.replaceChildren(metadataMessage(page.error));
     return;
   }
+  if (page.records === null) {
+    element.metadataCount.textContent = "reading";
+    element.metadataBody.replaceChildren();
+    showDetailLoading("metadata", state.metadataToken, `Loading ${page.label}`);
+    return;
+  }
+  hideDetailLoading("metadata", state.metadataToken);
   element.metadataCount.textContent = `${page.records.length} ${page.records.length === 1 ? "row" : "rows"}`;
   element.metadataBody.replaceChildren();
   if (!page.records.length) {
@@ -1395,10 +1425,11 @@ function appendLocation(parent, location, filename, header, metadata) {
     result.textContent = `${anchor.download} · ${formatBytes(blob.size)}`;
   }));
   if (/\.rumi$/i.test(filename)) {
-    const plot = iconAction(PLOT_ICON, "Plot", result, async (button) => {
-      await plotRumi(preview, state.dataset.resolveAsset(location), metadata, button);
+    const plot = iconAction(PLOT_ICON, "Show image", result, async (button) => {
+      await plotRumi(preview, state.dataset.resolveAsset(location), metadata, button, location);
     });
     plot.classList.add("plot-action");
+    plot.setAttribute("aria-pressed", "false");
     tools.append(plot);
   }
   actions.append(tools);
@@ -1514,9 +1545,9 @@ function rumiReadCall(location, header, language = codeLanguage()) {
   return `rumi.read(${source}, header=${bytes})`;
 }
 
-async function plotRumi(container, asset, metadata, button) {
-  if (button.classList.contains("active")) {
-    clearPreview();
+async function plotRumi(container, asset, metadata, button, location) {
+  if (state.previewView?.button === button) {
+    togglePreview();
     return;
   }
   clearPreview();
@@ -1525,24 +1556,37 @@ async function plotRumi(container, asset, metadata, button) {
   }
 
   const token = state.previewToken;
+  const cacheKey = `${window.matchMedia("(max-width: 760px)").matches ? "small" : "wide"}:${location}`;
+  const cached = cachedPreview(cacheKey);
+  if (cached) {
+    await displayRumiPreview(cached, container, button, token);
+    return;
+  }
   const controller = new AbortController();
   state.previewController = controller;
-  const status = document.createElement("small");
-  status.textContent = "Reading Rumi…";
-  container.replaceChildren(status);
+  container.replaceChildren();
+  showDetailLoading("rumi", token, "Opening Rumi");
 
   try {
     const { openRumi } = await loadRumi();
-    const dataset = await openRumi(
-      tacoAssetSource(asset, controller.signal, RUMI_MAX_FULL_DOWNLOAD),
-      {
-        maxFrameBytes: RUMI_MAX_DECODED_FRAME,
-        maxMetadataBytes: 8 * 1024 * 1024,
-        maxOutputBytes: RUMI_MAX_OUTPUT_BYTES,
-        maxTimeCoordinates: 100_000,
-      },
-    );
+    if (token !== state.previewToken || controller.signal.aborted) return;
+    const size = await asset.byteLength({ signal: controller.signal, maxFullBytes: RUMI_MAX_FULL_DOWNLOAD });
+    const eagerLimit = window.matchMedia("(max-width: 760px)").matches
+      ? RUMI_EAGER_DOWNLOAD_BYTES / 4
+      : RUMI_EAGER_DOWNLOAD_BYTES;
+    if (size <= eagerLimit) updateDetailLoading("rumi", token, "Downloading Rumi image");
+    const source = size <= eagerLimit
+      ? await asset.read(0, size, { signal: controller.signal, maxFullBytes: RUMI_MAX_FULL_DOWNLOAD })
+      : tacoAssetSource(asset, controller.signal, RUMI_MAX_FULL_DOWNLOAD);
+    if (token !== state.previewToken || controller.signal.aborted) return;
+    const dataset = await openRumi(source, {
+      maxFrameBytes: RUMI_MAX_DECODED_FRAME,
+      maxMetadataBytes: 8 * 1024 * 1024,
+      maxOutputBytes: RUMI_MAX_OUTPUT_BYTES,
+      maxTimeCoordinates: 100_000,
+    });
     const info = dataset.info();
+    const bandCount = info.shape.at(-3);
     const request = fitPreviewRequest(
       dataset.header,
       previewRequest(info),
@@ -1551,76 +1595,424 @@ async function plotRumi(container, asset, metadata, button) {
     if (!request) {
       throw new RangeError(`One Rumi tile exceeds the ${formatBytes(RUMI_MAX_DECODED_TOTAL)} decode limit.`);
     }
-    if (previewFrameCount(dataset.header, request) > RUMI_MAX_RANGES) {
-      throw new RangeError(`Rumi preview needs more than ${RUMI_MAX_RANGES} frame ranges.`);
-    }
-    const ranges = dataset.planRanges(request);
-    if (ranges.length > RUMI_MAX_RANGES) {
-      throw new RangeError(`Rumi preview needs more than ${RUMI_MAX_RANGES} frame ranges.`);
-    }
-    let compressedBytes = 0;
-    for (const range of ranges) {
-      if (range.length > RUMI_MAX_COMPRESSED_FRAME) {
-        throw new RangeError(`A Rumi frame exceeds the ${formatBytes(RUMI_MAX_COMPRESSED_FRAME)} compressed preview limit.`);
-      }
-      compressedBytes += range.length;
-      if (compressedBytes > RUMI_MAX_COMPRESSED_TOTAL) {
-        throw new RangeError(`Rumi preview exceeds the ${formatBytes(RUMI_MAX_COMPRESSED_TOTAL)} compressed input limit.`);
+    let readRequest = request;
+    if (bandCount <= 3 && request.bands.length !== bandCount) {
+      const allBands = { ...request, bands: Array.from({ length: bandCount }, (_, index) => index) };
+      try {
+        checkPreviewRead(dataset, allBands);
+        readRequest = allBands;
+      } catch (error) {
+        if (!(error instanceof RangeError)) throw error;
       }
     }
+    checkPreviewRead(dataset, readRequest);
+    updateDetailLoading("rumi", token, "Reading Rumi image");
     const result = await dataset.read({
-      bands: request.bands,
+      bands: readRequest.bands,
       time: request.time,
       window: request.window,
     });
     if (token !== state.previewToken || controller.signal.aborted) return;
 
-    const rgba = rasterRgba(result.data, request.width, request.height, request.bands.length);
+    updateDetailLoading("rumi", token, "Rendering preview");
+    const channels = request.bands.map((band) => readRequest.bands.indexOf(band));
+    const rgba = rasterRgba(result.data, request.width, request.height, readRequest.bands.length, channels);
     const image = new ImageData(rgba, request.width, request.height);
     const timeCount = info.shape.length === 4 ? info.shape[0] : 1;
-    const crop = request.cropped ? " · center crop" : "";
-    const summary = `${request.sourceWidth}×${request.sourceHeight} · ${info.shape.at(-3)} ${info.shape.at(-3) === 1 ? "band" : "bands"} · ${timeCount} ${timeCount === 1 ? "time" : "times"} · ${info.dtype.name}${crop}`;
-    const caption = document.createElement("small");
-    const corners = window.matchMedia("(max-width: 760px)").matches
+    const summary = [
+      `${request.sourceWidth} × ${request.sourceHeight}`,
+      `${bandCount} ${bandCount === 1 ? "band" : "bands"}`,
+      info.dtype.name,
+      ...(timeCount > 1 ? [`${timeCount} times`] : []),
+      ...(request.cropped ? ["center crop"] : []),
+    ].join(" · ");
+    const geo = window.matchMedia("(max-width: 760px)").matches
       ? null
-      : mapCorners(await sampleFootprint(info, request.window, metadata));
+      : await sampleFootprint(info, request.window, metadata);
     if (token !== state.previewToken || controller.signal.aborted) return;
-
-    let shown = false;
-    if (corners) {
-      shown = await showPreviewOnMap(image, corners, token);
-      if (token !== state.previewToken || controller.signal.aborted) return;
-      if (shown) {
-        caption.textContent = `On the map · ${summary}`;
-        container.replaceChildren(caption);
-      }
-    }
-    if (!shown) {
-      const canvas = document.createElement("canvas");
-      canvas.width = request.width;
-      canvas.height = request.height;
-      canvas.getContext("2d").putImageData(image, 0, 0);
-      caption.textContent = summary;
-      container.replaceChildren(canvas, caption);
-    }
-    button.classList.add("active");
+    const autoRgb = rgbBands(info.bands, bandCount);
+    const preview = {
+      dataset, info, request, image, geo, corners: geo?.corners ?? null, summary,
+      sourceBytes: source instanceof Uint8Array ? source.byteLength : 0,
+      renderData: result.data, renderBands: readRequest.bands,
+      allData: readRequest.bands.length === bandCount ? result.data : null,
+      mode: autoRgb ? "rgb" : "gray", grayBand: 0, rgbBands: autoRgb ?? [0, 1, 2],
+      pixelBlocks: new Map(), hoverTimer: null,
+    };
+    rememberPreview(cacheKey, preview);
+    await displayRumiPreview(preview, container, button, token);
   } catch (error) {
     if (controller.signal.aborted || token !== state.previewToken) return;
     container.replaceChildren();
     throw error;
   } finally {
+    hideDetailLoading("rumi", token);
     if (state.previewController === controller) state.previewController = null;
   }
 }
 
+function checkPreviewRead(dataset, request) {
+  const outputBytes = request.bands.length * request.width * request.height * dataset.header.dtype.bytes;
+  if (outputBytes > RUMI_MAX_OUTPUT_BYTES) throw new RangeError("Rumi preview output is too large.");
+  if (previewDecodedBytes(dataset.header, request) > RUMI_MAX_DECODED_TOTAL) {
+    throw new RangeError("Rumi preview needs too much decoded data.");
+  }
+  if (previewFrameCount(dataset.header, request) > RUMI_MAX_RANGES) {
+    throw new RangeError(`Rumi preview needs more than ${RUMI_MAX_RANGES} frame ranges.`);
+  }
+  const ranges = dataset.planRanges(request);
+  if (ranges.length > RUMI_MAX_RANGES) {
+    throw new RangeError(`Rumi preview needs more than ${RUMI_MAX_RANGES} frame ranges.`);
+  }
+  let compressedBytes = 0;
+  for (const range of ranges) {
+    if (range.length > RUMI_MAX_COMPRESSED_FRAME) {
+      throw new RangeError(`A Rumi frame exceeds the ${formatBytes(RUMI_MAX_COMPRESSED_FRAME)} compressed preview limit.`);
+    }
+    compressedBytes += range.length;
+    if (compressedBytes > RUMI_MAX_COMPRESSED_TOTAL) {
+      throw new RangeError(`Rumi preview exceeds the ${formatBytes(RUMI_MAX_COMPRESSED_TOTAL)} compressed input limit.`);
+    }
+  }
+}
+
+function cachedPreview(location) {
+  const preview = state.previewCache.get(location);
+  if (!preview) return null;
+  state.previewCache.delete(location);
+  state.previewCache.set(location, preview);
+  return preview;
+}
+
+function rememberPreview(location, preview) {
+  state.previewCache.delete(location);
+  state.previewCache.set(location, preview);
+  const bytes = () => [...state.previewCache.values()].reduce((total, entry) =>
+    total + entry.sourceBytes + entry.image.data.byteLength
+      + (entry.allData?.byteLength ?? entry.renderData.byteLength), 0);
+  while (state.previewCache.size > 1
+      && (state.previewCache.size > RUMI_PREVIEW_CACHE_ITEMS || bytes() > RUMI_PREVIEW_CACHE_BYTES)) {
+    state.previewCache.delete(state.previewCache.keys().next().value);
+  }
+}
+
+function previewBandControls(preview, token) {
+  const count = preview.info.shape.at(-3);
+  if (count === 1) return null;
+  const controls = document.createElement("div");
+  controls.className = "rumi-channels";
+  const labels = preview.info.bands;
+  const bandName = (index) => labels?.[index] || `Band ${index + 1}`;
+  const select = (title, value, choices) => {
+    const label = document.createElement("label");
+    label.textContent = title;
+    const input = document.createElement("select");
+    for (const [key, name] of choices) {
+      const option = document.createElement("option");
+      option.value = String(key);
+      option.textContent = name;
+      input.append(option);
+    }
+    input.value = String(value);
+    label.append(input);
+    controls.append(label);
+    return input;
+  };
+  const bands = Array.from({ length: count }, (_, index) => [index, bandName(index)]);
+  const mode = count >= 3 ? select("View", preview.mode, [["gray", "Gray"], ["rgb", "RGB"]]) : null;
+  const gray = select("Band", preview.grayBand, bands);
+  const rgb = count >= 3 ? ["R", "G", "B"].map((channel, index) =>
+    select(channel, preview.rgbBands[index], bands)) : [];
+  const inputs = [...(mode ? [mode] : []), gray, ...rgb];
+  const sync = () => {
+    gray.parentElement.hidden = mode?.value === "rgb";
+    for (const input of rgb) input.parentElement.hidden = mode?.value !== "rgb";
+  };
+  sync();
+  controls.addEventListener("change", async () => {
+    sync();
+    const selected = mode?.value === "rgb" ? rgb.map((input) => Number(input.value)) : [Number(gray.value)];
+    inputs.forEach((input) => { input.disabled = true; });
+    try {
+      await renderPreviewBands(preview, selected, token);
+      preview.mode = mode?.value ?? "gray";
+      preview.grayBand = Number(gray.value);
+      if (rgb.length) preview.rgbBands = rgb.map((input) => Number(input.value));
+    } catch (error) {
+      if (state.previewView?.record === preview) {
+        if (mode) mode.value = preview.mode;
+        gray.value = String(preview.grayBand);
+        rgb.forEach((input, index) => { input.value = String(preview.rgbBands[index]); });
+        sync();
+        showMessage(error.message || String(error));
+      }
+    } finally {
+      inputs.forEach((input) => { input.disabled = false; });
+    }
+  });
+  return controls;
+}
+
+async function renderPreviewBands(preview, selected, token) {
+  const unique = [...new Set(selected)];
+  let data = preview.allData;
+  let bands = data ? Array.from({ length: preview.info.shape.at(-3) }, (_, index) => index) : preview.renderBands;
+  if (!data && unique.every((band) => bands.includes(band))) data = preview.renderData;
+  if (!data) {
+    const request = { ...preview.request, bands: unique };
+    checkPreviewRead(preview.dataset, request);
+    data = (await preview.dataset.read({ bands: unique, time: request.time, window: request.window })).data;
+    bands = unique;
+  }
+  if (token !== state.previewToken || state.previewView?.record !== preview) return;
+  const rgba = rasterRgba(data, preview.request.width, preview.request.height, bands.length,
+    selected.map((band) => bands.indexOf(band)));
+  const image = new ImageData(rgba, preview.request.width, preview.request.height);
+  if (state.previewView.onMap) await map.getSource(PREVIEW_SOURCE).updateImage({ image });
+  else preview.canvas.getContext("2d").putImageData(image, 0, 0);
+  if (token !== state.previewToken || state.previewView?.record !== preview) return;
+  preview.image = image;
+  preview.renderData = data;
+  preview.renderBands = bands;
+}
+
+function inspectMapPixel(event) {
+  const view = state.previewView;
+  const preview = view?.record;
+  if (!view?.visible || !view.onMap || !preview?.geo) return false;
+  const [x, y] = preview.geo.toSource([event.lngLat.lng, event.lngLat.lat]);
+  const [a, b, c, d, e, f] = preview.geo.transform;
+  const determinant = a * e - b * d;
+  if (!Number.isFinite(determinant) || Math.abs(determinant) < 1e-30) {
+    hidePixelInspector();
+    return false;
+  }
+  const shift = preview.geo.pixelIsPoint ? .5 : 0;
+  const column = Math.floor((e * (x - c) - b * (y - f)) / determinant + shift);
+  const row = Math.floor((-d * (x - c) + a * (y - f)) / determinant + shift);
+  if (!inspectPixel(preview, row, column)) return false;
+  positionPixelInspector(preview, event.point.x, event.point.y);
+  return true;
+}
+
+function inspectCanvasPixel(event, preview) {
+  if (!state.previewView?.visible || state.previewView.record !== preview) return;
+  const bounds = preview.canvas.getBoundingClientRect();
+  const column = preview.request.window[1] + Math.floor((event.clientX - bounds.left) * preview.image.width / bounds.width);
+  const row = preview.request.window[0] + Math.floor((event.clientY - bounds.top) * preview.image.height / bounds.height);
+  if (!inspectPixel(preview, row, column)) return;
+  positionPixelInspector(preview, event.clientX - bounds.left, event.clientY - bounds.top);
+}
+
+function positionPixelInspector(preview, x, y) {
+  const { element, host } = preview.inspector;
+  preview.hoverCursor = { x, y };
+  const gap = 14;
+  const margin = 8;
+  const right = Math.max(margin, host.clientWidth - element.offsetWidth - margin);
+  const bottom = Math.max(margin, host.clientHeight - element.offsetHeight - margin);
+  let left = x + gap;
+  let top = y + gap;
+  if (left > right) left = x - gap - element.offsetWidth;
+  if (top > bottom) top = y - gap - element.offsetHeight;
+  element.style.left = `${Math.max(margin, Math.min(right, left))}px`;
+  element.style.top = `${Math.max(margin, Math.min(bottom, top))}px`;
+}
+
+function hidePixelInspector() {
+  const preview = state.previewView?.record;
+  if (!preview) return;
+  clearTimeout(preview.hoverTimer);
+  preview.hoverTimer = null;
+  preview.hoverPosition = null;
+  preview.hoverCursor = null;
+  if (preview.inspector) preview.inspector.element.hidden = true;
+}
+
+function inspectPixel(preview, row, column) {
+  const [top, left, height, width] = preview.request.window;
+  if (!Number.isFinite(row) || !Number.isFinite(column)
+      || row < top || row >= top + height || column < left || column >= left + width) {
+    hidePixelInspector();
+    return false;
+  }
+  if (preview.hoverPosition?.row === row && preview.hoverPosition?.column === column) return true;
+  clearTimeout(preview.hoverTimer);
+  preview.hoverPosition = { row, column };
+  preview.inspector.element.hidden = false;
+  preview.inspector.position.textContent = `Row ${row} · Col ${column}`;
+  if (preview.allData) {
+    showPixelValues(preview, preview.allData, width, height, row - top, column - left);
+    return true;
+  }
+  const count = preview.info.shape.at(-3);
+  const side = Math.max(1, Math.min(128, Math.floor(Math.sqrt(RUMI_HOVER_BLOCK_BYTES / (count * preview.dataset.header.dtype.bytes)))));
+  const blockRow = Math.floor(row / side) * side;
+  const blockColumn = Math.floor(column / side) * side;
+  const key = `${blockRow}:${blockColumn}`;
+  const cached = preview.pixelBlocks.get(key);
+  if (cached) {
+    preview.pixelBlocks.delete(key);
+    preview.pixelBlocks.set(key, cached);
+    showPixelValues(preview, cached.data, cached.width, cached.height, row - blockRow, column - blockColumn);
+    return true;
+  }
+  preview.inspector.values.textContent = "Reading values…";
+  preview.hoverTimer = setTimeout(() => { void readPixelBlock(preview, blockRow, blockColumn, side, key); }, 75);
+  return true;
+}
+
+async function readPixelBlock(preview, row, column, side, key) {
+  if (preview.pixelPending?.key === key) return;
+  const count = preview.info.shape.at(-3);
+  const height = Math.min(side, preview.request.sourceHeight - row);
+  const width = Math.min(side, preview.request.sourceWidth - column);
+  const request = { time: preview.request.time, window: [row, column, height, width], width, height };
+  const pending = { key };
+  preview.pixelPending = pending;
+  try {
+    const pixels = width * height;
+    const data = new preview.renderData.constructor(count * pixels);
+    let first = 0;
+    while (first < count) {
+      if (state.previewView?.record !== preview || !preview.hoverPosition) return;
+      let length = count - first;
+      let selection;
+      for (;;) {
+        selection = Array.from({ length }, (_, index) => first + index);
+        try {
+          checkPreviewRead(preview.dataset, { ...request, bands: selection });
+          break;
+        } catch (error) {
+          if (!(error instanceof RangeError) || length === 1) throw error;
+          length = Math.ceil(length / 2);
+        }
+      }
+      const result = await preview.dataset.read({ bands: selection, time: request.time, window: request.window });
+      data.set(result.data, first * pixels);
+      first += length;
+    }
+    if (state.previewView?.record !== preview) return;
+    const block = { data, width, height };
+    preview.pixelBlocks.set(key, block);
+    while (preview.pixelBlocks.size > 4) preview.pixelBlocks.delete(preview.pixelBlocks.keys().next().value);
+    const position = preview.hoverPosition;
+    if (position && Math.floor(position.row / side) * side === row
+        && Math.floor(position.column / side) * side === column) {
+      showPixelValues(preview, block.data, width, height, position.row - row, position.column - column);
+    }
+  } catch (error) {
+    if (state.previewView?.record === preview && preview.hoverPosition
+        && Math.floor(preview.hoverPosition.row / side) * side === row
+        && Math.floor(preview.hoverPosition.column / side) * side === column) {
+      preview.inspector.values.textContent = error.message || "Could not read pixel values";
+    }
+  } finally {
+    if (preview.pixelPending === pending) preview.pixelPending = null;
+  }
+}
+
+function showPixelValues(preview, data, width, height, row, column) {
+  const offset = row * width + column;
+  const pixels = width * height;
+  const labels = preview.info.bands;
+  const count = preview.info.shape.at(-3);
+  preview.inspector.values.textContent = Array.from({ length: count }, (_, index) =>
+    `${labels?.[index] || `Band ${index + 1}`}: ${String(data[index * pixels + offset])}`).join("\n");
+  if (preview.hoverCursor) positionPixelInspector(preview, preview.hoverCursor.x, preview.hoverCursor.y);
+}
+
+async function displayRumiPreview(preview, container, button, token) {
+  const shown = preview.corners ? await showPreviewOnMap(preview.image, preview.corners, token) : false;
+  if (token !== state.previewToken) return;
+  const controls = previewBandControls(preview, token);
+  const inspector = document.createElement("div");
+  inspector.className = "pixel-inspector";
+  inspector.setAttribute("role", "tooltip");
+  inspector.hidden = true;
+  const position = document.createElement("strong");
+  const values = document.createElement("pre");
+  inspector.append(position, values);
+  const caption = document.createElement("small");
+  caption.textContent = preview.summary;
+  if (shown) {
+    preview.inspector = { element: inspector, position, values, host: map.getContainer() };
+    map.getContainer().append(inspector);
+    container.replaceChildren(...(controls ? [controls] : []), caption);
+  } else {
+    const wrapper = document.createElement("div");
+    wrapper.className = "rumi-canvas-wrap";
+    const canvas = document.createElement("canvas");
+    canvas.width = preview.image.width;
+    canvas.height = preview.image.height;
+    canvas.getContext("2d").putImageData(preview.image, 0, 0);
+    canvas.addEventListener("pointermove", (event) => inspectCanvasPixel(event, preview));
+    canvas.addEventListener("pointerleave", hidePixelInspector);
+    preview.canvas = canvas;
+    preview.inspector = { element: inspector, position, values, host: wrapper };
+    wrapper.append(canvas, inspector);
+    container.replaceChildren(...(controls ? [controls] : []), wrapper, caption);
+  }
+  state.previewView = { button, container, record: preview, onMap: shown, pointIndex: state.selectedPoint, visible: true };
+  element.previewToggle.hidden = false;
+  applyPreviewVisibility();
+}
+
+function togglePreview() {
+  if (!state.previewView) return;
+  state.previewView.visible = !state.previewView.visible;
+  applyPreviewVisibility();
+}
+
+function applyPreviewVisibility() {
+  const preview = state.previewView;
+  if (!preview) return;
+  if (!preview.visible) hidePixelInspector();
+  if (preview.onMap && map.getLayer(PREVIEW_LAYER)) {
+    map.setLayoutProperty(PREVIEW_LAYER, "visibility", preview.visible ? "visible" : "none");
+  }
+  if (map.getLayer(POINT_LAYER)) {
+    map.setFilter(POINT_LAYER, preview.pointIndex >= 0
+      ? ["!=", ["get", "point_index"], preview.pointIndex]
+      : null);
+  }
+  preview.container.hidden = !preview.visible;
+  preview.button.classList.toggle("active", preview.visible);
+  preview.button.setAttribute("aria-pressed", String(preview.visible));
+  preview.button.title = preview.visible ? "Hide image" : "Show image";
+  preview.button.setAttribute("aria-label", preview.button.title);
+  element.previewToggle.classList.toggle("active", preview.visible);
+  element.previewToggle.title = preview.button.title;
+  element.previewToggle.setAttribute("aria-label", preview.button.title);
+  element.previewToggle.setAttribute("aria-pressed", String(preview.visible));
+}
+
 function clearPreview() {
+  hidePixelInspector();
+  state.previewView?.record.inspector?.element.remove();
+  hideDetailLoading("rumi");
   state.previewToken += 1;
   state.previewController?.abort();
   state.previewController = null;
+  state.previewView = null;
+  element.previewToggle.hidden = true;
+  element.previewToggle.classList.remove("active");
+  element.previewToggle.title = "Show image";
+  element.previewToggle.setAttribute("aria-label", "Show image");
+  element.previewToggle.setAttribute("aria-pressed", "false");
+  if (map.getLayer(POINT_LAYER)) map.setFilter(POINT_LAYER, null);
   if (map.getLayer(PREVIEW_LAYER)) map.removeLayer(PREVIEW_LAYER);
   if (map.getSource(PREVIEW_SOURCE)) map.removeSource(PREVIEW_SOURCE);
-  document.querySelectorAll(".plot-action.active").forEach((button) => button.classList.remove("active"));
-  document.querySelectorAll(".rumi-preview").forEach((preview) => preview.replaceChildren());
+  document.querySelectorAll(".plot-action").forEach((button) => {
+    button.classList.remove("active");
+    button.setAttribute("aria-pressed", "false");
+    button.title = "Show image";
+    button.setAttribute("aria-label", "Show image");
+  });
+  document.querySelectorAll(".rumi-preview").forEach((preview) => {
+    preview.hidden = false;
+    preview.replaceChildren();
+  });
 }
 
 async function showPreviewOnMap(image, corners, token) {
@@ -1635,7 +2027,7 @@ async function showPreviewOnMap(image, corners, token) {
       type: "raster",
       source: PREVIEW_SOURCE,
       paint: { "raster-opacity": 0, "raster-opacity-transition": { duration: 450 }, "raster-fade-duration": 0 },
-    });
+    }, POINT_LAYER);
     requestAnimationFrame(() => {
       if (token === state.previewToken && map.getLayer(PREVIEW_LAYER)) {
         map.setPaintProperty(PREVIEW_LAYER, "raster-opacity", .95);
@@ -1657,10 +2049,8 @@ async function showPreviewOnMap(image, corners, token) {
 
 async function sampleFootprint(info, window, metadata) {
   if (info.transform && info.epsg) {
-    const toLonLat = await lonLatProjection(info.epsg);
-    if (toLonLat) {
-      return affineWindowCorners(info.transform, window, info.pixelIsPoint).map(toLonLat);
-    }
+    const geo = await rumiGeoreference(info.transform, Number(info.epsg), window, info.pixelIsPoint);
+    if (geo) return geo;
   }
   const sample = state.metadataPages[0]?.records?.[0]?.values;
   const candidates = metadata === sample ? [metadata] : [metadata, sample];
@@ -1678,28 +2068,48 @@ async function sampleFootprint(info, window, metadata) {
     const epsg = Number(String(values[`${prefix}:proj_code`]).match(/^EPSG:(\d+)$/i)?.[1]);
     const transform = Array.from(values[`${prefix}:proj_transform`], Number);
     if (!epsg || transform.length !== 6) continue;
-    const toLonLat = await lonLatProjection(epsg);
-    if (!toLonLat) continue;
-    return affineWindowCorners(transform, window).map(toLonLat);
+    const geo = await rumiGeoreference(transform, epsg, window, false);
+    if (geo) return geo;
   }
   return null;
 }
 
-async function lonLatProjection(epsg) {
-  if (epsg === 4326) return (point) => point;
+async function rumiGeoreference(transform, epsg, window, pixelIsPoint) {
+  const projection = await rumiProjection(epsg);
+  if (!projection) return null;
+  const rawCorners = affineWindowCorners(transform, window, pixelIsPoint).map(projection.toLonLat);
+  const corners = mapCorners(rawCorners);
+  if (!corners) return null;
+  const longitudeShift = corners[0][0] - rawCorners[0][0];
+  return {
+    corners, transform, pixelIsPoint,
+    toSource: ([longitude, latitude]) => projection.toSource([longitude - longitudeShift, latitude]),
+  };
+}
+
+async function rumiProjection(epsg) {
+  if (epsg === 4326) return { toLonLat: (point) => point, toSource: (point) => point };
   if (epsg === 3857) {
-    return ([x, y]) => [(x / 6378137) * (180 / Math.PI), (2 * Math.atan(Math.exp(y / 6378137)) - Math.PI / 2) * (180 / Math.PI)];
+    return {
+      toLonLat: ([x, y]) => [(x / 6378137) * (180 / Math.PI), (2 * Math.atan(Math.exp(y / 6378137)) - Math.PI / 2) * (180 / Math.PI)],
+      toSource: ([longitude, latitude]) => [6378137 * longitude * Math.PI / 180,
+        6378137 * Math.log(Math.tan(Math.PI / 4 + latitude * Math.PI / 360))],
+    };
   }
   const zone = epsg - (epsg >= 32701 ? 32700 : 32600);
   if (!((epsg >= 32601 && epsg <= 32660) || (epsg >= 32701 && epsg <= 32760))) return null;
   const proj4 = (await import(PROJ4_URL)).default;
   const definition = `+proj=utm +zone=${zone}${epsg >= 32701 ? " +south" : ""} +datum=WGS84 +units=m +no_defs`;
-  return (point) => proj4(definition, "EPSG:4326", point);
+  return {
+    toLonLat: (point) => proj4(definition, "EPSG:4326", point),
+    toSource: (point) => proj4("EPSG:4326", definition, point),
+  };
 }
 
 function showDatasetMetadata() {
   if (!state.dataset || state.fixtureIndex < 0) return;
   clearPreview();
+  hideDetailLoading("metadata");
   state.metadataToken += 1;
   clearSelectedPoint();
   state.panelMode = "dataset";
@@ -1849,6 +2259,7 @@ function findCompatibleFixture(start, direction, preferredTopology) {
 
 function closeMetadata() {
   clearPreview();
+  hideDetailLoading("metadata");
   state.metadataToken += 1;
   element.metadataPanel.classList.remove("open");
   element.metadataPanel.setAttribute("aria-hidden", "true");
@@ -2050,15 +2461,37 @@ function disableDatasetNavigation(disabled) {
 }
 
 function setLoading(loading) {
-  element.loading.hidden = !loading;
   if (loading) {
+    state.loadingContext = { kind: "dataset" };
+    element.loading.hidden = false;
     setLoadingLabel("Reading TACO");
     element.downloadProgress.hidden = true;
     element.downloadBar.max = 1;
     element.downloadBar.value = 0;
     element.downloadPercent.textContent = "0%";
     element.downloadBytes.textContent = "0 B";
+  } else if (state.loadingContext?.kind === "dataset") {
+    state.loadingContext = null;
+    element.loading.hidden = true;
   }
+}
+
+function showDetailLoading(kind, token, text) {
+  state.loadingContext = { kind, token };
+  element.downloadProgress.hidden = true;
+  setLoadingLabel(text);
+  element.loading.hidden = false;
+}
+
+function updateDetailLoading(kind, token, text) {
+  if (state.loadingContext?.kind === kind && state.loadingContext.token === token) setLoadingLabel(text);
+}
+
+function hideDetailLoading(kind, token = null) {
+  if (state.loadingContext?.kind !== kind) return;
+  if (token !== null && state.loadingContext.token !== token) return;
+  state.loadingContext = null;
+  element.loading.hidden = true;
 }
 
 function setLoadingLabel(text) {

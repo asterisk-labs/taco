@@ -68,13 +68,6 @@ def test_collection_accepts_a_third_party_extension(tmp_path: Path) -> None:
     assert taco.validate(path).ok
 
 
-def test_writer_preserves_a_declared_builtin_version(collection: taco.Collection) -> None:
-    future = f"{BASE}/stac/v1.1.0/schema.json"
-    loaded = taco.Collection.from_dict({**collection.to_dict(), "taco:extensions": [MAJORTOM, future]})
-    stored = json.loads(render_collection(loaded, {}))
-    assert stored["taco:extensions"] == [MAJORTOM, future]
-
-
 def test_a_dataset_without_extensions_lists_none(tmp_path: Path) -> None:
     collection = taco.Collection(
         contract=taco.Contract(structure=["a.bin"]),
@@ -103,11 +96,12 @@ def test_a_namespace_in_use_needs_its_extension(folder_dataset: Path) -> None:
     assert any("breaks" in message and "majortom" in message for message in errors)
 
 
-def test_two_versions_of_one_extension_are_rejected(folder_dataset: Path) -> None:
-    edit_collection(folder_dataset, lambda data: data["taco:extensions"].append(f"{BASE}/stac/v1.1.0/schema.json"))
-    report = taco.validate(folder_dataset)
-    assert any("lists stac more than once" in issue.message for issue in report.errors)
-    assert any(issue.severity == "warning" and "v1.1.0" in issue.message for issue in report.issues)
+def test_a_builtin_version_that_is_not_bundled_is_rejected(folder_dataset: Path) -> None:
+    other = f"{BASE}/stac/v1.1.0/schema.json"
+    edit_collection(folder_dataset, lambda data: data.update({"taco:extensions": [MAJORTOM, other]}))
+    errors = extension_errors(folder_dataset)
+    assert any("does not bundle" in message and "v1.1.0" in message for message in errors)
+    assert any(message.startswith("stac fields need") for message in errors)
 
 
 def test_an_unknown_extension_is_only_a_warning(folder_dataset: Path) -> None:

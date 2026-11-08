@@ -208,7 +208,7 @@ are stored too. Collection metadata never becomes a Parquet column or a row valu
 `COLLECTION.json` it also holds the values extensions stored, such as `majortom`.
 There is no `CollectionMetadata` and no `metadata=` parameter.
 `extensions` lists third-party JSON Schema identifiers. Built-in identifiers are
-inferred from the contract and an explicitly declared version is preserved.
+inferred from the contract at their bundled version.
 
 The groups are checked when the collection is built, always as `CollectionError`:
 

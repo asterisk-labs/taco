@@ -9,7 +9,8 @@ are local. It may take producer input, produce columns, or both.
 `Collection.extensions` stores the JSON Schema URL of every extension in use.
 Built-ins are inferred from their namespaces (`stac`, `spatial`, `temporal`, `rumi`,
 `majortom`, `geoenrich`). Pass `extensions=[schema_url, ...]` for any other published
-extension. Rewriting preserves an explicitly declared built-in version.
+extension. Only the bundled built-in versions are accepted. `taco.validate` rejects any
+other version of a built-in identifier.
 
 The dependency graph and runtime configuration exist only in the Python contract.
 `COLLECTION.json` stores the resulting columns and semantic collection metadata, not

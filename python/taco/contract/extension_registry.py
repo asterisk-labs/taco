@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import importlib
 import json
-import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from functools import cache
@@ -46,15 +45,10 @@ BUILTINS = {
 OWNERS = {namespace: builtin.identifier for builtin in BUILTINS.values() for namespace in builtin.namespaces}
 _BY_IDENTIFIER = {builtin.identifier: builtin for builtin in BUILTINS.values()}
 
-_IDENTIFIER = re.compile(rf"{re.escape(BASE)}/(?P<name>[a-z][a-z0-9_]*)/v[0-9]+\.[0-9]+\.[0-9]+/schema\.json")
-
 
 def builtin_name(identifier: str) -> str | None:
-    match = _IDENTIFIER.fullmatch(identifier)
-    if match is None:
-        return None
-    name = match.group("name")
-    return name if name in BUILTINS else None
+    builtin = _BY_IDENTIFIER.get(identifier)
+    return None if builtin is None else builtin.name
 
 
 def used_namespaces(document: Mapping[str, Any]) -> set[str]:
@@ -72,8 +66,7 @@ def used_builtins(document: Mapping[str, Any]) -> list[Builtin]:
 
 def declared(document: Mapping[str, Any]) -> list[str]:
     identifiers = set(document.get("taco:extensions", ()))
-    names = {name for identifier in identifiers if (name := builtin_name(identifier)) is not None}
-    identifiers.update(builtin.identifier for builtin in used_builtins(document) if builtin.name not in names)
+    identifiers.update(builtin.identifier for builtin in used_builtins(document))
     return sorted(identifiers)
 
 

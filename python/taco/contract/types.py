@@ -12,20 +12,28 @@ from ..errors import TypeSpecError
 
 __all__ = ["coerce_value", "parse_type", "type_name"]
 
-_PRIMITIVE_ALIASES: dict[str, str] = {
-    "float32": "float",
-    "float64": "double",
-    "float16": "halffloat",
-    "boolean": "bool",
-    "utf8": "string",
-    "large_utf8": "large_string",
-    "str": "string",
-    "bytes": "binary",
-    "int": "int64",
-    "integer": "int64",
-    "long": "int64",
-    "datetime": "timestamp[us]",
+_PRIMITIVES: dict[str, pa.DataType] = {
+    "bool": pa.bool_(),
+    "int8": pa.int8(),
+    "int16": pa.int16(),
+    "int32": pa.int32(),
+    "int64": pa.int64(),
+    "uint8": pa.uint8(),
+    "uint16": pa.uint16(),
+    "uint32": pa.uint32(),
+    "uint64": pa.uint64(),
+    "float16": pa.float16(),
+    "float": pa.float32(),
+    "double": pa.float64(),
+    "string": pa.string(),
+    "large_string": pa.large_string(),
+    "binary": pa.binary(),
+    "large_binary": pa.large_binary(),
+    "date32": pa.date32(),
+    "date64": pa.date64(),
 }
+_UNITS = {"s", "ms", "us", "ns"}
+_TIMEZONE = re.compile(r"[+-]\d{2}:\d{2}|[A-Za-z][A-Za-z0-9_+-]*(?:/[A-Za-z0-9_+-]+)*")
 
 _HEAD = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*(.*)$", re.S)
 
@@ -58,18 +66,8 @@ def _strip_bracket(text: str, opening: str, closing: str) -> str | None:
     return None
 
 
-def _strip_label(text: str) -> str:
-    """Drop an ``item:`` / ``tz=`` style label produced by ``str(DataType)``."""
-    text = text.strip()
-    if ":" in text and not text.startswith(("struct", "map", "list", "timestamp")):
-        label, _, rest = text.partition(":")
-        if label.strip().isidentifier():
-            return rest.strip()
-    return text
-
-
 def _nested_type(spec: str) -> tuple[pa.DataType, bool]:
-    text = _strip_label(spec).strip()
+    text = spec.strip()
     nullable = text.endswith("?")
     if nullable:
         text = text[:-1].rstrip()
@@ -78,8 +76,15 @@ def _nested_type(spec: str) -> tuple[pa.DataType, bool]:
     return parse_type(text), nullable
 
 
+def _unit(text: str, spec: str) -> str:
+    unit = text.strip()
+    if unit not in _UNITS:
+        raise TypeSpecError(f"unknown time unit {unit!r} in {spec!r}")
+    return unit
+
+
 def parse_type(spec: str | pa.DataType) -> pa.DataType:
-    """Return the :mod:`pyarrow` type described by ``spec``."""
+    """Return the :mod:`pyarrow` type described by the canonical type string ``spec``."""
     if isinstance(spec, pa.DataType):
         return spec
     if not isinstance(spec, str) or not spec.strip():
@@ -89,17 +94,14 @@ def parse_type(spec: str | pa.DataType) -> pa.DataType:
     match = _HEAD.match(text)
     if match is None:
         raise TypeSpecError(f"cannot parse type {spec!r}")
-    head = match.group(1).lower()
+    head = match.group(1)
     rest = match.group(2).strip()
 
     if not rest:
-        alias = _PRIMITIVE_ALIASES.get(head, head)
-        if alias == "timestamp[us]":
-            return pa.timestamp("us")
-        try:
-            return pa.type_for_alias(alias)
-        except (KeyError, ValueError) as exc:
-            raise TypeSpecError(f"unsupported type {spec!r}") from exc
+        primitive = _PRIMITIVES.get(head)
+        if primitive is None:
+            raise TypeSpecError(f"unsupported type {spec!r}")
+        return primitive
 
     angle = _strip_bracket(rest, "<", ">")
     square = _strip_bracket(rest, "[", "]")
@@ -108,44 +110,35 @@ def parse_type(spec: str | pa.DataType) -> pa.DataType:
     try:
         if head == "timestamp" and square is not None:
             args = _split_top_level(square)
-            unit = args[0].strip()
-            tz = None
-            if len(args) > 1:
-                tz = args[1].strip()
-                if tz.startswith("tz="):
-                    tz = tz[3:].strip()
-                tz = tz.strip("'\"") or None
             if len(args) > 2:
                 raise TypeSpecError(f"too many arguments in {spec!r}")
+            unit = _unit(args[0], spec)
+            tz = args[1].strip() if len(args) == 2 else None
+            if tz is not None and _TIMEZONE.fullmatch(tz) is None:
+                raise TypeSpecError(f"unsupported timezone {tz!r} in {spec!r}")
             return pa.timestamp(unit, tz=tz)
-        if head in {"time32", "time64", "duration", "date32", "date64"} and square is not None:
-            return pa.type_for_alias(f"{head}[{square.strip()}]")
-        if head in {"list", "large_list"} and (angle is not None or square is not None):
-            contents = angle if angle is not None else square
-            assert contents is not None
-            args = _split_top_level(contents)
+        if head == "time32" and square is not None:
+            return pa.time32(_unit(square, spec))
+        if head == "time64" and square is not None:
+            return pa.time64(_unit(square, spec))
+        if head == "duration" and square is not None:
+            return pa.duration(_unit(square, spec))
+        if head in {"list", "large_list"} and angle is not None:
+            args = _split_top_level(angle)
             if len(args) != 1:
                 raise TypeSpecError(f"{head} takes exactly one type in {spec!r}")
             inner, nullable = _nested_type(args[0])
             field = pa.field("item", inner, nullable=nullable)
             return pa.list_(field) if head == "list" else pa.large_list(field)
-        if head == "fixed_size_list":
-            # fixed_size_list<T, n> or pyarrow's fixed_size_list<item: T>[n]
-            size_match = re.fullmatch(r"<(.*)>\s*\[(\d+)\]", rest, re.S)
-            if size_match is not None:
-                inner, nullable = _nested_type(size_match.group(1))
-                return pa.list_(pa.field("item", inner, nullable=nullable), int(size_match.group(2)))
-            if angle is not None:
-                args = _split_top_level(angle)
-                if len(args) != 2 or not args[1].strip().isdigit():
-                    raise TypeSpecError(f"fixed_size_list needs <type, size> in {spec!r}")
-                inner, nullable = _nested_type(args[0])
-                return pa.list_(pa.field("item", inner, nullable=nullable), int(args[1]))
+        if head == "fixed_size_list" and angle is not None:
+            args = _split_top_level(angle)
+            if len(args) != 2 or not args[1].strip().isdigit():
+                raise TypeSpecError(f"fixed_size_list needs <type, size> in {spec!r}")
+            inner, nullable = _nested_type(args[0])
+            return pa.list_(pa.field("item", inner, nullable=nullable), int(args[1]))
         if head == "struct" and angle is not None:
             fields = []
             for item in _split_top_level(angle):
-                if not item:
-                    continue
                 name, sep, inner = item.partition(":")
                 if not sep or not name.strip():
                     raise TypeSpecError(f"struct fields need 'name: type' in {spec!r}")
@@ -161,10 +154,10 @@ def parse_type(spec: str | pa.DataType) -> pa.DataType:
                 raise TypeSpecError(f"map keys must not be nullable in {spec!r}")
             item_type, item_nullable = _nested_type(args[1])
             return pa.map_(key_type, pa.field("value", item_type, nullable=item_nullable))
-        if head in {"decimal", "decimal128", "decimal256"} and paren is not None:
+        if head in {"decimal128", "decimal256"} and paren is not None:
             args = _split_top_level(paren)
             if len(args) != 2:
-                raise TypeSpecError(f"decimal needs (precision, scale) in {spec!r}")
+                raise TypeSpecError(f"{head} needs (precision, scale) in {spec!r}")
             precision, scale = int(args[0]), int(args[1])
             if head == "decimal256":
                 return pa.decimal256(precision, scale)

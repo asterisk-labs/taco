@@ -100,9 +100,10 @@ the field's own `nullable`. Map keys are never nullable.
 `Field(description=...)` becomes the Arrow field metadata key `description`, which
 validation compares against the contract.
 
-`parse_type` accepts the canonical names plus aliases (`float32`, `float64`,
-`float16`, `boolean`, `utf8`, `str`, `bytes`, `int`, `integer`, `long`, `datetime`)
-and `type_name` writes the canonical form back.
+`parse_type` accepts only the canonical type strings of SPEC Section 5.4, such as
+`float`, `double`, `bool`, `string`, `timestamp[us, UTC]` and `list<int64?>`. Other
+spellings such as `float32`, `utf8` or `list[double]` raise `TypeSpecError`, in
+user input and in a COLLECTION.json alike. `type_name` writes the canonical form.
 
 `coerce_value` validates before pyarrow can silently convert: a `bool` is not an
 integer, an `int` is not a `bool`, a naive `datetime` is refused by a `tz`-bearing

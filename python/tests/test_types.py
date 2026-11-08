@@ -14,27 +14,18 @@ from taco.errors import TypeSpecError
     ("spec", "expected"),
     [
         ("double", pa.float64()),
-        ("float64", pa.float64()),
         ("float", pa.float32()),
-        ("float32", pa.float32()),
         ("int32", pa.int32()),
         ("uint64", pa.uint64()),
         ("string", pa.string()),
-        ("utf8", pa.string()),
         ("binary", pa.binary()),
         ("bool", pa.bool_()),
-        ("boolean", pa.bool_()),
         ("timestamp[us]", pa.timestamp("us")),
         ("timestamp[ms, UTC]", pa.timestamp("ms", tz="UTC")),
-        ("timestamp[us, tz=UTC]", pa.timestamp("us", tz="UTC")),
         ("date32", pa.date32()),
-        ("date32[day]", pa.date32()),
         ("list<double>", pa.list_(pa.field("item", pa.float64(), nullable=False))),
-        ("list[double]", pa.list_(pa.field("item", pa.float64(), nullable=False))),
-        ("list<item: double>", pa.list_(pa.field("item", pa.float64(), nullable=False))),
         ("large_list<string>", pa.large_list(pa.field("item", pa.string(), nullable=False))),
         ("fixed_size_list<int8, 3>", pa.list_(pa.field("item", pa.int8(), nullable=False), 3)),
-        ("fixed_size_list<item: int8>[3]", pa.list_(pa.field("item", pa.int8(), nullable=False), 3)),
         (
             "struct<a: int32, b: list<string>>",
             pa.struct(
@@ -66,7 +57,11 @@ from taco.errors import TypeSpecError
         ),
         ("decimal128(10, 2)", pa.decimal128(10, 2)),
         ("duration[ms]", pa.duration("ms")),
-        ("  Double  ", pa.float64()),
+        ("  double  ", pa.float64()),
+        ("float16", pa.float16()),
+        ("time32[ms]", pa.time32("ms")),
+        ("timestamp[ns, +05:30]", pa.timestamp("ns", tz="+05:30")),
+        ("decimal256(40, 5)", pa.decimal256(40, 5)),
     ],
 )
 def test_parse_type(spec: str, expected: pa.DataType) -> None:
@@ -75,6 +70,38 @@ def test_parse_type(spec: str, expected: pa.DataType) -> None:
 
 def test_parse_type_accepts_datatype_instances() -> None:
     assert parse_type(pa.int16()) == pa.int16()
+
+
+@pytest.mark.parametrize(
+    "spec",
+    [
+        "float32",
+        "float64",
+        "halffloat",
+        "boolean",
+        "utf8",
+        "large_utf8",
+        "str",
+        "bytes",
+        "int",
+        "integer",
+        "long",
+        "datetime",
+        "timestamp",
+        "Double",
+        "null",
+        "date32[day]",
+        "list[double]",
+        "list<item: double>",
+        "fixed_size_list<item: int8>[3]",
+        "timestamp[us, tz=UTC]",
+        "timestamp[minutes]",
+        "decimal(10, 2)",
+    ],
+)
+def test_parse_type_accepts_only_canonical_names(spec: str) -> None:
+    with pytest.raises(TypeSpecError, match=r"unsupported|unknown time unit"):
+        parse_type(spec)
 
 
 @pytest.mark.parametrize(

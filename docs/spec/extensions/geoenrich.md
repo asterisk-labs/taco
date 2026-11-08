@@ -44,12 +44,12 @@ Each selected variable is one column. By default every variable is selected.
 
 ## Collection fields
 
-With the `majortom-index` backend the writer stores where the values came from.
+The writer stores the backend that produced the values. With the `majortom-index` backend it also stores the index they were joined from.
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `geoenrich:backend` | string | `majortom-index` |
-| `geoenrich:index_url` | string | The index the values were joined from |
+| `geoenrich:backend` | string | `majortom-index` or `earthengine` |
+| `geoenrich:index_url` | string | The index the values were joined from, only with `majortom-index` |
 
 ## Writer
 

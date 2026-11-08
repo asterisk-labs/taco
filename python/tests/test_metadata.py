@@ -428,7 +428,7 @@ def test_geoenrich_configuration() -> None:
 
     earthengine = taco.extensions.sample.geoenrich.GeoEnrich(["elevation"], backend="earthengine")
     assert earthengine.requires == ("stac:centroid",)
-    assert earthengine.collection_metadata() == {}
+    assert earthengine.collection_metadata() == {"backend": "earthengine"}
 
 
 def test_geoenrich_reads_majortom_index_in_input_order(tmp_path) -> None:

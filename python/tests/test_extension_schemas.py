@@ -237,7 +237,8 @@ INVALID: dict[str, tuple[str, Callable[[dict[str, Any]], Any]]] = {
     "nullable admin": ("geoenrich", lambda d: sample(d)["geoenrich:admin_countries"].update(nullable=True)),
     "backend without index": ("geoenrich", drop("geoenrich:index_url")),
     "index without backend": ("geoenrich", drop("geoenrich:backend")),
-    "unknown backend": ("geoenrich", lambda d: d.update({"geoenrich:backend": "earthengine"})),
+    "unknown backend": ("geoenrich", lambda d: d.update({"geoenrich:backend": "gee"})),
+    "earthengine with index": ("geoenrich", lambda d: d.update({"geoenrich:backend": "earthengine"})),
     "index without majortom": ("geoenrich", without_extension("majortom")),
     # Split
     "split not listed": ("split", without_extension("split")),

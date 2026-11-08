@@ -6,7 +6,8 @@
   "type": "object",
   "required": [
     "taco:extensions",
-    "taco:metadata"
+    "taco:metadata",
+    "geoenrich:backend"
   ],
   "properties": {
     "taco:extensions": {
@@ -29,7 +30,10 @@
       }
     },
     "geoenrich:backend": {
-      "const": "majortom-index"
+      "enum": [
+        "majortom-index",
+        "earthengine"
+      ]
     },
     "geoenrich:index_url": {
       "type": "string",
@@ -388,20 +392,12 @@
   },
   "allOf": [
     {
-      "dependentRequired": {
-        "geoenrich:backend": [
-          "geoenrich:index_url"
-        ],
-        "geoenrich:index_url": [
-          "geoenrich:backend"
-        ]
-      }
-    },
-    {
       "if": {
-        "required": [
-          "geoenrich:backend"
-        ]
+        "properties": {
+          "geoenrich:backend": {
+            "const": "majortom-index"
+          }
+        }
       },
       "then": {
         "properties": {
@@ -411,7 +407,10 @@
               "pattern": "^https://asterisk[.]coop/taco/spec/extensions/majortom/v1[.][0-9]+[.][0-9]+/schema[.]json$"
             }
           }
-        }
+        },
+        "required": [
+          "geoenrich:index_url"
+        ]
       },
       "else": {
         "properties": {
@@ -421,6 +420,11 @@
               "pattern": "^https://asterisk[.]coop/taco/spec/extensions/stac/v1[.][0-9]+[.][0-9]+/schema[.]json$"
             }
           }
+        },
+        "not": {
+          "required": [
+            "geoenrich:index_url"
+          ]
         }
       }
     }

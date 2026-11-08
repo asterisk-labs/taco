@@ -260,8 +260,7 @@ class GeoEnrich(Extension):
     def collection_metadata(self) -> Mapping[str, Any]:
         if self.backend == "majortom-index":
             return {"backend": self.backend, "index_url": self.index_url}
-        # Preserve append compatibility with datasets written by TACO <= 0.10.2.
-        return {}
+        return {"backend": self.backend}
 
     def run(self, context: ExtensionContext) -> Mapping[str, Sequence[Any]]:
         return self.compute({name: context.columns[name] for name in self.requires})

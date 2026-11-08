@@ -313,16 +313,15 @@ class Level:
         if not isinstance(name, str) or not name:
             raise ContractError("metadata level needs a name")
         # Avoid a contract/extensions import cycle.
-        from .extension_registry import OWNERS, builtin_name
+        from .extension_registry import BUILTINS
 
+        owners = {namespace: builtin.name for builtin in BUILTINS.values() for namespace in builtin.namespaces}
         bindings = []
         for namespace, value in groups.items():
             _namespace(namespace)
-            owner = OWNERS.get(namespace)
+            owner = owners.get(namespace)
             if owner is not None and _declared_namespace(value) is None:
-                raise ContractError(
-                    f"metadata namespace {namespace!r} is reserved for the {builtin_name(owner)} extension"
-                )
+                raise ContractError(f"metadata namespace {namespace!r} is reserved for the {owner} extension")
             if isinstance(value, Extension):
                 bindings.append(_extension_binding(namespace, value))
             else:

@@ -100,8 +100,29 @@ def test_a_builtin_version_that_is_not_bundled_is_rejected(folder_dataset: Path)
     other = f"{BASE}/stac/v1.1.0/schema.json"
     edit_collection(folder_dataset, lambda data: data.update({"taco:extensions": [MAJORTOM, other]}))
     errors = extension_errors(folder_dataset)
-    assert any("does not bundle" in message and "v1.1.0" in message for message in errors)
+    assert any("not bundled" in message and "v1.1.0" in message for message in errors)
     assert any(message.startswith("stac fields need") for message in errors)
+
+
+@pytest.mark.parametrize("identifier", [f"{BASE}/stac/v1.1.0/schema.json", f"{BASE}/myorg/v1.0.0/schema.json"])
+def test_the_writer_rejects_a_taco_extension_that_is_not_bundled(identifier: str) -> None:
+    with pytest.raises(CollectionError, match="not bundled") as error:
+        taco.Collection(
+            contract=taco.Contract(structure=["a.bin"]),
+            id="x",
+            description="d",
+            licenses=["MIT"],
+            providers=["me"],
+            extensions=[identifier],
+        )
+    assert identifier in str(error.value)
+    assert STAC in str(error.value)
+
+
+def test_replace_rejects_a_taco_extension_that_is_not_bundled(folder_dataset: Path) -> None:
+    collection = taco.open_dataset(folder_dataset).collection
+    with pytest.raises(CollectionError, match="not bundled"):
+        collection.replace(extensions=[*collection.extensions, f"{BASE}/stac/v1.1.0/schema.json"])
 
 
 def test_an_unknown_extension_is_only_a_warning(folder_dataset: Path) -> None:

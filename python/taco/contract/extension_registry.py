@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import importlib
 import json
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from functools import cache
 from importlib.resources import files
@@ -46,9 +46,13 @@ OWNERS = {namespace: builtin.identifier for builtin in BUILTINS.values() for nam
 _BY_IDENTIFIER = {builtin.identifier: builtin for builtin in BUILTINS.values()}
 
 
-def builtin_name(identifier: str) -> str | None:
-    builtin = _BY_IDENTIFIER.get(identifier)
-    return None if builtin is None else builtin.name
+def unbundled(identifiers: Iterable[str]) -> list[str]:
+    """Return the identifiers under the TACO extension namespace that this TACO does not bundle."""
+    return [
+        identifier
+        for identifier in identifiers
+        if identifier.startswith(f"{BASE}/") and identifier not in _BY_IDENTIFIER
+    ]
 
 
 def used_namespaces(document: Mapping[str, Any]) -> set[str]:

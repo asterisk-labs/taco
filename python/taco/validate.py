@@ -15,7 +15,7 @@ from .container.cozip import INDEX_NAME
 from .container.view import DatasetView, open_view
 from .contract.collection import KNOWN_TASKS
 from .contract.contract import CHILDREN_LEVEL, SAMPLE_ID, SAMPLE_LEVEL, Contract
-from .contract.extension_registry import BASE, OWNERS, checks, schema, used_builtins, used_namespaces
+from .contract.extension_registry import OWNERS, checks, schema, unbundled, used_builtins, used_namespaces
 from .contract.naming import (
     COLLECTION_FILENAME,
     CURRENT_ID,
@@ -160,16 +160,14 @@ def _check_extensions(dataset: DatasetView, collector: _Collector) -> None:
     if "taco:extensions" not in document:
         collector.error("extensions", "COLLECTION.json must list the extensions it uses in taco:extensions")
     listed = dataset.collection.extensions
-    unbundled = [
-        identifier for identifier in listed if identifier.startswith(f"{BASE}/") and schema(identifier) is None
-    ]
-    if unbundled:
-        collector.error("extensions", f"taco:extensions lists built-in versions this TACO does not bundle: {unbundled}")
+    missing = unbundled(listed)
+    if missing:
+        collector.error("extensions", f"taco:extensions lists TACO extensions that are not bundled: {missing}")
     for namespace in sorted(used_namespaces(document)):
         owner = OWNERS.get(namespace)
         if owner is not None and owner not in listed:
             collector.error("extensions", f"{namespace} fields need {owner} in taco:extensions")
-    unknown = [identifier for identifier in listed if schema(identifier) is None and identifier not in unbundled]
+    unknown = [identifier for identifier in listed if schema(identifier) is None and identifier not in missing]
     if unknown:
         collector.warning("extensions", f"cannot check extensions this version does not know: {unknown}")
 

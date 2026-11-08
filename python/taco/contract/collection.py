@@ -11,7 +11,7 @@ from typing import Any
 
 from ..errors import CollectionError, ContractError
 from .contract import Contract
-from .extension_registry import OWNERS, declared, used_namespaces
+from .extension_registry import BUILTINS, OWNERS, declared, unbundled, used_namespaces
 from .schema import validate_qualified_field
 
 TACO_VERSION = "3.0.0"
@@ -321,6 +321,15 @@ def _group_values(namespace: str, value: object) -> dict[str, Any]:
     return result
 
 
+def _reject_unbundled(extensions: Sequence[str]) -> None:
+    missing = unbundled(extensions)
+    if missing:
+        raise CollectionError(
+            f"taco:extensions lists TACO extensions that are not bundled: {missing}. "
+            f"The bundled TACO extensions are {sorted(builtin.identifier for builtin in BUILTINS.values())}"
+        )
+
+
 @dataclass(frozen=True, init=False)
 class Collection:
     """Dataset description and metadata stored in COLLECTION.json.
@@ -381,6 +390,7 @@ class Collection:
             "extensions": extensions,
         }
         self._initialize(parameters, groups)
+        _reject_unbundled(self.extensions)
         object.__setattr__(self, "extensions", tuple(declared(self.to_dict())))
 
     @classmethod
@@ -475,6 +485,7 @@ class Collection:
             else:
                 groups[name] = value
         result = type(self)._from_parts(parameters, groups)
+        _reject_unbundled(result.extensions)
         object.__setattr__(result, "extensions", tuple(declared(result.to_dict())))
         return result
 

@@ -18,7 +18,7 @@ import { normalizedDatasetUrl } from "./source.js?v=2";
 
 const FIXTURE_ROOT = "https://huggingface.co/datasets/asterisk-labs/taco-api-fixtures/resolve/main";
 const MANIFEST_URL = `${FIXTURE_ROOT}/manifest.json`;
-const CENTROID_PROFILES = new Set(["spatial", "ispacial", "ispatial", "stac", "stac-interval", "shared-stac", "stac-footprint", "istac"]);
+const CENTROID_PROFILES = new Set(["stac", "stac-interval", "shared-stac", "stac-footprint"]);
 const CENTROID_FIELDS = ["stac:centroid", "spatial:centroid"];
 // Columns that locate a sample; they are not shown as metadata or offered for coloring.
 const LOCATION_FIELDS = new Set([...CENTROID_FIELDS, "stac:geometry", "spatial:geometry", "stac:bbox", "spatial:bbox"]);

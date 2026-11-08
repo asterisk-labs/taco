@@ -9,8 +9,10 @@ are local. It may take producer input, produce columns, or both.
 `Collection.extensions` stores the JSON Schema URL of every extension in use.
 Built-ins are inferred from their namespaces (`stac`, `spatial`, `temporal`, `rumi`,
 `majortom`, `geoenrich`). Pass `extensions=[schema_url, ...]` for any other published
-extension. Only the bundled built-in versions are accepted. `taco.validate` rejects any
-other version of a built-in identifier.
+extension. Under `https://asterisk.coop/taco/spec/extensions/` only the bundled
+identifiers are accepted. `taco.Collection` raises `CollectionError` for any other
+version of a built-in or any other name in that namespace, and `taco.validate` reports
+the same identifiers as not bundled.
 
 The dependency graph and runtime configuration exist only in the Python contract.
 `COLLECTION.json` stores the resulting columns and semantic collection metadata, not
@@ -112,7 +114,7 @@ Rumi extension requires 'taco-eo[rumi]'`.
 
 After each `{file}::location`, the reader emits `{file}::header` when declared and
 the applicable `{file}::<statistic>` columns. No other field is valid in the reserved
-`rumi` namespace; datasets that store the old `rumi:stats` field must be rebuilt.
+`rumi` namespace.
 
 ### MajorTOM and GeoEnrich
 
@@ -137,8 +139,9 @@ Both extensions default to `centroid="stac:centroid"`; point them at
 The index is downloaded once into the cache and revalidated against the origin on each
 build; `TACO_CACHE_REFRESH` downloads it again.
 
-`GeoEnrich` buffers its complete level. The index backend and source URL are recorded
-in collection metadata.
+`GeoEnrich` buffers its complete level. Collection metadata always records the backend
+in `geoenrich:backend`. With `majortom-index` it also records the index in
+`geoenrich:index_url`, and with `earthengine` it records no index URL.
 
 ## Writing an extension
 

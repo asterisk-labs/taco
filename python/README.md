@@ -64,9 +64,11 @@ taco.Level(
 )
 ```
 
-Set `backend="earthengine"` explicitly to retain centroid-based Earth Engine
-sampling. That backend requires `taco-eo[geoenrich]` and an authenticated Earth
-Engine installation.
+Set `backend="earthengine"` to sample every centroid in Earth Engine instead. That
+backend requires `taco-eo[geoenrich]` and an authenticated Earth Engine installation.
+
+Collection metadata records the backend in `geoenrich:backend`. The `majortom-index`
+backend also records the index it joined in `geoenrich:index_url`.
 
 ## Cache
 

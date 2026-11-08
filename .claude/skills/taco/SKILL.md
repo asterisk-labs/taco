@@ -145,8 +145,7 @@ and only ZIP metadata carries the byte offsets that make random access possible.
   `before/B02.tif` reads as `before/B02.tif::location`.
 - **Rumi has no `nodata` parameter.** Statistics exclude only non-finite values;
   dataset-specific masks belong in another extension. The `rumi` namespace
-  accepts only `header` and the current statistic columns; old `rumi:stats` datasets
-  must be rebuilt.
+  accepts only `header` and the statistic columns.
 - **Every user field needs double quotes in SQL.** `WHERE split:split = 'train'` is a
   DuckDB parser error; write `WHERE "split:split" = 'train'`. So does a level relation
   with `/`: `FROM "children/before"`.

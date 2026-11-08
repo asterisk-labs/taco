@@ -1,7 +1,7 @@
 # Versioning and releasing
 
 Sources: `CHANGELOG.md`, `docs/RELEASING.md`, `.github/workflows/`,
-`docs/spec/SPEC.md` Annex A, `Makefile`.
+`Makefile`.
 
 ## Two version lines
 

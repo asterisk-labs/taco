@@ -30,8 +30,6 @@ independent copy of the specification.
 6. Dataset Versioning (SemVer)
 7. Physical Layer (Directory, Parquet, ZIP, FOLDER, TACOCAT)
 8. API Layer (taco writer, reader core, language clients)
-- Annex A: Migration from v2
-- Annex B: History
 
 ## Links
 

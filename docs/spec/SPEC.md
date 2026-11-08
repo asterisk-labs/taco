@@ -10,8 +10,6 @@ This document defines version 3.0.0 of the TACO specification. The specification
 
 Every dataset MUST store this version in `COLLECTION.json` as `taco:version`. A reader MUST reject a version it does not support.
 
-TACO v3 is not compatible with v2 datasets. Annex A explains the differences and how to migrate.
-
 ### 1.1. Terminology
 
 The words "MUST", "MUST NOT", "SHOULD", "SHOULD NOT", and "MAY" have the meanings defined by RFC 2119 and RFC 8174 when written in uppercase. All other text is explanatory.
@@ -809,8 +807,7 @@ collection = taco.Collection(
 ```
 
 Pass `extensions=[schema_url, ...]` for published extensions outside the built-ins.
-`Collection` adds the built-in identifiers from the namespaces the contract uses and
-preserves an explicitly declared version when rewriting a dataset.
+`Collection` adds the built-in identifiers from the namespaces the contract uses.
 
 Groups must be non-empty, use valid qualified field names, and contain JSON values. Sample groups are rejected, as are values that conflict with an active extension. Validation failures raise `CollectionError`.
 
@@ -1131,89 +1128,3 @@ Rows from a source list include `source_file`. The reader assigns `taco:sample_i
 `Dataset` is not a dataframe. It holds dataset semantics, while `read()` and `sql()` return tables. `inspect()` provides direct access to the contract and low-level native SQL.
 
 Notebook environments use the Dataset HTML representation to show the collection identity, structure, and metadata levels without materializing the sample table.
-
-## Annex A: Migration from v2
-
-TACO v3 is not compatible with v2 datasets. Existing datasets MUST be rebuilt to work with v3 tools. This annex summarizes the differences.
-
-### A.1. Summary of Changes
-
-| Aspect | v2 | v3 |
-| --- | --- | --- |
-| Contract definition | Inferred from first sample at runtime (PIT) | Declared explicitly before any data is written |
-| Core abstractions | SAMPLE, TORTILLA, TACO | Contract, Collection, Sample, Folder, Asset |
-| Sample identity | String IDs (`id` field) | `id` for logical identity; local integer indices for row position |
-| Sample types | FILE or FOLDER discriminator | No type field. The contract defines the structure. |
-| Irregular structures | Padding with `__TACOPAD__` placeholders | Variable sequences (`prefix*[a,b].ext`) |
-| Metadata storage | Dual system (consolidated `levelX.parquet` + local `__meta__` per folder) | Consolidated only (one Parquet per contract level, no local metadata) |
-| Parquet naming | By depth (`level0.parquet`, `level1.parquet`, ...) | By row level (`sample.parquet`, `children.parquet`, `children__before.parquet`, ...) |
-| Extension system | Formal `extend_with()` interface with SampleExtension, TortillaExtension, TacoExtension classes | Pydantic groups for sample and collection metadata |
-| Structural constraint | Position-Invariant Tree inferred at runtime | Structure and metadata declared in a contract |
-| Library dependency | GDAL required | VSI path convention. GDAL is one implementation. |
-| Reader implementation | TacoReader with separate container backends | One C++ core that generates SQL for every binding |
-| Writer implementation | TacoToolbox (Sample, Tortilla, Taco classes) | `taco.open_writer()` |
-| ZIP extension | `.tacozip` | `.zip`, with the CoZIP profile byte as the only type signal |
-| TACOCAT format | Binary file with 128-byte header, fixed 7-entry index table | Directory with merged Parquets and COLLECTION.json |
-| TACOLLECTION | Separate `TACOLLECTION.json` file | Merged into TACOCAT COLLECTION.json via `taco:sources` field |
-| Spec versioning | SemVer (`2.0.0`) | SemVer (`3.0.0`) |
-| Hierarchical navigation | `read()` method traversing `__meta__` files | SQL relations for each metadata level |
-| Filtering | `filter_bbox()`, `filter_datetime()` with cascading JOINs | SQL `WHERE` clauses on Parquet columns |
-| Concatenation | `concat()` with column modes | SQL `UNION` or TACOCAT consolidation |
-
-### A.2. Contract vs PIT
-
-The main change in v3 is that the dataset structure is explicit.
-
-In v2, the writer inferred the structure from the first sample. PIT then required later samples to have the same children, in the same positions, with the same types. Missing positions were filled with `__TACOPAD__` placeholders.
-
-In v3, the contract declares the file layout and metadata schema before writing begins. Every sample is checked against it. Nothing is inferred and no padding is needed.
-
-The contract also determines the Parquet files in advance. Their names describe the rows they contain, such as `children__before.parquet`, instead of using a depth such as `level1.parquet`. Variable sequences replace padding when the number of files differs between samples.
-
-### A.3. Metadata System
-
-v2 stored metadata twice. Consolidated `levelX.parquet` files supported queries across the dataset, while local `__meta__` files supported navigation inside each folder.
-
-v3 stores sample, folder, and asset metadata in the Parquet files under `METADATA/`. Collection metadata is stored once in `COLLECTION.json`. Relationships between tabular levels use `internal:parent_id` and SQL joins. Local `__meta__` files are no longer needed because the contract already describes every level.
-
-### A.4. Reader Architecture
-
-v2 used a Python reader with separate backends for ZIP, FOLDER, and TACOCAT. DuckDB was hidden behind TACO-specific dataset and dataframe classes.
-
-v3 moves reading into one shared C++ core. The core detects the container, reads its metadata, builds the file locations, and generates the SQL for each query.
-
-### A.5. Extension System
-
-v2 extensions combined schema definitions with metadata computation through base classes and `extend_with()`.
-
-v3 uses namespaced Pydantic models for passive metadata and a generic `Extension` abstraction for writer-time operations. The namespace determines the stored field prefix. Extensions combine optional validated inputs, declared outputs, local asset access, and explicit dependencies.
-
-`taco` includes Spatial and STAC extensions that compute the centroid of each grid or footprint, a Rumi extension for canonical headers and selectable array statistics, and composable operations such as MajorTOM. The writer resolves their dependency graph during `run()`. Datasets can define additional models or extension subclasses without modifying the writer core.
-
-### A.6. TACOCAT and TACOLLECTION
-
-v2 stored TACOCAT in a binary file with a fixed header. It used a separate TACOLLECTION JSON document for dataset metadata.
-
-v3 stores TACOCAT as a `.tacocat/` directory containing merged Parquet files and one `COLLECTION.json`. The `taco:sources` field replaces TACOLLECTION.
-
-### A.7. Migration Path
-
-There is no automatic migration tool. The two versions differ in structure discovery, sample identity, metadata layout, and Parquet naming.
-
-To migrate, producers MUST define a v3 contract and rebuild the dataset with `taco`. The GeoTIFF, NetCDF, and other data files can remain unchanged. Only their packaging and metadata must be rewritten.
-
-## Annex B: History
-
-TACO began in Valencia, Spain, at the Image and Signal Processing group of the Universitat de València. Early discussions brought together Julio Contreras, Oscar Pellicer, Simon Donike, Chen Ma from HIT, David Montero from the University of Leipzig, and Cesar Aybar.
-
-During that period, after spending more than a month harmonizing cloud detection datasets, we sketched a general solution. We wanted something simple for our own work and the datasets produced at ISP. That idea became TACO v1, which combined a custom binary layout with Parquet metadata and built its tooling around GDAL and dataframes.
-
-The first format established the core idea but exposed several design problems. Conversations at ESA Living Planet 2025 shaped TACO v2. Jérémy Anger from Kayrros and Université Paris-Saclay suggested replacing the custom binary format with ZIP.
-
-Discussions with Mikolaj Czerkawski at Asterisk about MajorTOM influenced lazy loading. Nils Lehmann and Adam Stewart from the University of Munich and TorchGeo contributed their experience with machine learning datasets to the API design.
-
-OceanTACO, built with Nils Lehmann at TUM, tested v2 on ocean remote sensing data and exposed limitations that later shaped the v3 contract. Nate Mankovich at ISP helped define the Position-Invariant Tree that underpinned v2. Luis Gómez-Chova and Gustau Camps-Valls at ISP have helped question and refine TACO from the beginning.
-
-TACO v2 was used to publish small and medium collections. Production datasets built at Asterisk Labs exposed limits in its structure inference, metadata duplication, and reader architecture.
-
-TACO v3 replaces PIT and padding with an explicit contract. One reader core replaces three Python backends. Local `__meta__` files and the binary TACOCAT header are no longer used.

@@ -195,6 +195,17 @@ void test_cozip_index() {
     CHECK_THROWS(taco::read_cozip_index(data("flat_bad_hash.zip")), "integrity hash mismatch");
     CHECK_THROWS(taco::read_cozip_index(data("does_not_exist.zip")), "could not open");
     CHECK_THROWS(taco::read_cozip_index(data("taco_folder/COLLECTION.json")), "cozip archive too small");
+
+    // Only CoZIP binary version 1 is read, so older and newer versions both fail.
+    const fs::path versions = scratch("cozip-versions");
+    for (const unsigned char version : {0, 2}) {
+        auto bytes = read_file(data("taco_flat.zip"));
+        bytes[51 + 4] = static_cast<char>(version);
+        bytes[51 + 5] = 0;
+        const fs::path archive = versions / ("v" + std::to_string(version) + ".zip");
+        std::ofstream(archive, std::ios::binary) << bytes;
+        CHECK_THROWS(taco::read_cozip_index(archive.generic_string()), "unsupported cozip format version");
+    }
 }
 
 void test_open_archives() {

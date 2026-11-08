@@ -79,7 +79,7 @@ std::uint8_t parse_profile_prefix(const std::string& head, const std::string& ur
     if (std::string_view(head).substr(lfh_size, 4) != "CZIP")
         fail("index payload magic is not 'CZIP': " + uri);
     const auto version = read_u16(head, lfh_size + 4);
-    if (version > format_version)
+    if (version != format_version)
         fail("unsupported cozip format version " + std::to_string(version) + ": " + uri);
     return static_cast<std::uint8_t>(head[lfh_size + 6]);
 }

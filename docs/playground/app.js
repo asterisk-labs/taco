@@ -2285,24 +2285,8 @@ function clearMarkers() {
 }
 
 function decodePoint(value) {
-  // Keep old WKB fixtures readable.
-  if (value && typeof value === "object" && "lon" in value && "lat" in value) {
-    return lonLatOrNull(Number(value.lon), Number(value.lat));
-  }
-  let bytes;
-  if (value instanceof Uint8Array) bytes = value;
-  else if (value instanceof ArrayBuffer) bytes = new Uint8Array(value);
-  else if (ArrayBuffer.isView(value)) bytes = new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
-  else return null;
-  if (bytes.byteLength < 21) return null;
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  const littleEndian = view.getUint8(0) === 1;
-  const rawType = view.getUint32(1, littleEndian);
-  const type = rawType & 0xff;
-  if (type !== 1) return null;
-  const coordinateOffset = 5 + ((rawType & 0x20000000) === 0 ? 0 : 4);
-  if (bytes.byteLength < coordinateOffset + 16) return null;
-  return lonLatOrNull(view.getFloat64(coordinateOffset, littleEndian), view.getFloat64(coordinateOffset + 8, littleEndian));
+  if (!value || typeof value !== "object" || !("lon" in value) || !("lat" in value)) return null;
+  return lonLatOrNull(Number(value.lon), Number(value.lat));
 }
 
 function lonLatOrNull(longitude, latitude) {

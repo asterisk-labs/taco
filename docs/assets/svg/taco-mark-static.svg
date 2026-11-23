@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="TACO">
+<g stroke="#000" stroke-width="4.6" stroke-linejoin="round" transform="rotate(-8 50 56)">
+<path d="M8 60Q10 86 22 76Q30 90 40 78Q50 91 60 78Q70 90 78 76Q90 86 92 60Z" fill="#c4ffc2"/>
+<circle cx="31" cy="68" r="9" fill="#f05b7f"/>
+<circle cx="69" cy="68" r="9" fill="#492ae8"/>
+<path d="M6 62A44 44 0 0 1 94 62Z" fill="#f7cc09"/>
+</g>
+<g fill="#000" transform="rotate(-8 50 56)"><circle cx="34" cy="44" r="2.6"/><circle cx="52" cy="33" r="2.6"/><circle cx="66" cy="47" r="2.6"/></g>
+</svg>

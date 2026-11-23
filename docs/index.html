@@ -1,70 +1,104 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-route="home">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>TACO — Transparent Access to Cloud Optimized Datasets</title>
-  <link rel="stylesheet" href="css/variables.css?v=3">
-  <link rel="stylesheet" href="css/animations.css?v=3">
-  <link rel="stylesheet" href="css/hero.css?v=3">
-  <link rel="stylesheet" href="css/labels.css?v=5">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#ffffff">
+<title>TACO</title>
+<meta name="description" content="Earth observation datasets for machine learning: samples that keep their files and metadata together, filtered with SQL before a file is read.">
+<link rel="icon" href="assets/svg/taco-mark-static.svg?v=1" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=League+Spartan:wght@300;400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/tokens.css?v=1">
+<link rel="stylesheet" href="assets/css/base.css?v=1">
+<link rel="stylesheet" href="assets/css/shell.css?v=1">
+<link rel="stylesheet" href="assets/css/content.css?v=1">
+<link rel="stylesheet" href="assets/css/home.css?v=1">
+<link rel="stylesheet" href="assets/css/figure.css?v=1">
 </head>
+
 <body>
-  <nav class="top-nav" aria-label="TACO resources">
-    <a href="api/" aria-label="API" data-label="API">
-      <svg viewBox="0 0 32 32" aria-hidden="true"><rect x="3" y="5" width="26" height="22" rx="4"/><path d="m9 13 4 3-4 3M16 20h7"/></svg>
-    </a>
-    <a href="spec/" aria-label="Specification" data-label="Spec">
-      <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M5 6.5c6-2 9 .5 11 2.5v18c-2-2-5-4.5-11-2.5zM27 6.5c-6-2-9 .5-11 2.5v18c2-2 5-4.5 11-2.5z"/><path d="M9 11.5h3.5M9 16h3.5M19.5 11.5H23M19.5 16H23"/></svg>
-    </a>
-    <a href="playground/" aria-label="Playground" data-label="Playground">
-      <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="12"/><path d="m20.5 11.5-3 6-6 3 3-6z"/><circle cx="16" cy="16" r="1.2" class="icon-fill"/></svg>
-    </a>
-    <a href="onepager/" aria-label="One-pager" data-label="One-pager">
-      <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M5 6h22v20H5zM9 10h14M9 15h6v7H9zM18 15h5M18 19h5M18 23h5"/></svg>
-    </a>
-    <a href="https://github.com/asterisk-labs/taco" aria-label="GitHub" data-label="GitHub">
-      <svg class="github-mark" viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3.5A12.8 12.8 0 0 0 12 28.4c.6.1.8-.3.8-.6v-2.5c-3.5.8-4.2-1.5-4.2-1.5-.6-1.4-1.4-1.8-1.4-1.8-1.1-.8.1-.8.1-.8 1.3.1 2 1.3 2 1.3 1.1 2 3 1.4 3.7 1.1.1-.8.4-1.4.8-1.7-2.8-.3-5.7-1.4-5.7-6.3 0-1.4.5-2.5 1.3-3.4-.1-.3-.6-1.6.1-3.4 0 0 1.1-.3 3.5 1.3a12.2 12.2 0 0 1 6.4 0c2.4-1.6 3.5-1.3 3.5-1.3.7 1.8.2 3.1.1 3.4.8.9 1.3 2 1.3 3.4 0 4.9-3 6-5.8 6.3.5.4.9 1.2.9 2.4v3.6c0 .4.2.7.9.6A12.8 12.8 0 0 0 16 3.5z"/></svg>
-    </a>
-  </nav>
-  <div class="hero" id="hero">
-    <canvas id="sky"></canvas>
-    <div class="nebula n1"></div>
-    <div class="nebula n2"></div>
-    <div class="nebula n3"></div>
+<div class="ambient" aria-hidden="true">
+  <span class="ambient-orb ambient-orb--violet"></span>
+  <span class="ambient-orb ambient-orb--mint"></span>
+  <canvas class="ambient-tiles" id="backdrop"></canvas>
+</div>
 
-    <a class="label top l1" href="https://cogeo.org/">COG<span class="tip">Cloud Optimized GeoTIFF</span></a>
-    <a class="label bot l2" href="https://asterisk.coop/cozip/">CoZIP<span class="tip">Cloud Optimized ZIP</span></a>
-    <a class="label top l3" href="https://parquet.apache.org/">Parquet<span class="tip">Columnar metadata storage</span></a>
-    <a class="label bot l4" href="https://gdal.org/">GDAL<span class="tip">Geospatial Data Abstraction Library</span></a>
-    <a class="label top l5" href="https://duckdb.org/">DuckDB<span class="tip">In-process SQL analytics engine</span></a>
-    <a class="label top l6" href="https://stacspec.org/">STAC<span class="tip">SpatioTemporal Asset Catalog</span></a>
-    <a class="label top l7" href="https://fsspec.github.io/kerchunk/">Kerchunk<span class="tip">References for cloud-native scientific data</span></a>
-    <a class="label top l8" href="https://www.portolan-sdi.org/">Portolan<span class="tip">Geospatial data infrastructure</span></a>
-    <a class="label top l9" href="https://asterisk.coop/rumi/">Rumi<span class="tip">Compressed multidimensional arrays</span></a>
+<div class="page">
+  <header class="masthead">
+    <a class="lockup" href="index.html" aria-label="TACO home">
+      <img class="marksvg" src="assets/svg/taco-mark.svg?v=1" alt="">
+      <span class="wm-sm">TACO</span>
+    </a>
 
-    <div class="content">
-      <div class="taco-system">
-        <div class="taco-glow"></div>
-        <div class="morph-center">
-          <div class="taco-emoji">🌮</div>
-          <div class="earth-emoji">🌍</div>
-        </div>
-        <div class="orbit-ring"></div>
-        <div class="sat-orbit">
-          <div class="satellite">🛰️</div>
-        </div>
-      </div>
-      <div class="title-wrap">
-        <div class="title">
-          <span class="title-main">TACO</span>
-          <span class="title-version">V3</span>
-        </div>
-        <div class="subtitle">AI-ready Earth Observation datasets</div>
-      </div>
+    <div class="offsite" aria-label="Project links">
+      <a href="https://github.com/asterisk-labs/taco" title="GitHub" aria-label="TACO on GitHub" rel="noopener noreferrer">
+        <svg class="github" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 .3a12 12 0 0 0-3.8 23.4c.6.1.8-.3.8-.6v-2.1c-3.3.7-4-1.6-4-1.6-.5-1.4-1.3-1.7-1.3-1.7-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1.1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.8-1.6-2.7-.3-5.5-1.3-5.5-5.9 0-1.3.5-2.4 1.2-3.2-.1-.3-.5-1.5.1-3.2 0 0 1-.3 3.3 1.2a11.5 11.5 0 0 1 6 0c2.3-1.5 3.3-1.2 3.3-1.2.6 1.7.2 2.9.1 3.2.8.8 1.2 1.9 1.2 3.2 0 4.6-2.8 5.6-5.5 5.9.4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6A12 12 0 0 0 12 .3"></path></svg>
+      </a>
+      <a class="pypi" href="https://pypi.org/project/taco-eo/" title="PyPI" aria-label="TACO on PyPI" rel="noopener noreferrer">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.3 14.3 4.7v6.6L8 14.7l-6.3-3.4V4.7Z"></path><path d="M1.7 4.7 8 8.1l6.3-3.4M8 8.1v6.6"></path></svg>
+        <img class="mark-color" src="assets/svg/pypi-color.svg" alt="" width="18" height="16">
+      </a>
+      <a class="cozip" href="https://asterisk.coop/cozip/" title="cozip" aria-label="cozip, the ZIP layout of TACO archives" rel="noopener noreferrer">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 2.5h11v11h-11Z"></path><path d="M2.5 5.5h11M7.2 5.5v2M8.8 7.5v2M7.2 9.5v2"></path></svg>
+        <img class="mark-color" src="assets/svg/cozip-mark-static.svg" alt="" width="16" height="16">
+      </a>
+      <a class="asterisk" href="https://asterisk.coop" title="asterisk labs" aria-label="asterisk labs" rel="noopener noreferrer">
+        <img class="mark-mono" src="assets/svg/asterisk-mark-black.svg" alt="" width="16" height="18">
+        <img class="mark-color" src="assets/svg/asterisk-mark-color.svg" alt="" width="16" height="18">
+      </a>
     </div>
-  </div>
 
-  <script src="js/main.js"></script>
+    <nav class="nav" aria-label="Sections">
+      <a href="api.html">API</a>
+      <a href="playground/index.html">Playground</a>
+      <a href="spec/index.html">Spec</a>
+      <a href="deck/index.html">Deck</a>
+    </nav>
+  </header>
+
+  <main id="view">
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="hero-copy">
+        <p class="eyebrow">AI-ready Earth observation datasets</p>
+
+        <h1 id="hero-title">One sample, <span class="hero-line"><span class="hero-highlight">one row</span>.</span></h1>
+
+        <p class="hero-summary">
+          Each sample keeps its files and metadata together under <strong class="hero-summary-highlight">one contract</strong>, so you filter by place, time or split before you read a file.
+        </p>
+
+        <div class="install" data-copy-root>
+          <div class="install-command">
+            <span class="prompt" aria-hidden="true">$</span>
+            <code>pip install taco-eo</code>
+            <button class="copy-command" type="button" data-copy="pip install taco-eo" aria-label="Copy the install command">
+              <svg class="icon-copy" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 8h10v10H8z"></path><path d="M6 15H4V4h11v2"></path></svg>
+              <svg class="icon-check" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5"></path></svg>
+              <span>Copy</span>
+            </button>
+          </div>
+          <span class="copy-toast" aria-hidden="true">Copied</span>
+          <p class="copy-feedback" aria-live="polite"></p>
+        </div>
+      </div>
+
+      <figure class="read" id="read" data-label="Major TOM Core-DEM, a TACO dataset of 1,735,044 samples: a catalog with COLLECTION.json, sample.parquet and children.parquet, and 63 ZIP partitions that hold 23.6 GB of DEM files. Four steps, chosen with the arrows or the step names. Contract: COLLECTION.json declares one file per sample, dem.rumi, 23 sample fields and 7 file fields. Samples: the sample level is a table with one row per sample, its country, its elevation and the location of its file. Filter: the SQL condition Peru and above 4,500 m keeps 492 of 1,735,044 samples in 14 ms. Read: the 492 kept files are 492 byte ranges, 16.5 MB, all in one of the 63 ZIPs."></figure>
+    </section>
+  </main>
+
+  <footer class="colophon">
+    <span>Made with</span>
+    <span class="heart" role="img" aria-label="love"></span>
+    <span>by</span>
+    <a class="by" href="https://asterisk.coop" rel="noopener noreferrer" aria-label="Asterisk Labs">
+      <img src="assets/svg/asterisk-mark.svg" alt="Asterisk Labs">
+    </a>
+  </footer>
+</div>
+<script src="assets/js/backdrop.js?v=1"></script>
+<script src="assets/js/read.js?v=1"></script>
+<script src="assets/js/home.js?v=1"></script>
 </body>
 </html>

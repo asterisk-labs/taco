@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="TACO">
+<style>
+@keyframes b0{0%,42%{transform:translateY(0)}47%{transform:translateY(4px)}52%,100%{transform:translateY(0)}}
+@keyframes b1{0%,50%{transform:translateY(0)}55%{transform:translateY(4px)}60%,100%{transform:translateY(0)}}
+.b0{animation:b0 8s ease-in-out infinite}
+.b1{animation:b1 8s ease-in-out infinite}
+@media (prefers-reduced-motion:reduce){.b0,.b1{animation:none}}
+</style>
+<g stroke="#000" stroke-width="4.6" stroke-linejoin="round" transform="rotate(-8 50 56)">
+<path d="M8 60Q10 86 22 76Q30 90 40 78Q50 91 60 78Q70 90 78 76Q90 86 92 60Z" fill="#c4ffc2"/>
+<circle class="b0" cx="31" cy="68" r="9" fill="#f05b7f"/>
+<circle class="b1" cx="69" cy="68" r="9" fill="#492ae8"/>
+<path d="M6 62A44 44 0 0 1 94 62Z" fill="#f7cc09"/>
+</g>
+<g fill="#000" transform="rotate(-8 50 56)"><circle cx="34" cy="44" r="2.6"/><circle cx="52" cy="33" r="2.6"/><circle cx="66" cy="47" r="2.6"/></g>
+</svg>

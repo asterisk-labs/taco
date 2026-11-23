@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#ffffff">
+<meta name="description" content="The TACO R reader, function by function.">
+<title>TACO · R</title>
+<link rel="icon" href="assets/svg/taco-mark-static.svg?v=1" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=League+Spartan:wght@300;400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/reading.css?v=1">
+<link rel="stylesheet" href="assets/css/docs.css?v=2">
+</head>
+<body>
+<div class="page">
+  <header class="masthead">
+    <a class="lockup" href="index.html" aria-label="TACO home">
+      <img class="marksvg" src="assets/svg/taco-mark.svg?v=1" alt="">
+      <span class="wm-sm">TACO</span>
+    </a>
+
+    <div class="offsite" aria-label="Project links">
+      <a href="https://github.com/asterisk-labs/taco" title="GitHub" aria-label="TACO on GitHub" rel="noopener noreferrer">
+        <svg class="github" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 .3a12 12 0 0 0-3.8 23.4c.6.1.8-.3.8-.6v-2.1c-3.3.7-4-1.6-4-1.6-.5-1.4-1.3-1.7-1.3-1.7-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1.1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.8-1.6-2.7-.3-5.5-1.3-5.5-5.9 0-1.3.5-2.4 1.2-3.2-.1-.3-.5-1.5.1-3.2 0 0 1-.3 3.3 1.2a11.5 11.5 0 0 1 6 0c2.3-1.5 3.3-1.2 3.3-1.2.6 1.7.2 2.9.1 3.2.8.8 1.2 1.9 1.2 3.2 0 4.6-2.8 5.6-5.5 5.9.4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6A12 12 0 0 0 12 .3"></path></svg>
+      </a>
+      <a class="pypi" href="https://pypi.org/project/taco-eo/" title="PyPI" aria-label="TACO on PyPI" rel="noopener noreferrer">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.3 14.3 4.7v6.6L8 14.7l-6.3-3.4V4.7Z"></path><path d="M1.7 4.7 8 8.1l6.3-3.4M8 8.1v6.6"></path></svg>
+        <img class="mark-color" src="assets/svg/pypi-color.svg" alt="" width="18" height="16">
+      </a>
+      <a class="cozip" href="https://asterisk.coop/cozip/" title="cozip" aria-label="cozip, the ZIP layout of TACO archives" rel="noopener noreferrer">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 2.5h11v11h-11Z"></path><path d="M2.5 5.5h11M7.2 5.5v2M8.8 7.5v2M7.2 9.5v2"></path></svg>
+        <img class="mark-color" src="assets/svg/cozip-mark-static.svg" alt="" width="16" height="16">
+      </a>
+      <a class="asterisk" href="https://asterisk.coop" title="asterisk labs" aria-label="asterisk labs" rel="noopener noreferrer">
+        <img class="mark-mono" src="assets/svg/asterisk-mark-black.svg" alt="" width="16" height="18">
+        <img class="mark-color" src="assets/svg/asterisk-mark-color.svg" alt="" width="16" height="18">
+      </a>
+    </div>
+
+    <nav class="nav" aria-label="Sections">
+      <a href="api.html" class="here">API</a>
+      <a href="playground/index.html">Playground</a>
+      <a href="spec/index.html">Spec</a>
+      <a href="deck/index.html">Deck</a>
+    </nav>
+  </header>
+
+  <main class="doc">
+    <nav class="toc" aria-label="Contents">
+      <p class="toc-title">API</p>
+      <ol class="toc-pages">
+        <li><a href="api.html">Overview</a></li>
+        <li class="toc-group">Languages</li>
+        <li><a href="api-python.html">Python</a></li>
+        <li><a href="api-r.html" class="here" aria-current="page">R</a></li>
+        <li><a href="api-julia.html">Julia</a></li>
+        <li><a href="api-c.html">C</a></li>
+        <li><a href="api-js.html">JavaScript</a></li>
+      </ol>
+    </nav>
+
+    <article class="content">
+      <h1>R</h1>
+<ul class="facts">
+        <li>Package <code>taco</code> on <a href="https://asterisk-labs.r-universe.dev/taco" rel="noopener noreferrer">r-universe</a>, with binaries for Linux, macOS and Windows, on R 4.3 or newer.</li>
+        <li>Reader only</li>
+      </ul>
+<pre><code class="language-r">install.packages("taco", repos = "https://asterisk-labs.r-universe.dev")</code></pre>
+      <p>The package carries the sources of libtaco and Karu and compiles them into its own shared library when it is installed, so there is no separate core to build or point at, and <code>TACO_LIB</code> plays no part. A source install needs a C++23 compiler, pkg-config, libcurl 7.83 or newer and OpenSSL 3 or newer. Queries run in DuckDB through the duckdb package, 1.5.5 or newer, and come back as tibbles. A WebAssembly build leaves the core out, so every call there stops with <code>the native TACO core is not available on WebAssembly</code>.</p>
+      <p>The exported functions are <a href="#open_dataset"><code>open_dataset</code></a>, <a href="#read"><code>read</code></a>, <a href="#sql"><code>sql</code></a> and <a href="#inspect"><code>inspect</code></a>. R reads every container but does not write: datasets are made with the Python package, as <a href="api-python.html#writing">Writing</a> describes. The rules every binding shares are on the <a href="api.html">API overview</a>. This page gives the R signatures and types, and what is specific to R.</p>
+
+      <h2 class="part" id="reading">Reading</h2>
+
+      <h3 id="open_dataset">open_dataset</h3>
+<pre><code class="sig language-r">open_dataset(source)</code></pre>
+      <p>Opens a dataset, loads its collection and metadata, and returns a <a href="#dataset"><code>taco_dataset</code></a>. Payloads are not read.</p>
+      <table class="spec">
+        <tr><th>source</th><td>A character vector of one or more paths or URLs, in the <a href="api.html#sources">source forms</a>. Two or more open a <a href="#sources">source list</a>. An empty vector, an <code>NA</code>, an empty string or a repeated path stops with an error. Paths are passed on as written, so a relative path gives relative locations. Use <code>normalizePath()</code> when the locations must work from another directory.</td></tr>
+      </table>
+<pre><code class="language-r">library(taco)
+
+url &lt;- "https://data.source.coop/major-tom/core-dem/core-dem_MT3000km_0001D_0003L.zip"
+dataset &lt;- open_dataset(url)
+dataset</code></pre>
+<pre class="output"><code>taco.Dataset(major-tom-core-dem, sources=1)</code></pre>
+      <p>This partition of Major TOM Core-DEM holds 50,178 samples. Its first open fetched the metadata in 7.9 s here, and a second open read it from the <a href="#cache">cache</a> in 0.98 s.</p>
+
+      <h3 id="dataset">taco_dataset</h3>
+      <p>A list of class <code>c("taco_dataset", "list")</code>. It has no methods of its own: pass it to <code>read</code> and <code>sql</code>.</p>
+      <table class="spec">
+        <tr><th>sources</th><td>The character vector given to <code>open_dataset</code>, unchanged.</td></tr>
+        <tr><th>collection</th><td><code>COLLECTION.json</code> parsed by jsonlite into nested lists, so <code>collection$extent$spatial</code> is a list of four numbers. For a source list, the collection of the first source with the extents of all of them merged.</td></tr>
+        <tr><th>contract</th><td>A list of class <code>taco_contract</code>: <code>structure</code>, a character vector of declarations; <code>metadata</code>, the <code>taco:metadata</code> object, a named list per level whose fields hold <code>type</code>, <code>nullable</code> and <code>description</code>; and <code>levels</code>, the level names in the order of <code>COLLECTION.json</code>.</td></tr>
+        <tr><th>_opened</th><td>The native handles, one per source, which <code>read</code> and <code>sql</code> reuse. They close when the dataset is garbage collected.</td></tr>
+      </table>
+<pre><code class="language-r">dataset$contract$structure
+dataset$contract$levels
+names(dataset$contract$metadata$children)
+dataset$collection$title</code></pre>
+<pre class="output"><code>[1] "dem.rumi"
+[1] "sample"   "children"
+[1] "rumi:header"  "rumi:minimum" "rumi:maximum" "rumi:mean"    "rumi:stddev"
+[6] "rumi:p2"      "rumi:p98"
+[1] "Major TOM Core-DEM"</code></pre>
+      <p>Printing shows the collection <code>id</code> and the number of sources. A dataset is a snapshot of the metadata it loaded.</p>
+
+      <h3 id="read">read</h3>
+<pre><code class="sig language-r">read(source, files = NULL)</code></pre>
+      <p>Returns a tibble with one row per sample and the columns <a href="api.html#read">Read</a> describes. <code>read</code> is an S3 generic with a method for a <code>taco_dataset</code> and one for a character vector, which opens the source first.</p>
+      <table class="spec">
+        <tr><th>source</th><td>A <code>taco_dataset</code>, or a character vector as for <a href="#open_dataset"><code>open_dataset</code></a>.</td></tr>
+        <tr><th>files</th><td><code>NULL</code> for every declaration, or a character vector of full structure declarations, such as <code>"before/B02.tif"</code> or <code>"img*[1,3].png"</code>. Only the selected files get <code>::</code> columns; the metadata columns stay. An unknown declaration stops with <code>taco: files contains unknown structure leaf</code>, and an empty vector, an <code>NA</code> or an empty string with an argument error.</td></tr>
+      </table>
+<pre><code class="language-r">samples &lt;- read(dataset)
+dim(samples)</code></pre>
+<pre class="output"><code>[1] 50178    33</code></pre>
+      <p>That read took 0.30 s here.</p>
+      <p>The overview promises rows in <code>taco:sample_index</code> order. In 0.14.2 R keeps that promise only for a source list: for one source the query it runs has no <code>ORDER BY</code>, and this partition and the Core-DEM TACOCAT both came back out of order here. When the order matters, ask for it in SQL:</p>
+<pre><code class="language-r">samples &lt;- sql(dataset, 'SELECT * FROM dataset ORDER BY "taco:sample_index"')
+samples[1:3, c("taco:sample_index", "id")]</code></pre>
+<pre class="output"><code># A tibble: 3 × 2
+  `taco:sample_index` id
+                &lt;dbl&gt; &lt;chr&gt;
+1                   0 MT10km_0002D_0618L
+2                   1 MT10km_0002D_0619L
+3                   2 MT10km_0002D_0620L</code></pre>
+      <p>Tibble rows count from 1 and <code>taco:sample_index</code> from 0, so row 1 of the sorted table is sample 0.</p>
+
+      <h3 id="sql">sql</h3>
+<pre><code class="sig language-r">sql(dataset, query)</code></pre>
+      <p>Runs one query over the <code>dataset</code> relation and one raw relation per level, as <a href="api.html#sql">SQL</a> describes, and returns a tibble.</p>
+      <table class="spec">
+        <tr><th>dataset</th><td>A <code>taco_dataset</code>. A path stops with <code>taco: `dataset` must be a taco_dataset</code>.</td></tr>
+        <tr><th>query</th><td>One string with one <code>SELECT</code> statement. Surrounding space and one trailing <code>;</code> are removed, and an empty query stops with an error.</td></tr>
+      </table>
+      <p>Field names go in double quotes and text in single quotes. An R raw string, <code>r"(...)"</code>, holds both without escapes:</p>
+<pre><code class="language-r">peaks &lt;- sql(dataset, r"(
+  SELECT id, "geoenrich:elevation", "dem.rumi::location"
+  FROM dataset
+  WHERE "geoenrich:admin_countries" = 'Peru' AND "geoenrich:elevation" &gt; 4500
+  ORDER BY "geoenrich:elevation" DESC
+)")
+nrow(peaks)
+peaks[1:3, 1:2]</code></pre>
+<pre class="output"><code>[1] 492
+# A tibble: 3 × 2
+  id                 `geoenrich:elevation`
+  &lt;chr&gt;                              &lt;dbl&gt;
+1 MT10km_0137D_0827L                 5635.
+2 MT10km_0174D_0779L                 5534.
+3 MT10km_0115D_0843L                 5473.</code></pre>
+      <p>A level relation keeps the internal columns and has no locations:</p>
+<pre><code class="language-r">sql(dataset, '
+  SELECT "internal:current_id", "internal:offset", "internal:size", "rumi:mean"
+  FROM children
+  ORDER BY "internal:current_id"
+  LIMIT 2
+')</code></pre>
+<pre class="output"><code># A tibble: 2 × 4
+  `internal:current_id` `internal:offset` `internal:size` `rumi:mean`
+                  &lt;dbl&gt;             &lt;dbl&gt;           &lt;dbl&gt;       &lt;dbl&gt;
+1                     0               224           28818        323.
+2                     1             29087           30332        340.</code></pre>
+      <p><code>read</code> and <code>sql</code> share one DuckDB connection per R session, opened by the first call and closed when the package unloads. The query runs as <code>SELECT * FROM (query)</code> under a <code>WITH</code> that defines the relations, so it must be a single statement, and DuckDB reports positions from <code>LINE 6</code> on.</p>
+
+      <h3 id="inspect">inspect</h3>
+<pre><code class="sig language-r">inspect(source, query)</code></pre>
+      <p>Reads one part of a dataset without reading its rows. <code>source</code> is one path or URL; a vector of two or a <code>taco_dataset</code> stops with an error, and every call opens the source again. <code>query</code> is one of these strings, and any other stops with an error:</p>
+      <table class="spec">
+        <tr><th>"structure"</th><td>A character vector of the structure declarations.</td></tr>
+        <tr><th>"levels"</th><td>A character vector of the levels, sorted by the core. It can differ from <code>contract$levels</code>: for a dataset with <code>before/</code> and <code>after/</code> folders it lists <code>children/after</code> before <code>children/before</code>. Look levels up by name.</td></tr>
+        <tr><th>"contract"</th><td>A tibble of <code>kind</code> and <code>value</code> rows.</td></tr>
+        <tr><th>"collection"</th><td>A list, <code>COLLECTION.json</code> parsed as in <code>open_dataset</code>.</td></tr>
+        <tr><th>"profile"</th><td>One string, the cozip profile of an archive: <code>"taco"</code> for a TACO ZIP.</td></tr>
+        <tr><th>"native_sql"</th><td>One string, the SQL the core generates for the <code>dataset</code> view, for debugging only.</td></tr>
+      </table>
+<pre><code class="language-r">inspect(url, "contract")
+inspect(url, "profile")</code></pre>
+<pre class="output"><code># A tibble: 3 × 2
+  kind      value
+  &lt;chr&gt;     &lt;chr&gt;
+1 structure dem.rumi
+2 level     sample
+3 level     children
+[1] "taco"</code></pre>
+
+      <h2 class="part" id="types">Column types</h2>
+      <p>The duckdb package converts each column of a result:</p>
+      <table class="spec">
+        <tr><th>uint64, int64</th><td>Double, exact up to 2<sup>53</sup>. This covers <code>taco:sample_index</code>, the <code>internal:</code> columns, <code>count(*)</code> and the items of a <code>list&lt;int64&gt;</code>.</td></tr>
+        <tr><th>float, double</th><td>Double.</td></tr>
+        <tr><th>string</th><td>Character. Each <code>::location</code> of a fixed file is one string.</td></tr>
+        <tr><th>timestamp[us, UTC]</th><td><code>POSIXct</code> with <code>tzone</code> <code>"UTC"</code>.</td></tr>
+        <tr><th>binary</th><td>A list of raw vectors, with <code>NULL</code> for a null value: a WKB geometry, a Rumi header.</td></tr>
+        <tr><th>list&lt;T&gt;</th><td>A list of vectors. A sequence such as <code>extra*[1,3].png</code> gives <code>extra::location</code>, a list of character vectors of one to three paths.</td></tr>
+        <tr><th>struct</th><td>A data frame column, so <code>row[["spatial:centroid"]]$lon</code>.</td></tr>
+      </table>
+<pre><code class="language-r">row &lt;- sql(dataset, "SELECT * FROM dataset WHERE id = 'MT10km_0137D_0827L'")
+row[["taco:sample_index"]]
+row[["spatial:centroid"]]
+row[["spatial:proj_shape"]]
+str(row[["dem.rumi::header"]])</code></pre>
+<pre class="output"><code>[1] 28679
+        lon       lat
+1 -75.98052 -12.26074
+[[1]]
+[1] 352 352
+
+List of 1
+ $ : raw [1:38] 4c 4f 56 45 ...</code></pre>
+      <p><code>spatial:geometry</code> and <code>spatial:bbox</code> are null in every row of Core-DEM, so they come back as lists of <code>NULL</code>.</p>
+
+      <h2 class="part" id="sources">Sources</h2>
+
+      <h3 id="lists">Source lists and TACOCAT</h3>
+      <p>A character vector of ZIP partitions of one collection opens as one dataset, with a <code>source_file</code> column and <code>taco:sample_index</code> numbered across the list in list order, as <a href="api.html#read">Read</a> describes.</p>
+<pre><code class="language-r">base &lt;- "https://data.source.coop/major-tom/core-dem/"
+parts &lt;- paste0(base, c("core-dem_MT3000km_0001D_0003L.zip", "core-dem_MT3000km_0001D_0004L.zip"))
+both &lt;- open_dataset(parts)
+both
+sql(both, "SELECT source_file, count(*) AS n FROM dataset GROUP BY source_file ORDER BY source_file")</code></pre>
+<pre class="output"><code>taco.Dataset(major-tom-core-dem, sources=2)
+# A tibble: 2 × 2
+  source_file                           n
+  &lt;chr&gt;                             &lt;dbl&gt;
+1 core-dem_MT3000km_0001D_0003L.zip 50178
+2 core-dem_MT3000km_0001D_0004L.zip  1631</code></pre>
+      <p>A TACOCAT opens from its directory, and cannot be part of a list:</p>
+<pre><code class="language-r">catalog &lt;- open_dataset("https://data.source.coop/major-tom/core-dem/")
+sql(catalog, r"(
+  SELECT source_file, id, "geoenrich:elevation"
+  FROM dataset
+  WHERE "geoenrich:admin_countries" = 'Peru'
+  ORDER BY "geoenrich:elevation" DESC
+  LIMIT 1
+)")</code></pre>
+<pre class="output"><code># A tibble: 1 × 3
+  source_file                       id                 `geoenrich:elevation`
+  &lt;chr&gt;                             &lt;chr&gt;                              &lt;dbl&gt;
+1 core-dem_MT3000km_0001D_0003L.zip MT10km_0137D_0827L                 5635.</code></pre>
+      <p>The first open of this TACOCAT fetched 70 MB of metadata in 62 s here. <code>read(catalog)</code> then returned all 1,735,044 rows in 5.7 s.</p>
+
+      <h3 id="cache">Cache</h3>
+      <p>The core reads <code>TACO_CACHE_DIR</code>, <code>TACO_CACHE_SIZE</code> and <code>TACO_CACHE_REFRESH</code> from the environment at each open, under the rules of <a href="api.html#sources">Sources and cache</a>, so <code>Sys.setenv()</code> before <code>open_dataset</code> is enough:</p>
+<pre><code class="language-r">Sys.setenv(TACO_CACHE_DIR = "taco-cache")
+invisible(open_dataset(url))
+list.files("taco-cache")</code></pre>
+<pre class="output"><code>[1] "CACHEDIR.TAG"
+[2] "major-tom-core-dem-zip-https-815e5df3eedb"</code></pre>
+
+      <h2 class="part" id="files">Opening the files</h2>
+      <p>A location is a VSI path, as <a href="api.html#files">Open a file</a> explains. Core-DEM stores Rumi files, which the rumi package, from the same r-universe, decodes with the header the dataset keeps beside each one:</p>
+<pre><code class="language-r">dem &lt;- rumi::rumi_read(row[["dem.rumi::location"]], row[["dem.rumi::header"]][[1]])
+dim(dem)
+range(dem)</code></pre>
+<pre class="output"><code>[1] 352 352   1
+[1] 4220 5872</code></pre>
+      <p>Any client that reads a byte range gets the file's bytes, here the curl package:</p>
+<pre><code class="language-r">location &lt;- row[["dem.rumi::location"]]
+m &lt;- regmatches(location, regexec("^/vsisubfile/([0-9]+)_([0-9]+),/vsicurl/(.+)$", location))[[1]]
+offset &lt;- as.numeric(m[2])
+size &lt;- as.numeric(m[3])
+handle &lt;- curl::new_handle(range = sprintf("%.0f-%.0f", offset, offset + size - 1))
+bytes &lt;- curl::curl_fetch_memory(m[4], handle = handle)$content
+length(bytes)
+rawToChar(bytes[1:4])</code></pre>
+<pre class="output"><code>[1] 42283
+[1] "RUMI"</code></pre>
+
+      <h2 class="part" id="errors">Errors</h2>
+      <p>R has no TACO condition classes. A check made in R and an error reported by the core both stop with a plain <code>simpleError</code>, and most of their messages start with <code>taco: </code>. A bad query fails inside duckdb, which signals an <code>rlang_error</code> whose message starts with the DuckDB error type. Catch either with <code>tryCatch(..., error = function(e) ...)</code> and read <code>conditionMessage(e)</code>. The <a href="api.html#errors">API overview</a> lists the causes.</p>
+<pre class="output"><code>taco: files contains unknown structure leaf: nope.rumi
+could not open missing.zip: missing.zip: No such file or directory
+taco: `source` paths must be unique
+taco: a source list cannot contain TACOCAT datasets
+Parser Error: syntax error at or near ":"
+Catalog Error: Table with name children/missing does not exist!</code></pre>
+      <p>The parser error comes from an unquoted field, <code>WHERE geoenrich:elevation &gt; 4500</code>, and the catalog error from a level that does not exist.</p>
+
+      <h3 id="locale">Locale</h3>
+      <p>Use a UTF-8 locale. Under <code>LC_ALL=C</code>, R turns a non-ASCII path such as <code>niño.zip</code> into the text <code>ni&lt;c3&gt;&lt;b1&gt;o.zip</code> before it reaches the core, and the open fails with <code>No such file or directory</code>. In a UTF-8 locale the same path opens. <code>Sys.getlocale("LC_CTYPE")</code> shows the current one.</p>
+
+      <nav class="pager" aria-label="Pages">
+        <a class="prev" href="api-python.html"><span>Previous</span>Python</a>
+        <a class="next" href="api-julia.html"><span>Next</span>Julia</a>
+      </nav>
+    </article>
+
+    <nav class="toc onpage" aria-label="On this page">
+      <p class="toc-title">On this page</p>
+      <ol class="toc-sections">
+        <li><a href="#reading">Reading</a></li>
+        <li><a href="#types">Column types</a></li>
+        <li><a href="#sources">Sources</a></li>
+        <li><a href="#files">Opening the files</a></li>
+        <li><a href="#errors">Errors</a></li>
+      </ol>
+    </nav>
+  </main>
+
+  <footer class="colophon">
+    <span>Made with</span>
+    <span class="heart" role="img" aria-label="love"></span>
+    <span>by</span>
+    <a class="by" href="https://asterisk.coop" rel="noopener noreferrer" aria-label="Asterisk Labs">
+      <img src="assets/svg/asterisk-mark.svg" alt="Asterisk Labs">
+    </a>
+  </footer>
+</div>
+<script src="assets/js/toc.js?v=1" defer></script>
+<script src="assets/js/code.js?v=1" defer></script>
+<script src="assets/js/steps.js?v=1" defer></script>
+</body>
+</html>

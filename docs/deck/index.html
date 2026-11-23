@@ -1,0 +1,440 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#ffffff">
+  <meta name="description" content="How TACO keeps the files and metadata of a training sample together, checks every sample against one contract, and lets a reader filter by metadata before it fetches a byte of data.">
+  <title>TACO · AI-ready Earth observation datasets</title>
+  <link rel="icon" href="../assets/svg/taco-mark-static.svg?v=1">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&amp;family=League+Spartan:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css?v=1">
+  <script defer src="app.js?v=1"></script>
+</head>
+<body>
+  <div class="progress" id="progress"></div>
+  <a class="site-back" href="../" aria-label="Back to the TACO website">←</a>
+
+  <main class="deck" id="deck" aria-label="TACO, AI-ready Earth observation datasets">
+    <section class="slide cover active s01" aria-label="TACO cover">
+      <img class="cover-asterisk" src="fig/asterisk_banner.svg" alt="Asterisk Labs">
+      <div class="cover-inner">
+        <img class="cover-logo" src="../assets/svg/taco-mark.svg?v=1" alt="">
+        <div class="cover-copy">
+          <h1>TACO</h1>
+          <p>AI-ready Earth observation datasets</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide s02" aria-label="The Asterisk stack for AI">
+  <header><span class="brand"><img class="brand-icon" src="../assets/svg/taco-mark-static.svg?v=1" alt=""><span class="brand-name">TACO</span></span><span class="count">02 / 8</span></header>
+  <h1>TACO is one layer of the <span class="title-mark">Asterisk stack for AI</span></h1>
+  <figure class="st-wrap">
+    <svg class="st-fig" viewBox="0 0 864 376" role="img" aria-label="The Asterisk stack for AI, with arrows from caller to callee. The model calls TACO and Rumi. TACO, highlighted, is called by the model and calls cozip, Rumi and Karu. cozip reads its bytes through Karu and can hold Rumi files. Rumi calls GeoZL, which runs on OpenZL, and Karu.">
+      <defs>
+        <marker id="s02-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#777"/></marker>
+        <marker id="s02-arrow-on" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#492ae8"/></marker>
+      </defs>
+      <text class="st-layer" x="0" y="32">training</text>
+      <text class="st-layer" x="0" y="112">datasets</text>
+      <text class="st-layer" x="0" y="192">files</text>
+      <text class="st-layer" x="0" y="272">codecs</text>
+      <text class="st-layer" x="0" y="352">bytes</text>
+      <rect class="st-box st-open" x="132" y="0" width="732" height="54"/>
+      <text class="st-name" x="148" y="24">PyTorch, JAX, TensorFlow</text>
+      <text class="st-text" x="148" y="44">your model, fed tensors through DLPack on a CPU or a GPU</text>
+      <rect class="st-box st-on" x="132" y="80" width="440" height="54"/>
+      <text class="st-name" x="148" y="104">TACO</text>
+      <text class="st-text" x="148" y="124">AI-ready datasets, one sample per example</text>
+      <image href="../assets/svg/taco-mark-static.svg?v=1" x="524" y="87" width="40" height="40"/>
+      <rect class="st-box" x="172" y="160" width="280" height="54"/>
+      <text class="st-name" x="188" y="184">cozip</text>
+      <text class="st-text" x="188" y="204">a ZIP you open like a table</text>
+      <rect class="st-box" x="512" y="160" width="352" height="54"/>
+      <text class="st-name" x="528" y="184">Rumi</text>
+      <text class="st-text" x="528" y="204">tensors read by window, band and time</text>
+      <rect class="st-box" x="512" y="240" width="270" height="54"/>
+      <text class="st-name" x="528" y="264">GeoZL</text>
+      <text class="st-text" x="528" y="284">Earth observation codecs, on OpenZL</text>
+      <rect class="st-box" x="132" y="320" width="732" height="54"/>
+      <text class="st-name" x="148" y="344">Karu</text>
+      <text class="st-text" x="148" y="364">batched byte-range reads from files, HTTP, S3, GCS, Azure, Hugging Face and Source Cooperative</text>
+      <path class="st-call on" d="M300 54 V78" marker-end="url(#s02-arrow-on)"/>
+      <path class="st-call on" d="M300 134 V158" marker-end="url(#s02-arrow-on)"/>
+      <path class="st-call on" d="M540 134 V158" marker-end="url(#s02-arrow-on)"/>
+      <path class="st-call" d="M700 54 V158" marker-end="url(#s02-arrow)"/>
+      <path class="st-call" d="M640 214 V238" marker-end="url(#s02-arrow)"/>
+      <path class="st-call on" d="M152 134 V318" marker-end="url(#s02-arrow-on)"/>
+      <path class="st-call" d="M300 214 V318" marker-end="url(#s02-arrow)"/>
+      <path class="st-call" d="M823 214 V318" marker-end="url(#s02-arrow)"/>
+      <path class="st-hold" d="M452 190 H508" marker-end="url(#s02-arrow)"/>
+      <text class="st-tag" x="481" y="182">holds</text>
+    </svg>
+  </figure>
+</section>
+
+    <section class="slide s03" aria-label="A training example is more than one file" data-steps="3" data-step="1">
+  <header><span class="brand"><img class="brand-icon" src="../assets/svg/taco-mark-static.svg?v=1" alt=""><span class="brand-name">TACO</span></span><span class="count">03 / 8</span></header>
+  <h1>A training example is <span class="title-mark">more than one file</span></h1>
+  <div class="sm-wr">
+    <div class="tabs" role="tablist" aria-label="Steps">
+      <button type="button" role="tab" data-to="1">files</button>
+      <button type="button" role="tab" data-to="2">metadata</button>
+      <button type="button" role="tab" data-to="3">one sample</button>
+    </div>
+    <svg class="sm-fig" viewBox="0 0 864 246" role="img" aria-label="One change detection sample. Step 1: three files, before/B02.tif, after/B02.tif and mask.tif, drawn as a small valley before and after new buildings, and the mask of the cells that changed. Step 2: its metadata, split train, datetime 2024-03-14 and cloud cover 12.5. Step 3: a frame around the files and the metadata, labelled sample lima-0001.">
+      <g class="sm-frame">
+        <rect class="sm-box" x="1" y="18" width="862" height="226"/>
+        <rect class="sm-chip" x="24" y="6" width="196" height="25"/>
+        <text class="sm-chip-text" x="36" y="23">sample  id="lima-0001"</text>
+      </g>
+      <g class="sm-file" transform="translate(28 48)">
+        <g class="sm-px"><rect x="0" y="0" width="14" height="14" fill="#e8d9b5"/><rect x="14" y="0" width="14" height="14" fill="#e8d9b5"/><rect x="28" y="0" width="14" height="14" fill="#dcc89b"/><rect x="42" y="0" width="14" height="14" fill="#dcc89b"/><rect x="56" y="0" width="14" height="14" fill="#e8d9b5"/><rect x="70" y="0" width="14" height="14" fill="#e8d9b5"/><rect x="84" y="0" width="14" height="14" fill="#dcc89b"/><rect x="98" y="0" width="14" height="14" fill="#dcc89b"/><rect x="0" y="14" width="14" height="14" fill="#e8d9b5"/><rect x="14" y="14" width="14" height="14" fill="#dcc89b"/><rect x="28" y="14" width="14" height="14" fill="#b9d99a"/><rect x="42" y="14" width="14" height="14" fill="#b9d99a"/><rect x="56" y="14" width="14" height="14" fill="#9cc7e6"/><rect x="70" y="14" width="14" height="14" fill="#dcc89b"/><rect x="84" y="14" width="14" height="14" fill="#e8d9b5"/><rect x="98" y="14" width="14" height="14" fill="#e8d9b5"/><rect x="0" y="28" width="14" height="14" fill="#dcc89b"/><rect x="14" y="28" width="14" height="14" fill="#b9d99a"/><rect x="28" y="28" width="14" height="14" fill="#b9d99a"/><rect x="42" y="28" width="14" height="14" fill="#8fbf73"/><rect x="56" y="28" width="14" height="14" fill="#9cc7e6"/><rect x="70" y="28" width="14" height="14" fill="#b9d99a"/><rect x="84" y="28" width="14" height="14" fill="#b9d99a"/><rect x="98" y="28" width="14" height="14" fill="#dcc89b"/><rect x="0" y="42" width="14" height="14" fill="#b9d99a"/><rect x="14" y="42" width="14" height="14" fill="#b9d99a"/><rect x="28" y="42" width="14" height="14" fill="#8fbf73"/><rect x="42" y="42" width="14" height="14" fill="#8fbf73"/><rect x="56" y="42" width="14" height="14" fill="#9cc7e6"/><rect x="70" y="42" width="14" height="14" fill="#8fbf73"/><rect x="84" y="42" width="14" height="14" fill="#b9d99a"/><rect x="98" y="42" width="14" height="14" fill="#b9d99a"/><rect x="0" y="56" width="14" height="14" fill="#b9d99a"/><rect x="14" y="56" width="14" height="14" fill="#8fbf73"/><rect x="28" y="56" width="14" height="14" fill="#8fbf73"/><rect x="42" y="56" width="14" height="14" fill="#9cc7e6"/><rect x="56" y="56" width="14" height="14" fill="#9cc7e6"/><rect x="70" y="56" width="14" height="14" fill="#8fbf73"/><rect x="84" y="56" width="14" height="14" fill="#b9d99a"/><rect x="98" y="56" width="14" height="14" fill="#dcc89b"/><rect x="0" y="70" width="14" height="14" fill="#b9d99a"/><rect x="14" y="70" width="14" height="14" fill="#8fbf73"/><rect x="28" y="70" width="14" height="14" fill="#9cc7e6"/><rect x="42" y="70" width="14" height="14" fill="#9cc7e6"/><rect x="56" y="70" width="14" height="14" fill="#b9d99a"/><rect x="70" y="70" width="14" height="14" fill="#b9d99a"/><rect x="84" y="70" width="14" height="14" fill="#dcc89b"/><rect x="98" y="70" width="14" height="14" fill="#e8d9b5"/><rect x="0" y="84" width="14" height="14" fill="#8fbf73"/><rect x="14" y="84" width="14" height="14" fill="#9cc7e6"/><rect x="28" y="84" width="14" height="14" fill="#9cc7e6"/><rect x="42" y="84" width="14" height="14" fill="#b9d99a"/><rect x="56" y="84" width="14" height="14" fill="#b9d99a"/><rect x="70" y="84" width="14" height="14" fill="#dcc89b"/><rect x="84" y="84" width="14" height="14" fill="#e8d9b5"/><rect x="98" y="84" width="14" height="14" fill="#e8d9b5"/><rect x="0" y="98" width="14" height="14" fill="#9cc7e6"/><rect x="14" y="98" width="14" height="14" fill="#9cc7e6"/><rect x="28" y="98" width="14" height="14" fill="#b9d99a"/><rect x="42" y="98" width="14" height="14" fill="#b9d99a"/><rect x="56" y="98" width="14" height="14" fill="#dcc89b"/><rect x="70" y="98" width="14" height="14" fill="#dcc89b"/><rect x="84" y="98" width="14" height="14" fill="#e8d9b5"/><rect x="98" y="98" width="14" height="14" fill="#e8d9b5"/></g><rect class="sm-edge" x="0" y="0" width="112" height="112"/>
+        <text class="sm-path" x="56" y="136">before/B02.tif</text><text class="sm-what" x="56" y="156">the scene before</text>
+      </g>
+      <g class="sm-file" transform="translate(184 48)">
+        <g class="sm-px"><rect x="0" y="0" width="14" height="14" fill="#e8d9b5"/><rect x="14" y="0" width="14" height="14" fill="#e8d9b5"/><rect x="28" y="0" width="14" height="14" fill="#dcc89b"/><rect x="42" y="0" width="14" height="14" fill="#dcc89b"/><rect x="56" y="0" width="14" height="14" fill="#e8d9b5"/><rect x="70" y="0" width="14" height="14" fill="#e8d9b5"/><rect x="84" y="0" width="14" height="14" fill="#dcc89b"/><rect x="98" y="0" width="14" height="14" fill="#dcc89b"/><rect x="0" y="14" width="14" height="14" fill="#e8d9b5"/><rect x="14" y="14" width="14" height="14" fill="#dcc89b"/><rect x="28" y="14" width="14" height="14" fill="#b9d99a"/><rect x="42" y="14" width="14" height="14" fill="#b9d99a"/><rect x="56" y="14" width="14" height="14" fill="#9cc7e6"/><rect x="70" y="14" width="14" height="14" fill="#dcc89b"/><rect x="84" y="14" width="14" height="14" fill="#e8d9b5"/><rect x="98" y="14" width="14" height="14" fill="#e8d9b5"/><rect x="0" y="28" width="14" height="14" fill="#dcc89b"/><rect x="14" y="28" width="14" height="14" fill="#b9d99a"/><rect x="28" y="28" width="14" height="14" fill="#b9d99a"/><rect x="42" y="28" width="14" height="14" fill="#8fbf73"/><rect x="56" y="28" width="14" height="14" fill="#9cc7e6"/><rect x="70" y="28" width="14" height="14" fill="#9a9ea8"/><rect x="84" y="28" width="14" height="14" fill="#b4b7bf"/><rect x="98" y="28" width="14" height="14" fill="#dcc89b"/><rect x="0" y="42" width="14" height="14" fill="#b9d99a"/><rect x="14" y="42" width="14" height="14" fill="#b9d99a"/><rect x="28" y="42" width="14" height="14" fill="#8fbf73"/><rect x="42" y="42" width="14" height="14" fill="#8fbf73"/><rect x="56" y="42" width="14" height="14" fill="#9cc7e6"/><rect x="70" y="42" width="14" height="14" fill="#b4b7bf"/><rect x="84" y="42" width="14" height="14" fill="#9a9ea8"/><rect x="98" y="42" width="14" height="14" fill="#b4b7bf"/><rect x="0" y="56" width="14" height="14" fill="#b9d99a"/><rect x="14" y="56" width="14" height="14" fill="#8fbf73"/><rect x="28" y="56" width="14" height="14" fill="#8fbf73"/><rect x="42" y="56" width="14" height="14" fill="#9cc7e6"/><rect x="56" y="56" width="14" height="14" fill="#9cc7e6"/><rect x="70" y="56" width="14" height="14" fill="#8fbf73"/><rect x="84" y="56" width="14" height="14" fill="#b4b7bf"/><rect x="98" y="56" width="14" height="14" fill="#9a9ea8"/><rect x="0" y="70" width="14" height="14" fill="#b9d99a"/><rect x="14" y="70" width="14" height="14" fill="#8fbf73"/><rect x="28" y="70" width="14" height="14" fill="#9cc7e6"/><rect x="42" y="70" width="14" height="14" fill="#9cc7e6"/><rect x="56" y="70" width="14" height="14" fill="#b9d99a"/><rect x="70" y="70" width="14" height="14" fill="#b9d99a"/><rect x="84" y="70" width="14" height="14" fill="#dcc89b"/><rect x="98" y="70" width="14" height="14" fill="#e8d9b5"/><rect x="0" y="84" width="14" height="14" fill="#8fbf73"/><rect x="14" y="84" width="14" height="14" fill="#9cc7e6"/><rect x="28" y="84" width="14" height="14" fill="#9cc7e6"/><rect x="42" y="84" width="14" height="14" fill="#b9d99a"/><rect x="56" y="84" width="14" height="14" fill="#b9d99a"/><rect x="70" y="84" width="14" height="14" fill="#dcc89b"/><rect x="84" y="84" width="14" height="14" fill="#e8d9b5"/><rect x="98" y="84" width="14" height="14" fill="#e8d9b5"/><rect x="0" y="98" width="14" height="14" fill="#9cc7e6"/><rect x="14" y="98" width="14" height="14" fill="#9cc7e6"/><rect x="28" y="98" width="14" height="14" fill="#b9d99a"/><rect x="42" y="98" width="14" height="14" fill="#b9d99a"/><rect x="56" y="98" width="14" height="14" fill="#dcc89b"/><rect x="70" y="98" width="14" height="14" fill="#dcc89b"/><rect x="84" y="98" width="14" height="14" fill="#e8d9b5"/><rect x="98" y="98" width="14" height="14" fill="#e8d9b5"/></g><rect class="sm-edge" x="0" y="0" width="112" height="112"/>
+        <text class="sm-path" x="56" y="136">after/B02.tif</text><text class="sm-what" x="56" y="156">the scene after</text>
+      </g>
+      <g class="sm-file" transform="translate(340 48)">
+        <g class="sm-px"><rect x="0" y="0" width="14" height="14" fill="#2b2f36"/><rect x="14" y="0" width="14" height="14" fill="#2b2f36"/><rect x="28" y="0" width="14" height="14" fill="#2b2f36"/><rect x="42" y="0" width="14" height="14" fill="#2b2f36"/><rect x="56" y="0" width="14" height="14" fill="#2b2f36"/><rect x="70" y="0" width="14" height="14" fill="#2b2f36"/><rect x="84" y="0" width="14" height="14" fill="#2b2f36"/><rect x="98" y="0" width="14" height="14" fill="#2b2f36"/><rect x="0" y="14" width="14" height="14" fill="#2b2f36"/><rect x="14" y="14" width="14" height="14" fill="#2b2f36"/><rect x="28" y="14" width="14" height="14" fill="#2b2f36"/><rect x="42" y="14" width="14" height="14" fill="#2b2f36"/><rect x="56" y="14" width="14" height="14" fill="#2b2f36"/><rect x="70" y="14" width="14" height="14" fill="#2b2f36"/><rect x="84" y="14" width="14" height="14" fill="#2b2f36"/><rect x="98" y="14" width="14" height="14" fill="#2b2f36"/><rect x="0" y="28" width="14" height="14" fill="#2b2f36"/><rect x="14" y="28" width="14" height="14" fill="#2b2f36"/><rect x="28" y="28" width="14" height="14" fill="#2b2f36"/><rect x="42" y="28" width="14" height="14" fill="#2b2f36"/><rect x="56" y="28" width="14" height="14" fill="#2b2f36"/><rect x="70" y="28" width="14" height="14" fill="#c4ffc2"/><rect x="84" y="28" width="14" height="14" fill="#c4ffc2"/><rect x="98" y="28" width="14" height="14" fill="#2b2f36"/><rect x="0" y="42" width="14" height="14" fill="#2b2f36"/><rect x="14" y="42" width="14" height="14" fill="#2b2f36"/><rect x="28" y="42" width="14" height="14" fill="#2b2f36"/><rect x="42" y="42" width="14" height="14" fill="#2b2f36"/><rect x="56" y="42" width="14" height="14" fill="#2b2f36"/><rect x="70" y="42" width="14" height="14" fill="#c4ffc2"/><rect x="84" y="42" width="14" height="14" fill="#c4ffc2"/><rect x="98" y="42" width="14" height="14" fill="#c4ffc2"/><rect x="0" y="56" width="14" height="14" fill="#2b2f36"/><rect x="14" y="56" width="14" height="14" fill="#2b2f36"/><rect x="28" y="56" width="14" height="14" fill="#2b2f36"/><rect x="42" y="56" width="14" height="14" fill="#2b2f36"/><rect x="56" y="56" width="14" height="14" fill="#2b2f36"/><rect x="70" y="56" width="14" height="14" fill="#2b2f36"/><rect x="84" y="56" width="14" height="14" fill="#c4ffc2"/><rect x="98" y="56" width="14" height="14" fill="#c4ffc2"/><rect x="0" y="70" width="14" height="14" fill="#2b2f36"/><rect x="14" y="70" width="14" height="14" fill="#2b2f36"/><rect x="28" y="70" width="14" height="14" fill="#2b2f36"/><rect x="42" y="70" width="14" height="14" fill="#2b2f36"/><rect x="56" y="70" width="14" height="14" fill="#2b2f36"/><rect x="70" y="70" width="14" height="14" fill="#2b2f36"/><rect x="84" y="70" width="14" height="14" fill="#2b2f36"/><rect x="98" y="70" width="14" height="14" fill="#2b2f36"/><rect x="0" y="84" width="14" height="14" fill="#2b2f36"/><rect x="14" y="84" width="14" height="14" fill="#2b2f36"/><rect x="28" y="84" width="14" height="14" fill="#2b2f36"/><rect x="42" y="84" width="14" height="14" fill="#2b2f36"/><rect x="56" y="84" width="14" height="14" fill="#2b2f36"/><rect x="70" y="84" width="14" height="14" fill="#2b2f36"/><rect x="84" y="84" width="14" height="14" fill="#2b2f36"/><rect x="98" y="84" width="14" height="14" fill="#2b2f36"/><rect x="0" y="98" width="14" height="14" fill="#2b2f36"/><rect x="14" y="98" width="14" height="14" fill="#2b2f36"/><rect x="28" y="98" width="14" height="14" fill="#2b2f36"/><rect x="42" y="98" width="14" height="14" fill="#2b2f36"/><rect x="56" y="98" width="14" height="14" fill="#2b2f36"/><rect x="70" y="98" width="14" height="14" fill="#2b2f36"/><rect x="84" y="98" width="14" height="14" fill="#2b2f36"/><rect x="98" y="98" width="14" height="14" fill="#2b2f36"/></g><rect class="sm-edge" x="0" y="0" width="112" height="112"/>
+        <text class="sm-path" x="56" y="136">mask.tif</text><text class="sm-what" x="56" y="156">what changed</text>
+      </g>
+      <g class="sm-meta" transform="translate(536 48)">
+        <rect class="sm-card" x="0" y="0" width="300" height="112"/>
+        <text class="sm-key" x="18" y="34">split</text><text class="sm-val" x="282" y="34">train</text>
+        <line class="sm-rule" x1="18" y1="47" x2="282" y2="47"/>
+        <text class="sm-key" x="18" y="68">datetime</text><text class="sm-val" x="282" y="68">2024-03-14</text>
+        <line class="sm-rule" x1="18" y1="81" x2="282" y2="81"/>
+        <text class="sm-key" x="18" y="101">cloud cover</text><text class="sm-val" x="282" y="101">12.5</text>
+        <text class="sm-path" x="150" y="136">metadata</text><text class="sm-what" x="150" y="156">values a loader filters on</text>
+      </g>
+    </svg>
+    <div class="sm-note">
+      <p data-k="1">One change detection sample is <span class="title-mark">three files</span>: the scene before, the scene after, and a mask of what changed.</p>
+      <p data-k="2">Training also needs <span class="title-mark">values about the sample</span>: its split, its date and its cloud cover. None of them is inside the files.</p>
+      <p data-k="3">TACO keeps them together as <span class="title-mark">one sample with one id</span>, written and read as a unit.</p>
+    </div>
+  </div>
+</section>
+
+    <section class="slide s04" aria-label="One contract for every sample" data-steps="3" data-step="1">
+  <header><span class="brand"><img class="brand-icon" src="../assets/svg/taco-mark-static.svg?v=1" alt=""><span class="brand-name">TACO</span></span><span class="count">04 / 8</span></header>
+  <h1>One <span class="title-mark">contract</span> for every sample</h1>
+  <div class="ct-wr">
+    <div class="tabs" role="tablist" aria-label="Steps">
+      <button type="button" role="tab" data-to="1">structure</button>
+      <button type="button" role="tab" data-to="2">metadata</button>
+      <button type="button" role="tab" data-to="3">rejected</button>
+    </div>
+    <pre class="ct-code" aria-label="The contract in Python: a Pydantic model EO with one float field cloud_cover, then taco.Contract with structure before/B02.tif, after/B02.tif and mask.tif, and metadata one sample level with the namespaces split, temporal and eo."><code><span class="ln"><span class="tok-kw">class</span> <span class="tok-fn">EO</span>(BaseModel):</span><span class="ln">    cloud_cover: float</span><span class="ln"> </span><span class="ln">contract = taco.<span class="tok-fn">Contract</span>(</span><span class="ln is-k1">    structure=[<span class="tok-str">"before/B02.tif"</span>, <span class="tok-str">"after/B02.tif"</span>, <span class="ct-miss tok-str">"mask.tif"</span>],</span><span class="ln is-k2">    metadata=[taco.<span class="tok-fn">Level</span>(<span class="tok-str">"sample"</span>, split=Split, temporal=Temporal, eo=EO)],</span><span class="ln">)</span></code></pre>
+    <div class="ct-stage">
+      <div class="ct-panel" data-k="1">
+        <div class="ct-files"><span class="mono">before/B02.tif</span><span class="mono">after/B02.tif</span><span class="mono">mask.tif</span></div>
+        <p class="ct-lead">The structure lists <span class="title-mark">every file a sample holds</span>. A sample with a file missing, or with one more, does not fit.</p>
+      </div>
+      <div class="ct-panel" data-k="2">
+        <table class="ct-cols" aria-label="The columns this contract adds to sample.parquet, with their types and whether they may be null.">
+          <thead><tr><th>column</th><th>type</th><th>null</th></tr></thead>
+          <tbody>
+            <tr><td>split:split</td><td>string</td><td>no</td></tr>
+            <tr><td>temporal:datetime</td><td>timestamp[us, UTC]</td><td>yes</td></tr>
+            <tr class="is-dim"><td>temporal:start_datetime</td><td>timestamp[us, UTC]</td><td>yes</td></tr>
+            <tr class="is-dim"><td>temporal:end_datetime</td><td>timestamp[us, UTC]</td><td>yes</td></tr>
+            <tr><td>eo:cloud_cover</td><td>double</td><td>no</td></tr>
+          </tbody>
+        </table>
+        <p class="ct-lead">Each keyword is a namespace. Its fields become <span class="title-mark">typed columns</span>, named <span class="mono">namespace:field</span>.</p>
+      </div>
+      <div class="ct-panel" data-k="3">
+        <pre class="ct-term" aria-label="Running python3 write.py with a sample that has before/B02.tif and after/B02.tif but no mask.tif. writer.add raises taco.errors.SampleError: required asset 'mask.tif' is missing. ls lima-change.zip then reports no such file."><span class="ct-cmd">$ python3 write.py</span>
+Traceback (most recent call last):
+  File "write.py", line 23, in &lt;module&gt;
+    writer.add(sample)
+<span class="ct-skip">                     11 lines left out</span>
+<b>taco.errors.SampleError: required asset 'mask.tif' is missing</b>
+<span class="ct-cmd">$ ls lima-change.zip</span>
+ls: lima-change.zip: No such file or directory</pre>
+        <p class="ct-lead">This sample has no <span class="mono">mask.tif</span>. <span class="mono">writer.add()</span> rejects it <span class="title-mark red">before it writes a byte</span>.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+    <section class="slide s05" aria-label="One Parquet file per level" data-steps="3" data-step="1">
+  <header><span class="brand"><img class="brand-icon" src="../assets/svg/taco-mark-static.svg?v=1" alt=""><span class="brand-name">TACO</span></span><span class="count">05 / 8</span></header>
+  <h1>One <span class="title-mark">Parquet file</span> per level</h1>
+  <div class="lv-wr">
+    <div class="tabs" role="tablist" aria-label="Steps">
+      <button type="button" role="tab" data-to="1">layout</button>
+      <button type="button" role="tab" data-to="2">levels</button>
+      <button type="button" role="tab" data-to="3">join</button>
+    </div>
+    <svg class="lv-fig" viewBox="0 0 864 232" role="img" aria-label="The dataset of three samples written as the folder lima-change. Step 1: DATA holds one folder per sample with its three files, METADATA holds sample.parquet, children.parquet, children__before.parquet and children__after.parquet, and COLLECTION.json holds the contract. Step 2: sample.parquet has three rows, lima-0001, lima-0002 and lima-0003; children.parquet has nine rows, the folders before and after and the file mask.tif of each sample. Step 3: each children row joins the sample row whose internal:current_id equals its internal:parent_id.">
+      <g class="lv-tree">
+        <text class="lv-t" x="40" y="14"><tspan class="lv-root">lima-change/</tspan></text>
+        <text class="lv-t" x="40" y="33">├── <tspan class="lv-d">DATA/</tspan></text>
+        <text class="lv-t" x="40" y="52">│   ├── 0/before/B02.tif</text>
+        <text class="lv-t" x="40" y="71">│   ├── 0/after/B02.tif</text>
+        <text class="lv-t" x="40" y="90">│   ├── 0/mask.tif</text>
+        <text class="lv-t" x="40" y="109">│   └── <tspan class="lv-faint">1/ and 2/, the same three files</tspan></text>
+        <text class="lv-t" x="40" y="128">├── <tspan class="lv-d">METADATA/</tspan></text>
+        <text class="lv-t" x="40" y="147">│   ├── <tspan class="lv-m">sample.parquet</tspan></text>
+        <text class="lv-t" x="40" y="166">│   ├── <tspan class="lv-m">children.parquet</tspan></text>
+        <text class="lv-t" x="40" y="185">│   ├── children__before.parquet</text>
+        <text class="lv-t" x="40" y="204">│   └── children__after.parquet</text>
+        <text class="lv-t" x="40" y="223">└── <tspan class="lv-d">COLLECTION.json</tspan></text>
+        <path class="lv-brace" d="M440 22 H452 V113 H440"/>
+        <text class="lv-say" x="470" y="62"><tspan class="lv-sk">DATA/</tspan>  the files, one folder per sample,</text>
+        <text class="lv-say" x="470" y="82">named by its index</text>
+        <path class="lv-brace" d="M440 136 H452 V208 H440"/>
+        <text class="lv-say" x="470" y="177"><tspan class="lv-sk">METADATA/</tspan>  one Parquet file per level</text>
+        <path class="lv-brace" d="M440 219 H452"/>
+        <text class="lv-say" x="470" y="224"><tspan class="lv-sk">COLLECTION.json</tspan>  the contract and the dataset description</text>
+      </g>
+      <g class="lv-tables">
+        <text class="lv-cap" x="0" y="14">METADATA/sample.parquet</text>
+        <g class="lv-tb" transform="translate(0 26)">
+          <text class="lv-h" x="0" y="14">internal:current_id</text><text class="lv-h" x="136" y="14">id</text><text class="lv-h" x="214" y="14">split:split</text><text class="lv-h" x="300" y="14">eo:cloud_cover</text>
+          <line class="lv-hr" x1="0" y1="22" x2="388" y2="22"/>
+          <g class="lv-r g0"><rect x="-6" y="24" width="400" height="20"/><text class="lv-c is-id" x="0" y="39">0</text><text class="lv-c" x="136" y="39">lima-0001</text><text class="lv-c" x="214" y="39">train</text><text class="lv-c" x="300" y="39">12.5</text></g>
+          <g class="lv-r g1"><rect x="-6" y="44" width="400" height="20"/><text class="lv-c is-id" x="0" y="59">1</text><text class="lv-c" x="136" y="59">lima-0002</text><text class="lv-c" x="214" y="59">train</text><text class="lv-c" x="300" y="59">3.1</text></g>
+          <g class="lv-r g2"><rect x="-6" y="64" width="400" height="20"/><text class="lv-c is-id" x="0" y="79">2</text><text class="lv-c" x="136" y="79">lima-0003</text><text class="lv-c" x="214" y="79">validation</text><text class="lv-c" x="300" y="79">27.8</text></g>
+        </g>
+        <text class="lv-cap" x="452" y="14">METADATA/children.parquet</text>
+        <g class="lv-tb" transform="translate(452 26)">
+          <text class="lv-h" x="0" y="14">internal:parent_id</text><text class="lv-h" x="130" y="14">internal:current_id</text><text class="lv-h" x="266" y="14">internal:relative_path</text>
+          <line class="lv-hr" x1="0" y1="22" x2="400" y2="22"/>
+          <g class="lv-r g0"><rect x="-6" y="24" width="412" height="20"/><text class="lv-c is-id" x="0" y="39">0</text><text class="lv-c" x="130" y="39">0</text><text class="lv-c" x="266" y="39">0/before</text></g>
+          <g class="lv-r g0"><rect x="-6" y="44" width="412" height="20"/><text class="lv-c is-id" x="0" y="59">0</text><text class="lv-c" x="130" y="59">1</text><text class="lv-c" x="266" y="59">0/after</text></g>
+          <g class="lv-r g0"><rect x="-6" y="64" width="412" height="20"/><text class="lv-c is-id" x="0" y="79">0</text><text class="lv-c" x="130" y="79">2</text><text class="lv-c" x="266" y="79">0/mask.tif</text></g>
+          <g class="lv-r g1"><rect x="-6" y="84" width="412" height="20"/><text class="lv-c is-id" x="0" y="99">1</text><text class="lv-c" x="130" y="99">3</text><text class="lv-c" x="266" y="99">1/before</text></g>
+          <g class="lv-r g1"><rect x="-6" y="104" width="412" height="20"/><text class="lv-c is-id" x="0" y="119">1</text><text class="lv-c" x="130" y="119">4</text><text class="lv-c" x="266" y="119">1/after</text></g>
+          <g class="lv-r g1"><rect x="-6" y="124" width="412" height="20"/><text class="lv-c is-id" x="0" y="139">1</text><text class="lv-c" x="130" y="139">5</text><text class="lv-c" x="266" y="139">1/mask.tif</text></g>
+          <g class="lv-r g2"><rect x="-6" y="144" width="412" height="20"/><text class="lv-c is-id" x="0" y="159">2</text><text class="lv-c" x="130" y="159">6</text><text class="lv-c" x="266" y="159">2/before</text></g>
+          <g class="lv-r g2"><rect x="-6" y="164" width="412" height="20"/><text class="lv-c is-id" x="0" y="179">2</text><text class="lv-c" x="130" y="179">7</text><text class="lv-c" x="266" y="179">2/after</text></g>
+          <g class="lv-r g2"><rect x="-6" y="184" width="412" height="20"/><text class="lv-c is-id" x="0" y="199">2</text><text class="lv-c" x="130" y="199">8</text><text class="lv-c" x="266" y="199">2/mask.tif</text></g>
+        </g>
+        <g class="lv-join">
+          <path class="g0" d="M444 60 C422 60 420 60 398 60"/>
+          <path class="g0" d="M444 80 C422 80 420 60 398 60"/>
+          <path class="g0" d="M444 100 C422 100 420 60 398 60"/>
+          <path class="g1" d="M444 120 C422 120 420 80 398 80"/>
+          <path class="g1" d="M444 140 C422 140 420 80 398 80"/>
+          <path class="g1" d="M444 160 C422 160 420 80 398 80"/>
+          <path class="g2" d="M444 180 C422 180 420 100 398 100"/>
+          <path class="g2" d="M444 200 C422 200 420 100 398 100"/>
+          <path class="g2" d="M444 220 C422 220 420 100 398 100"/>
+          <text class="lv-sql" x="0" y="160">children.<tspan class="k">"internal:parent_id"</tspan></text>
+          <text class="lv-sql" x="0" y="180">  = sample.<tspan class="k">"internal:current_id"</tspan></text>
+        </g>
+      </g>
+    </svg>
+    <div class="lv-note">
+      <p data-k="1">A FOLDER or ZIP dataset has three parts: the files, <span class="title-mark">one Parquet file per level</span>, and <span class="mono">COLLECTION.json</span>.</p>
+      <p data-k="2"><span class="mono">sample</span> has one row per sample. <span class="mono">children</span> has <span class="title-mark">one row per entry</span> at the top of a sample: <span class="mono">before/</span>, <span class="mono">after/</span> and <span class="mono">mask.tif</span>.</p>
+      <p data-k="3">A child row stores <span class="title-mark">its parent's row number</span>, so one join gives every file the split and date of its sample.</p>
+    </div>
+    <p class="path-note">Columns shown in part. In <span class="mono">lima-change.zip</span>, file rows also carry <span class="mono">internal:offset</span> and <span class="mono">internal:size</span>.</p>
+  </div>
+</section>
+
+    <section class="slide s06" aria-label="Filter before you read" data-steps="3" data-step="1">
+  <header><span class="brand"><img class="brand-icon" src="../assets/svg/taco-mark-static.svg?v=1" alt=""><span class="brand-name">TACO</span></span><span class="count">06 / 8</span></header>
+  <h1>Filter <span class="title-mark">before you read</span></h1>
+  <div class="mt-wr">
+    <div class="tabs" role="tablist" aria-label="Steps">
+      <button type="button" role="tab" data-to="1">dataset</button>
+      <button type="button" role="tab" data-to="2">query</button>
+      <button type="button" role="tab" data-to="3">ranges</button>
+    </div>
+    <svg class="mt-fig" viewBox="0 0 864 270" role="img" aria-label="Major TOM Core-DEM on Source Cooperative. Step 1: the TACOCAT core-dem/.tacocat holds COLLECTION.json, 22.6 kB, sample.parquet, 37.3 MB, and children.parquet, 33.0 MB, for 1,735,044 samples stored in 63 ZIPs, drawn as a grid by their Major TOM row and column. Step 2: a SQL query keeps the 9,314 samples in Peru and then the 492 above 4,500 metres, in 14 milliseconds, without reading any ZIP. Step 3: every kept row gives one byte range, and all 492 lie in the ZIP core-dem_MT3000km_0001D_0003L.zip, 16.5 MB of its 1.23 GB.">
+      <g class="mt-k" data-k="1">
+        <text class="mt-cap" x="0" y="16">core-dem/.tacocat/</text>
+        <text class="mt-sub" x="410" y="16">fetched once, then cached</text>
+        <line class="mt-hr" x1="0" y1="26" x2="410" y2="26"/>
+        <text class="mt-f" x="0" y="48">COLLECTION.json</text><text class="mt-s" x="410" y="48">22.6 kB</text>
+        <text class="mt-f" x="0" y="70">sample.parquet</text><text class="mt-s" x="410" y="70">37.3 MB</text>
+        <text class="mt-f" x="0" y="92">children.parquet</text><text class="mt-s" x="410" y="92">33.0 MB</text>
+        <text class="mt-big" x="0" y="160">1,735,044</text>
+        <text class="mt-unit" x="216" y="160">samples</text>
+        <text class="mt-sub2" x="0" y="188">23.6 GB of dem.rumi files in 63 ZIPs</text>
+      </g>
+      <g class="mt-k" data-k="2">
+        <rect class="mt-sqlbox" x="0" y="0" width="410" height="78"/>
+        <text class="mt-sql" x="14" y="23"><tspan class="kw">SELECT</tspan> id, <tspan class="st">"dem.rumi::location"</tspan> <tspan class="kw">FROM</tspan> dataset</text>
+        <text class="mt-sql" x="14" y="44"><tspan class="kw">WHERE</tspan> <tspan class="st">"geoenrich:admin_countries"</tspan> = <tspan class="st">'Peru'</tspan></text>
+        <text class="mt-sql" x="14" y="65">  <tspan class="kw">AND</tspan> <tspan class="st">"geoenrich:elevation"</tspan> &gt; <tspan class="nm">4500</tspan></text>
+        <text class="mt-n" x="160" y="112">1,735,044</text><text class="mt-l" x="176" y="112">samples</text>
+        <text class="mt-n" x="160" y="136">9,314</text><text class="mt-l" x="176" y="136">in Peru</text>
+        <rect class="mt-hit" x="86" y="145" width="80" height="27"/>
+        <text class="mt-n is-on" x="160" y="165">492</text><text class="mt-l is-on" x="176" y="165">above 4,500 m</text>
+        <text class="mt-ms" x="0" y="200">14 ms</text><text class="mt-l" x="84" y="200">on the cached metadata, no ZIP read</text>
+      </g>
+      <g class="mt-k" data-k="3">
+        <text class="mt-h" x="0" y="14">id</text><text class="mt-h" x="166" y="14">elevation</text><text class="mt-h" x="244" y="14">/vsisubfile/offset_size</text>
+        <line class="mt-hr" x1="0" y1="24" x2="410" y2="24"/>
+        <text class="mt-c" x="0" y="46">MT10km_0137D_0827L</text><text class="mt-c is-num" x="230" y="46">5,635 m</text><text class="mt-c is-loc" x="244" y="46">764362320_42283</text>
+        <text class="mt-c" x="0" y="68">MT10km_0174D_0779L</text><text class="mt-c is-num" x="230" y="68">5,534 m</text><text class="mt-c is-loc" x="244" y="68">917352458_36126</text>
+        <text class="mt-c" x="0" y="90">MT10km_0115D_0843L</text><text class="mt-c is-num" x="230" y="90">5,473 m</text><text class="mt-c is-loc" x="244" y="90">655856039_46944</text>
+        <text class="mt-c is-faint" x="0" y="112">the three highest of the 492 rows</text>
+        <text class="mt-l" x="0" y="146">and every location ends with the same ZIP:</text>
+        <text class="mt-c is-loc" x="0" y="168">,/vsicurl/…/core-dem_MT3000km_0001D_0003L.zip</text>
+      </g>
+      <g class="mt-grid"><rect class="mt-zip" x="657" y="90" width="27" height="27"><title>core-dem_MT3000km_0000U_0000R.zip</title></rect><rect class="mt-zip" x="627" y="90" width="27" height="27"><title>core-dem_MT3000km_0000U_0001L.zip</title></rect><rect class="mt-zip" x="687" y="90" width="27" height="27"><title>core-dem_MT3000km_0000U_0001R.zip</title></rect><rect class="mt-zip" x="597" y="90" width="27" height="27"><title>core-dem_MT3000km_0000U_0002L.zip</title></rect><rect class="mt-zip" x="717" y="90" width="27" height="27"><title>core-dem_MT3000km_0000U_0002R.zip</title></rect><rect class="mt-zip" x="567" y="90" width="27" height="27"><title>core-dem_MT3000km_0000U_0003L.zip</title></rect><rect class="mt-zip" x="747" y="90" width="27" height="27"><title>core-dem_MT3000km_0000U_0003R.zip</title></rect><rect class="mt-zip" x="537" y="90" width="27" height="27"><title>core-dem_MT3000km_0000U_0004L.zip</title></rect><rect class="mt-zip" x="777" y="90" width="27" height="27"><title>core-dem_MT3000km_0000U_0004R.zip</title></rect><rect class="mt-zip" x="507" y="90" width="27" height="27"><title>core-dem_MT3000km_0000U_0005L.zip</title></rect><rect class="mt-zip" x="807" y="90" width="27" height="27"><title>core-dem_MT3000km_0000U_0005R.zip</title></rect><rect class="mt-zip" x="477" y="90" width="27" height="27"><title>core-dem_MT3000km_0000U_0006L.zip</title></rect><rect class="mt-zip" x="837" y="90" width="27" height="27"><title>core-dem_MT3000km_0000U_0006R.zip</title></rect><rect class="mt-zip" x="447" y="90" width="27" height="27"><title>core-dem_MT3000km_0000U_0007L.zip</title></rect><rect class="mt-zip" x="657" y="120" width="27" height="27"><title>core-dem_MT3000km_0001D_0000R.zip</title></rect><rect class="mt-zip" x="627" y="120" width="27" height="27"><title>core-dem_MT3000km_0001D_0001L.zip</title></rect><rect class="mt-zip" x="687" y="120" width="27" height="27"><title>core-dem_MT3000km_0001D_0001R.zip</title></rect><rect class="mt-zip" x="597" y="120" width="27" height="27"><title>core-dem_MT3000km_0001D_0002L.zip</title></rect><rect class="mt-zip" x="717" y="120" width="27" height="27"><title>core-dem_MT3000km_0001D_0002R.zip</title></rect><rect class="mt-zip is-peru" x="567" y="120" width="27" height="27"><title>core-dem_MT3000km_0001D_0003L.zip</title></rect><rect class="mt-zip" x="747" y="120" width="27" height="27"><title>core-dem_MT3000km_0001D_0003R.zip</title></rect><rect class="mt-zip" x="537" y="120" width="27" height="27"><title>core-dem_MT3000km_0001D_0004L.zip</title></rect><rect class="mt-zip" x="777" y="120" width="27" height="27"><title>core-dem_MT3000km_0001D_0004R.zip</title></rect><rect class="mt-zip" x="507" y="120" width="27" height="27"><title>core-dem_MT3000km_0001D_0005L.zip</title></rect><rect class="mt-zip" x="807" y="120" width="27" height="27"><title>core-dem_MT3000km_0001D_0005R.zip</title></rect><rect class="mt-zip" x="477" y="120" width="27" height="27"><title>core-dem_MT3000km_0001D_0006L.zip</title></rect><rect class="mt-zip" x="837" y="120" width="27" height="27"><title>core-dem_MT3000km_0001D_0006R.zip</title></rect><rect class="mt-zip" x="657" y="60" width="27" height="27"><title>core-dem_MT3000km_0001U_0000R.zip</title></rect><rect class="mt-zip" x="627" y="60" width="27" height="27"><title>core-dem_MT3000km_0001U_0001L.zip</title></rect><rect class="mt-zip" x="687" y="60" width="27" height="27"><title>core-dem_MT3000km_0001U_0001R.zip</title></rect><rect class="mt-zip" x="597" y="60" width="27" height="27"><title>core-dem_MT3000km_0001U_0002L.zip</title></rect><rect class="mt-zip" x="717" y="60" width="27" height="27"><title>core-dem_MT3000km_0001U_0002R.zip</title></rect><rect class="mt-zip" x="567" y="60" width="27" height="27"><title>core-dem_MT3000km_0001U_0003L.zip</title></rect><rect class="mt-zip" x="747" y="60" width="27" height="27"><title>core-dem_MT3000km_0001U_0003R.zip</title></rect><rect class="mt-zip" x="537" y="60" width="27" height="27"><title>core-dem_MT3000km_0001U_0004L.zip</title></rect><rect class="mt-zip" x="777" y="60" width="27" height="27"><title>core-dem_MT3000km_0001U_0004R.zip</title></rect><rect class="mt-zip" x="507" y="60" width="27" height="27"><title>core-dem_MT3000km_0001U_0005L.zip</title></rect><rect class="mt-zip" x="807" y="60" width="27" height="27"><title>core-dem_MT3000km_0001U_0005R.zip</title></rect><rect class="mt-zip" x="837" y="60" width="27" height="27"><title>core-dem_MT3000km_0001U_0006R.zip</title></rect><rect class="mt-zip" x="657" y="150" width="27" height="27"><title>core-dem_MT3000km_0002D_0000R.zip</title></rect><rect class="mt-zip" x="627" y="150" width="27" height="27"><title>core-dem_MT3000km_0002D_0001L.zip</title></rect><rect class="mt-zip" x="687" y="150" width="27" height="27"><title>core-dem_MT3000km_0002D_0001R.zip</title></rect><rect class="mt-zip" x="597" y="150" width="27" height="27"><title>core-dem_MT3000km_0002D_0002L.zip</title></rect><rect class="mt-zip" x="717" y="150" width="27" height="27"><title>core-dem_MT3000km_0002D_0002R.zip</title></rect><rect class="mt-zip" x="567" y="150" width="27" height="27"><title>core-dem_MT3000km_0002D_0003L.zip</title></rect><rect class="mt-zip" x="747" y="150" width="27" height="27"><title>core-dem_MT3000km_0002D_0003R.zip</title></rect><rect class="mt-zip" x="537" y="150" width="27" height="27"><title>core-dem_MT3000km_0002D_0004L.zip</title></rect><rect class="mt-zip" x="777" y="150" width="27" height="27"><title>core-dem_MT3000km_0002D_0004R.zip</title></rect><rect class="mt-zip" x="657" y="30" width="27" height="27"><title>core-dem_MT3000km_0002U_0000R.zip</title></rect><rect class="mt-zip" x="627" y="30" width="27" height="27"><title>core-dem_MT3000km_0002U_0001L.zip</title></rect><rect class="mt-zip" x="687" y="30" width="27" height="27"><title>core-dem_MT3000km_0002U_0001R.zip</title></rect><rect class="mt-zip" x="597" y="30" width="27" height="27"><title>core-dem_MT3000km_0002U_0002L.zip</title></rect><rect class="mt-zip" x="717" y="30" width="27" height="27"><title>core-dem_MT3000km_0002U_0002R.zip</title></rect><rect class="mt-zip" x="567" y="30" width="27" height="27"><title>core-dem_MT3000km_0002U_0003L.zip</title></rect><rect class="mt-zip" x="747" y="30" width="27" height="27"><title>core-dem_MT3000km_0002U_0003R.zip</title></rect><rect class="mt-zip" x="537" y="30" width="27" height="27"><title>core-dem_MT3000km_0002U_0004L.zip</title></rect><rect class="mt-zip" x="777" y="30" width="27" height="27"><title>core-dem_MT3000km_0002U_0004R.zip</title></rect><rect class="mt-zip" x="657" y="180" width="27" height="27"><title>core-dem_MT3000km_0003D_0000R.zip</title></rect><rect class="mt-zip" x="627" y="180" width="27" height="27"><title>core-dem_MT3000km_0003D_0001L.zip</title></rect><rect class="mt-zip" x="687" y="180" width="27" height="27"><title>core-dem_MT3000km_0003D_0001R.zip</title></rect><rect class="mt-zip" x="657" y="0" width="27" height="27"><title>core-dem_MT3000km_0003U_0000R.zip</title></rect><rect class="mt-zip" x="627" y="0" width="27" height="27"><title>core-dem_MT3000km_0003U_0001L.zip</title></rect><rect class="mt-zip" x="687" y="0" width="27" height="27"><title>core-dem_MT3000km_0003U_0001R.zip</title></rect></g>
+      <text class="mt-gcap" x="864" y="226">63 ZIPs, placed by their Major TOM row and column</text>
+      <g class="mt-k mt-bar" data-k="3">
+        <path class="mt-link" d="M580 148 C580 190 556 210 556 242"/>
+        <text class="mt-bl" x="0" y="234">core-dem_MT3000km_0001D_0003L.zip, 1.23 GB</text>
+        <text class="mt-br" x="864" y="234"><tspan class="is-on">492 ranges, 16.5 MB</tspan></text>
+        <rect class="mt-zipbar" x="0" y="244" width="864" height="24"/>
+        <path class="mt-ticks" transform="translate(0 245)" d="M405.5 0V22 M409.5 0V22 M418 0V22 M422.5 0V22 M423 0V22 M427 0V22 M427.5 0V22 M432 0V22 M436 0V22 M440.5 0V22 M444.5 0V22 M447.5 0V22 M451.5 0V22 M460 0V22 M460.5 0V22 M464.5 0V22 M465 0V22 M469 0V22 M473.5 0V22 M477.5 0V22 M482 0V22 M487 0V22 M491 0V22 M491.5 0V22 M495.5 0V22 M500 0V22 M504 0V22 M508.5 0V22 M512.5 0V22 M516.5 0V22 M520.5 0V22 M521 0V22 M524.5 0V22 M525 0V22 M528.5 0V22 M532.5 0V22 M536.5 0V22 M540 0V22 M540.5 0V22 M544 0V22 M547.5 0V22 M551 0V22 M554.5 0V22 M558 0V22 M561 0V22 M564 0V22 M564.5 0V22 M567 0V22 M567.5 0V22 M568 0V22 M571.5 0V22 M574 0V22 M574.5 0V22 M578.5 0V22 M579.5 0V22 M582 0V22 M582.5 0V22 M583 0V22 M585.5 0V22 M586 0V22 M586.5 0V22 M589 0V22 M589.5 0V22 M590 0V22 M592 0V22 M592.5 0V22 M593 0V22 M595.5 0V22 M596 0V22 M599 0V22 M599.5 0V22 M602.5 0V22 M603 0V22 M603.5 0V22 M605.5 0V22 M606 0V22 M608.5 0V22 M609 0V22 M609.5 0V22 M612.5 0V22 M613 0V22 M616 0V22 M616.5 0V22 M619.5 0V22 M620 0V22 M623 0V22 M623.5 0V22 M626.5 0V22 M627 0V22 M627.5 0V22 M630 0V22 M630.5 0V22 M633.5 0V22 M634 0V22 M637 0V22 M640 0V22 M640.5 0V22 M643.5 0V22 M644 0V22 M646.5 0V22 M647 0V22 M650 0V22 M653.5 0V22 M656.5 0V22 M659.5 0V22 M660 0V22 M663 0V22 M666 0V22 M669 0V22 M672 0V22 M674.5 0V22 M675 0V22 M677.5 0V22 M680.5 0V22 M683 0V22 M685.5 0V22 M686 0V22 M688.5 0V22 M691 0V22 M696 0V22 M698.5 0V22 M701 0V22 M703.5 0V22 M706 0V22"/>
+      </g>
+    </svg>
+    <div class="mt-note">
+      <p data-k="1">Major TOM Core-DEM, a public TACOCAT: <span class="title-mark">1,735,044 samples in 63 ZIPs</span>. Opening it fetches the merged metadata, 70.3 MB, once.</p>
+      <p data-k="2">SQL runs on that metadata. <span class="title-mark">492 samples in 14 ms</span>, and not one byte of a ZIP read.</p>
+      <p data-k="3">Each row gives <span class="title-mark">one byte range in one ZIP</span>. Here all 492 lie in the same ZIP: 16.5 MB to fetch of 23.6 GB.</p>
+    </div>
+  </div>
+</section>
+
+    <section class="slide s07" aria-label="Five languages, one reader">
+  <header><span class="brand"><img class="brand-icon" src="../assets/svg/taco-mark-static.svg?v=1" alt=""><span class="brand-name">TACO</span></span><span class="count">07 / 8</span></header>
+  <h1>Five languages, <span class="title-mark">one reader</span></h1>
+  <div class="lnx" data-interactive>
+    <svg class="ln-fig" viewBox="0 0 864 156" role="img" aria-label="The C++ core, libtaco, sits first. It opens datasets, caches their metadata and writes DuckDB SQL, and C calls it directly. One line runs out of it to Python through cffi, R through .Call and Julia through ccall. Python also holds the writer. JavaScript reads the same datasets with its own reader and decodes Parquet with hyparquet.">
+      <rect class="ln-core" data-lang="C" x="0" y="34" width="262" height="104"/>
+      <g transform="translate(36 86)"><g class="lg"><polygon points="0,-19 16.5,-9.5 16.5,9.5 0,19 -16.5,9.5 -16.5,-9.5" fill="#00599C"/><text x="0" y="8" text-anchor="middle" font-size="22" font-weight="800" fill="#fff" font-family="Arial, Helvetica, sans-serif">C</text></g></g>
+      <text class="ln-core-name" x="66" y="70">libtaco</text>
+      <text class="ln-core-sub" x="66" y="90">opens datasets, caches metadata</text>
+      <text class="ln-core-sub" x="66" y="108">and writes DuckDB SQL</text>
+      <text class="ln-core-sub" x="66" y="126">C calls it directly</text>
+      <line class="ln-bus" x1="262" y1="86" x2="572" y2="86"/>
+      <path class="ln-edge" data-lang="Python" d="M262 86 H320 V76"/>
+      <path class="ln-edge" data-lang="R" d="M262 86 H446 V76"/>
+      <path class="ln-edge" data-lang="Julia" d="M262 86 H572 V76"/>
+      <path class="ln-edge" data-lang="JavaScript" d="M711 86 H793"/>
+      <rect class="ln-core-hit" data-lang="C" x="0" y="34" width="262" height="104"/>
+      <g class="ln" data-lang="Python" transform="translate(320 0)"><rect class="ln-hit" x="-56" y="0" width="112" height="156"/><g transform="translate(0 28)"><g class="lg"><rect x="-17" y="-17" width="22" height="22" fill="#3776AB"/><rect x="-5" y="-5" width="22" height="22" fill="#FFD43B"/><rect x="-13" y="-13" width="4" height="4" fill="#fff"/><rect x="9" y="9" width="4" height="4" fill="#fff"/></g></g><text class="ln-name" x="0" y="68">Python</text><text class="ln-how" x="0" y="122">cffi</text><text class="ln-how is-on" x="0" y="140">and the writer</text></g>
+      <g class="ln" data-lang="R" transform="translate(446 0)"><rect class="ln-hit" x="-58" y="0" width="116" height="156"/><g transform="translate(0 28)"><g class="lg"><ellipse cx="0" cy="-1" rx="19" ry="13" fill="none" stroke="#a9acb3" stroke-width="5"/><text x="2" y="10" text-anchor="middle" font-size="26" font-weight="800" fill="#276DC3" font-family="Arial, Helvetica, sans-serif">R</text></g></g><text class="ln-name" x="0" y="68">R</text><text class="ln-how" x="0" y="122">.Call</text></g>
+      <g class="ln" data-lang="Julia" transform="translate(572 0)"><rect class="ln-hit" x="-58" y="0" width="116" height="156"/><g transform="translate(0 28)"><g class="lg"><circle cx="0" cy="-9" r="7.5" fill="#389826"/><circle cx="-9" cy="7" r="7.5" fill="#CB3C33"/><circle cx="9" cy="7" r="7.5" fill="#9558B2"/></g></g><text class="ln-name" x="0" y="68">Julia</text><text class="ln-how" x="0" y="122">ccall</text></g>
+      <g class="ln-pq" data-lang="JavaScript" transform="translate(694 86)"><g class="lg"><rect x="-17" y="-17" width="34" height="34" fill="#492ae8"/><path d="M-17 -5.7 H17 M-17 5.7 H17 M-5 -17 V17" stroke="#fff" stroke-width="2"/></g></g>
+      <text class="ln-pq-name" x="694" y="122" text-anchor="middle">hyparquet</text>
+      <text class="ln-how" x="694" y="140">decodes Parquet</text>
+      <g class="ln" data-lang="JavaScript" transform="translate(812 0)"><rect class="ln-hit" x="-50" y="0" width="100" height="156"/><g transform="translate(0 86)"><g class="lg"><rect x="-17" y="-17" width="34" height="34" fill="#F7DF1E"/><text x="13" y="13" text-anchor="end" font-size="15" font-weight="800" fill="#111" font-family="Arial, Helvetica, sans-serif">JS</text></g></g><text class="ln-name" x="0" y="122">JavaScript</text><text class="ln-how" x="0" y="140">own reader</text></g>
+    </svg>
+    <div class="ln-code">
+      <div class="ln-tabs" role="tablist" aria-label="Language"><button type="button" role="tab" data-lang="Python" aria-selected="true">Python</button><button type="button" role="tab" data-lang="R" aria-selected="false">R</button><button type="button" role="tab" data-lang="Julia" aria-selected="false">Julia</button><button type="button" role="tab" data-lang="JavaScript" aria-selected="false">JavaScript</button><button type="button" role="tab" data-lang="C" aria-selected="false">C</button></div>
+      <pre data-lang="Python"><code><span class="tok-kw">with</span> taco.<span class="tok-fn">open_writer</span>(collection, <span class="tok-str">"lima-change.zip"</span>) <span class="tok-kw">as</span> writer:
+    writer.<span class="tok-fn">add</span>(sample)
+    writer.<span class="tok-fn">run</span>()
+
+dataset = taco.<span class="tok-fn">open_dataset</span>(<span class="tok-str">"https://data.source.coop/major-tom/core-dem/"</span>)
+peru = dataset.<span class="tok-fn">sql</span>(<span class="tok-str">"""SELECT id, "dem.rumi::location" FROM dataset
+  WHERE "geoenrich:admin_countries" = 'Peru' AND "geoenrich:elevation" &gt; 4500"""</span>)</code></pre><pre data-lang="R" hidden><code>dataset &lt;- taco::<span class="tok-fn">open_dataset</span>(<span class="tok-str">"https://data.source.coop/major-tom/core-dem/"</span>)
+peru &lt;- taco::<span class="tok-fn">sql</span>(dataset, <span class="tok-str">r"(SELECT id, "dem.rumi::location" FROM dataset
+  WHERE "geoenrich:admin_countries" = 'Peru' AND "geoenrich:elevation" &gt; 4500)"</span>)</code></pre><pre data-lang="Julia" hidden><code><span class="tok-kw">using</span> Taco
+dataset = Taco.<span class="tok-fn">open_dataset</span>(<span class="tok-str">"https://data.source.coop/major-tom/core-dem/"</span>)
+peru = Taco.<span class="tok-fn">sql</span>(dataset, <span class="tok-str">"""SELECT id, "dem.rumi::location" FROM dataset
+  WHERE "geoenrich:admin_countries" = 'Peru' AND "geoenrich:elevation" &gt; 4500"""</span>)</code></pre><pre data-lang="JavaScript" hidden><code><span class="tok-kw">import</span> { openDataset } <span class="tok-kw">from</span> <span class="tok-str">"@asterisk-labs/taco"</span>;
+<span class="tok-kw">const</span> dataset = <span class="tok-kw">await</span> <span class="tok-fn">openDataset</span>(
+  <span class="tok-str">"https://data.source.coop/major-tom/core-dem/core-dem_MT3000km_0001D_0003L.zip"</span>);
+<span class="tok-kw">const</span> peru = <span class="tok-kw">await</span> dataset.<span class="tok-fn">read</span>({
+  filter: { <span class="tok-str">"geoenrich:admin_countries"</span>: <span class="tok-str">"Peru"</span>, <span class="tok-str">"geoenrich:elevation"</span>: { $gt: <span class="tok-num">4500</span> } },
+});</code></pre><pre data-lang="C" hidden><code>taco_dataset *ds;
+<span class="tok-fn">taco_open</span>(<span class="tok-str">"https://data.source.coop/major-tom/core-dem/"</span>, NULL, &amp;ds);
+taco_read_options opts = { .pivoted = <span class="tok-num">1</span>, .location = <span class="tok-num">1</span> };
+<span class="tok-kw">char</span> *view;
+<span class="tok-fn">taco_sql</span>((<span class="tok-kw">const</span> taco_dataset *<span class="tok-kw">const</span> *)&amp;ds, <span class="tok-num">1</span>, &amp;opts, &amp;view);
+<span class="tok-com">/* view is DuckDB SQL: run SELECT ... FROM (view) WHERE ... with DuckDB */</span></code></pre>
+    </div>
+    <p class="path-note">Every snippet ran here and found the same 492 rows. JavaScript filters rows after it reads them, so it opens the one ZIP that holds all 492.</p>
+  </div>
+</section>
+
+    <section class="slide cover closing s08" aria-label="Thank you">
+      <img class="cover-asterisk" src="fig/asterisk_banner.svg" alt="Asterisk Labs">
+      <div class="cover-inner">
+        <img class="cover-logo" src="../assets/svg/taco-mark.svg?v=1" alt="">
+        <div class="cover-copy">
+          <h1>Thank you</h1>
+          <button type="button" class="end-install" data-copy="pip install taco-eo" aria-label="Copy the install command">pip install taco-eo</button>
+          <p class="end-links">
+            <a href="https://asterisk.coop/taco/" target="_blank" rel="noopener noreferrer">asterisk.coop/taco</a>
+            <a href="https://github.com/asterisk-labs/taco" target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="currentColor"><path d="M12 .3a12 12 0 0 0-3.8 23.4c.6.1.8-.3.8-.6v-2.1c-3.3.7-4-1.6-4-1.6-.5-1.4-1.3-1.7-1.3-1.7-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1.1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.8-1.6-2.7-.3-5.5-1.3-5.5-5.9 0-1.3.5-2.4 1.2-3.2-.1-.3-.5-1.5.1-3.2 0 0 1-.3 3.3 1.2a11.5 11.5 0 0 1 6 0c2.3-1.5 3.3-1.2 3.3-1.2.6 1.7.2 2.9.1 3.2.8.8 1.2 1.9 1.2 3.2 0 4.6-2.8 5.6-5.5 5.9.4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6A12 12 0 0 0 12 .3"></path></svg>GitHub</a>
+            <a href="../spec/index.html">Specification</a>
+          </p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    // The install command on the closing slide copies itself when clicked.
+    (function () {
+      var button = document.querySelector('.end-install');
+      if (!button || !navigator.clipboard) return;
+      button.addEventListener('click', function () {
+        navigator.clipboard.writeText(button.dataset.copy).then(function () {
+          button.classList.add('is-copied');
+          window.setTimeout(function () { button.classList.remove('is-copied'); }, 1200);
+        });
+      });
+    })();
+  </script>
+  <script>
+    // Slides with steps. The arrows step through them before moving on (app.js), a tab jumps to
+    // a step, and leaving a slide sends it back to step 1, as on the cozip deck.
+    document.querySelectorAll('.slide[data-steps]').forEach(function (slide) {
+      var tabs = slide.querySelectorAll('.tabs button');
+
+      function sync() {
+        var step = slide.dataset.step || '1';
+        tabs.forEach(function (btn) {
+          btn.setAttribute('aria-selected', String(btn.dataset.to === step));
+        });
+      }
+
+      tabs.forEach(function (btn) {
+        btn.addEventListener('click', function (event) {
+          event.stopPropagation();
+          slide.dataset.step = btn.dataset.to;
+        });
+      });
+      new MutationObserver(function (list) {
+        list.forEach(function (m) {
+          if (m.attributeName === 'class' && !slide.classList.contains('active')) slide.dataset.step = '1';
+        });
+        sync();
+      }).observe(slide, { attributes: true, attributeFilter: ['class', 'data-step'] });
+      sync();
+    });
+  </script>
+  <script>
+    // The languages slide. Pointing at a language, or clicking its tab, shows its code in
+    // the one code block and lights its path, as on the cozip, GeoZL and Rumi decks.
+    (function () {
+      var box = document.querySelector('.lnx');
+      if (!box) return;
+      var tabs = Array.prototype.slice.call(box.querySelectorAll('.ln-tabs button'));
+      var pres = Array.prototype.slice.call(box.querySelectorAll('.ln-code pre'));
+      var parts = Array.prototype.slice.call(box.querySelectorAll('.ln-fig [data-lang]'));
+      function pick(lang) {
+        tabs.forEach(function (t) { t.setAttribute('aria-selected', String(t.dataset.lang === lang)); });
+        pres.forEach(function (p) { p.hidden = p.dataset.lang !== lang; });
+        parts.forEach(function (p) { p.classList.toggle('is-on', p.dataset.lang === lang); });
+      }
+      tabs.forEach(function (t) { t.addEventListener('click', function () { pick(t.dataset.lang); }); });
+      box.querySelectorAll('.ln-fig g.ln, .ln-fig .ln-core-hit').forEach(function (g) {
+        g.addEventListener('mouseenter', function () { pick(g.dataset.lang); });
+        g.addEventListener('click', function () { pick(g.dataset.lang); });
+      });
+      pick('Python');
+    })();
+  </script>
+</body>
+</html>

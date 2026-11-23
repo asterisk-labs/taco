@@ -1,0 +1,112 @@
+/* The landing figure (assets/js/flow.js): five datasets stored five ways,
+   through TACO, out as five datasets of one shape. Pointing at a dataset
+   lights its path and fills the panel under the drawing. Drawn like the
+   cozip, Rumi and Karu figures: hairlines and square blocks. */
+
+.flow {
+  min-width: 0;
+  margin: 0;
+}
+
+.flow > svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+  font-family: var(--sans);
+}
+
+@media (min-width: 861px) {
+  .flow > svg { max-height: calc(100svh - 360px); }
+}
+
+.fl-ruler { fill: var(--faint); font: 400 10px var(--mono); letter-spacing: 0.04em; }
+.fl-code { fill: var(--ink-soft); font: 400 11.5px var(--mono); white-space: pre; }
+
+/* today: each card its own tint and its own pile */
+.fl-set { cursor: pointer; outline: none; transition: opacity 220ms ease; }
+.flow[data-active] .fl-set:not(.is-active) { opacity: 0.22; }
+
+.fl-card { stroke: var(--ink); stroke-width: 1.2; transition: stroke 200ms ease, stroke-width 200ms ease; }
+.fl-name { fill: var(--ink); font: 600 13px var(--sans); }
+.fl-format { fill: var(--ink-soft); font: 400 11px var(--sans); }
+.fl-glyph { fill: var(--ink); font: 500 10px var(--mono); }
+.fl-ink-thin { stroke: var(--ink); stroke-width: 0.8; }
+
+/* the paths through TACO */
+.fl-path {
+  fill: none;
+  stroke: #b8bac2;
+  stroke-width: 1.2;
+  transition: stroke 200ms ease, stroke-width 200ms ease;
+}
+
+.fl-set.is-active .fl-path { stroke: var(--violet); stroke-width: 2; }
+
+.fl-band-box { fill: #fff; stroke: var(--ink); stroke-width: 1.6; transition: stroke 200ms ease; }
+.flow[data-active] .fl-band-box { stroke: var(--violet); stroke-width: 2.4; }
+.fl-band-title { fill: var(--ink); font: 600 17px var(--sans); }
+.fl-band-sub { fill: var(--dim); font: 400 12px var(--sans); }
+
+/* as TACO: one shape for all */
+.fl-box { fill: #fff; stroke: var(--ink); stroke-width: 1.2; transition: stroke 200ms ease, stroke-width 200ms ease; }
+.fl-chip { stroke: var(--ink); stroke-width: 0.8; }
+.fl-cell { fill: #e9e6fb; }
+.fl-cell.is-file { fill: var(--violet); }
+
+.fl-set.is-active .fl-card,
+.fl-set.is-active .fl-box,
+.fl-set:focus-visible .fl-card,
+.fl-set:focus-visible .fl-box { stroke: var(--violet); stroke-width: 2.6; }
+
+/* the panel under the drawing */
+.flow-info {
+  min-height: 186px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--edge);
+  color: var(--ink-soft);
+  font: 400 13px/1.45 var(--sans);
+}
+
+.flow-hint { margin: 0; max-width: 56ch; font-size: 15px; line-height: 1.5; }
+.flow-hint a { color: var(--violet); }
+
+.flow-title { margin: 0 0 8px; font-size: 15px; }
+.flow-title b { color: var(--ink); font-weight: 600; }
+
+.flow-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+.flow-k {
+  margin: 0 0 4px;
+  color: var(--faint);
+  font: 500 10px/1 var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.flow-k.is-taco { color: var(--violet); }
+
+.flow-info dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 3px 10px;
+  margin: 0;
+}
+
+.flow-info dt { color: var(--faint); }
+.flow-info dd { margin: 0; color: var(--ink-soft); }
+.flow-info code { font: 400 11.5px var(--mono); color: var(--ink); }
+
+@media (prefers-reduced-motion: reduce) {
+  .fl-set, .fl-card, .fl-path, .fl-band-box, .fl-box { transition: none; }
+}
+
+@media (max-width: 560px) {
+  .flow-cols { grid-template-columns: 1fr; gap: 10px; }
+  .flow-info { min-height: 0; }
+}

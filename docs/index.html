@@ -15,7 +15,7 @@
 <link rel="stylesheet" href="assets/css/shell.css?v=1">
 <link rel="stylesheet" href="assets/css/content.css?v=1">
 <link rel="stylesheet" href="assets/css/home.css?v=1">
-<link rel="stylesheet" href="assets/css/figure.css?v=1">
+<link rel="stylesheet" href="assets/css/flow.css?v=1">
 </head>
 
 <body>
@@ -84,7 +84,7 @@
         </div>
       </div>
 
-      <figure class="read" id="read" data-label="Major TOM Core-DEM, a TACO dataset of 1,735,044 samples: a catalog with COLLECTION.json, sample.parquet and children.parquet, and 63 ZIP partitions that hold 23.6 GB of DEM files. Four steps, chosen with the arrows or the step names. Contract: COLLECTION.json declares one file per sample, dem.rumi, 23 sample fields and 7 file fields. Samples: the sample level is a table with one row per sample, its country, its elevation and the location of its file. Filter: the SQL condition Peru and above 4,500 m keeps 492 of 1,735,044 samples in 14 ms. Read: the 492 kept files are 492 byte ranges, 16.5 MB, all in one of the 63 ZIPs."></figure>
+      <figure class="flow" id="flow" data-label="Five public Earth observation datasets, each stored its own way: EuroSAT as GeoTIFF patches, BigEarthNet as a GeoTIFF per band with JSON labels, SEN12MS as tar.gz archives per season and sensor, So2Sat as HDF5 files and LEVIR-CD as PNG pairs and masks. Each passes through TACO, which gives it one contract, and comes out with the same shape: one row per sample with its files beside it. Point at or tab to a dataset to read how it is stored today and how it reads as TACO."></figure>
     </section>
   </main>
 
@@ -98,7 +98,7 @@
   </footer>
 </div>
 <script src="assets/js/backdrop.js?v=1"></script>
-<script src="assets/js/read.js?v=1"></script>
+<script src="assets/js/flow.js?v=1"></script>
 <script src="assets/js/home.js?v=1"></script>
 </body>
 </html>

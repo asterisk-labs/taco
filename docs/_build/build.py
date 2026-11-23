@@ -44,7 +44,7 @@ REQUIRED = (
     "javascript/src/index.js",
     "deck/index.html",
     "assets/css/reading.css",
-    "assets/js/read.js",
+    "assets/js/flow.js",
     "assets/svg/taco-mark.svg",
 )
 # The order of the extensions in the left column, as in the table of spec 5.7.

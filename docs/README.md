@@ -39,8 +39,11 @@ identifiers: never move them.
 
 ## Numbers
 
-The landing figure and the API pages measure
+The API pages measure
 [Major TOM Core-DEM](https://source.coop/major-tom/core-dem), a public TACOCAT of
 1,735,044 samples on Source Cooperative, with the Python reader on a laptop. The
-small examples write their own dataset, so they run anywhere. Keep every number on
+landing figure takes the facts of its five datasets from the
+[TorchGeo dataset docs](https://docs.torchgeo.org/en/stable/api/datasets.html), and
+its TACO side is an example, not a published dataset. The small examples write their
+own dataset, so they run anywhere. Keep every number on
 the site measured; when the reader changes, measure again.

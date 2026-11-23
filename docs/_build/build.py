@@ -106,6 +106,7 @@ PAGE = """<!DOCTYPE html>
       <a href="{root}api.html">API</a>
       <a href="{root}playground/index.html">Playground</a>
       <a href="{root}spec/index.html" class="here">Spec</a>
+      <a href="{root}onepager/index.html">One-pager</a>
       <a href="{root}deck/index.html">Deck</a>
     </nav>
   </header>

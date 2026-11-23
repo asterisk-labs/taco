@@ -3,9 +3,10 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#ffffff">
   <meta name="author" content="Sammy Carlos Romualdo">
   <meta name="description" content="Browse TACO samples by their spatial centroid.">
-  <title>TACO viewer</title>
+  <title>TACO · Playground</title>
   <script>
     if (window.location.protocol === "file:") {
       window.location.replace(`http://127.0.0.1:8765/playground/${window.location.search}${window.location.hash}`);
@@ -13,8 +14,10 @@
   </script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@6.9.0/dist/maplibre-gl.css">
   <link rel="icon" href="../assets/svg/taco-mark-static.svg?v=1" type="image/svg+xml">
-  <link rel="stylesheet" href="styles.css?v=60">
-  <link rel="stylesheet" href="../shared/navigation.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=League+Spartan:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css?v=61">
   <script type="importmap">
     {
       "imports": {
@@ -27,17 +30,11 @@
   </script>
 </head>
 <body>
-  <header class="topbar">
-    <div class="brand-group">
-      <a class="brand" href="../index.html" aria-label="TACO home">
-        <img class="brand-mark" src="../assets/svg/taco-mark.svg?v=1" alt="">
-        <span><strong>TACO</strong><small>viewer</small></span>
-      </a>
-      <a class="taco-home-link" href="../index.html" aria-label="Back to home" title="Back to home">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11.5L12 4l9 7.5"/><path d="M5.5 10v10h13V10"/><path d="M9.5 20v-6h5v6"/></svg>
-        <span>Home</span>
-      </a>
-    </div>
+  <header class="masthead">
+    <a class="lockup" href="../index.html" aria-label="TACO home">
+      <img class="marksvg" src="../assets/svg/taco-mark.svg?v=1" alt="">
+      <span class="wm-sm">TACO</span>
+    </a>
 
     <div class="dataset-picker" aria-label="Open a TACO dataset">
       <div class="url-combobox">
@@ -47,9 +44,15 @@
         <input id="datasetUrl" type="url" placeholder="https://example.com/dataset.zip" aria-label="TACO dataset URL" spellcheck="false">
       </div>
       <button id="loadDataset" class="dataset-button primary" type="button">Load</button>
+      <div id="status" class="status"><i></i><span>Loading</span></div>
     </div>
 
-    <div id="status" class="status"><i></i><span>Loading</span></div>
+    <nav class="nav" aria-label="Sections">
+      <a href="../api.html">API</a>
+      <a href="index.html" class="here" aria-current="page">Playground</a>
+      <a href="../spec/index.html">Spec</a>
+      <a href="../deck/index.html">Deck</a>
+    </nav>
   </header>
 
   <main>
@@ -137,14 +140,14 @@ WHERE "geoenrich:admin_countries" = 'Peru'</textarea>
 
     <footer class="colophon">
       <span>Made with</span>
-      <span class="heart" aria-label="love" role="img">♥</span>
+      <span class="heart" aria-label="love" role="img"></span>
       <span>by</span>
       <a class="by" href="https://asterisk.coop" target="_blank" rel="noopener noreferrer" aria-label="Asterisk Labs">
-        <img src="asterisk-mark.svg" alt="Asterisk Labs">
+        <img src="../assets/svg/asterisk-mark.svg" alt="Asterisk Labs">
       </a>
     </footer>
   </main>
 
-  <script type="module" src="app.js?v=82"></script>
+  <script type="module" src="app.js?v=83"></script>
 </body>
 </html>

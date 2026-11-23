@@ -22,7 +22,7 @@ const CENTROID_PROFILES = new Set(["stac", "stac-interval", "shared-stac", "stac
 const CENTROID_FIELDS = ["stac:centroid", "spatial:centroid"];
 // Columns that locate a sample; they are not shown as metadata or offered for coloring.
 const LOCATION_FIELDS = new Set([...CENTROID_FIELDS, "stac:geometry", "spatial:geometry", "stac:bbox", "spatial:bbox"]);
-const PLOT_COLORS = ["#0f766e", "#2563eb", "#7c3aed", "#d97706", "#dc2626", "#0891b2", "#65a30d", "#c026d3"];
+const PLOT_COLORS = ["#492ae8", "#d97706", "#0f766e", "#dc2626", "#2563eb", "#65a30d", "#c026d3", "#0891b2"];
 const DESKTOP_POINT_LIMIT = 100_000;
 const DESKTOP_POINT_STEP = 50_000;
 const MOBILE_POINT_LIMIT = 25_000;
@@ -186,6 +186,17 @@ const map = new maplibregl.Map({
 map.addControl(basemapControl(), "top-left");
 map.addControl(new maplibregl.NavigationControl({ showCompass: true, visualizePitch: true }), "bottom-right");
 map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-right");
+// Esri and OpenStreetMap ask for their credit, so it stays one click away behind the
+// (i) button instead of over the map. MapLibre opens the compact control when the first
+// attribution arrives; close it then.
+function collapseCredit() {
+  const credit = map.getContainer().querySelector(".maplibregl-ctrl-attrib.maplibregl-compact-show");
+  if (!credit) return;
+  credit.removeAttribute("open");
+  credit.classList.remove("maplibregl-compact-show");
+  map.off("sourcedata", collapseCredit);
+}
+map.on("sourcedata", collapseCredit);
 const mapReady = new Promise((resolve) => map.on("load", resolve));
 
 map.on("click", (event) => {

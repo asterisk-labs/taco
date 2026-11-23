@@ -318,6 +318,35 @@ html[data-route="home"] .colophon {
   opacity: 0.76;
 }
 
+/* CC BY 4.0 credit for the Twemoji taco in the mark. */
+.credit {
+  margin-left: 10px;
+  padding-left: 12px;
+  border-left: 1px solid var(--edge);
+}
+
+.credit a {
+  color: var(--dim);
+  text-decoration: underline;
+  text-decoration-color: var(--edge);
+  text-underline-offset: 2px;
+}
+
+.credit a:hover,
+.credit a:focus-visible { color: var(--ink-soft); }
+
+@media (max-width: 480px) {
+  html[data-route="home"] .colophon { flex-wrap: wrap; }
+
+  .credit {
+    flex-basis: 100%;
+    margin: 4px 0 0;
+    padding: 0;
+    border: 0;
+    text-align: center;
+  }
+}
+
 @keyframes view-in {
   from {
     opacity: 0;

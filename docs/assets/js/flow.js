@@ -213,7 +213,7 @@
     var hub = el('g', { 'class': 'fl-hub' }, svg);
     el('circle', { 'class': 'fl-hub-ring', cx: HUB.x, cy: HUB.y, r: HUB.r + 7 }, hub);
     el('circle', { 'class': 'fl-hub-disc', cx: HUB.x, cy: HUB.y, r: HUB.r }, hub);
-    el('image', { href: 'assets/svg/taco-mark-static.svg?v=1', x: HUB.x - 25, y: HUB.y - 27, width: 50, height: 50 }, hub);
+    el('image', { href: 'assets/svg/taco-mark-static.svg?v=2', x: HUB.x - 25, y: HUB.y - 27, width: 50, height: 50 }, hub);
     text(hub, HUB.x + HUB.r + 18, HUB.y + 7, 'TACO', 'fl-hub-name');
 
     // what comes out: rasters as Rumi, tables as Parquet, JSON as JSON

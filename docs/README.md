@@ -40,6 +40,13 @@ them. After changing the specification or an extension document, run
 `docs/` match. The schema URLs under `spec/extensions/<name>/v1.0.0/` are extension
 identifiers: never move them.
 
+## Logo
+
+The TACO mark, `assets/svg/taco-mark.svg` and `taco-mark-static.svg`, is the taco from
+[Twemoji](https://github.com/jdecked/twemoji) 16.0.1, copyright Twitter, Inc and other
+contributors, licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+Keep the credit in both files and in the landing page footer.
+
 ## Numbers
 
 The API pages measure

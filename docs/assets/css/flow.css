@@ -1,7 +1,8 @@
-/* The landing figure (assets/js/flow.js): five datasets stored their own way,
-   through TACO, out as Rumi, Parquet and JSON in one shape. Pointing at a
-   dataset lights its path and fills the panel under the drawing. Drawn like
-   the cozip, Rumi and Karu figures: hairlines and square blocks. */
+/* The landing figure (assets/js/flow.js): forty datasets stored their own
+   way pour through TACO and come out as Rumi, Parquet and JSON in one shape.
+   Pointing at a tile lights it and its way through TACO, and fills the table
+   and the panel under the drawing. Drawn like the cozip, Rumi and Karu
+   figures: hairlines, square blocks and one circle, TACO. */
 
 .flow {
   min-width: 0;
@@ -17,49 +18,74 @@
 }
 
 @media (min-width: 861px) {
-  .flow > svg { max-height: calc(100svh - 360px); }
+  .flow > svg { max-height: calc(100svh - 330px); }
 }
 
-/* today: each card its own tint and its own pile */
-.fl-set { cursor: pointer; outline: none; transition: opacity 220ms ease; }
-.flow[data-active] .fl-set:not(.is-active) { opacity: 0.22; }
+/* the tiles: each its own tint and glyph, a little out of line */
+.fl-tile {
+  cursor: default;
+  outline: none;
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: opacity 200ms ease, transform 200ms ease;
+}
 
-.fl-card { stroke: var(--ink); stroke-width: 1.2; transition: stroke 200ms ease, stroke-width 200ms ease; }
-.fl-name { fill: var(--ink); font: 600 13px var(--sans); }
-.fl-format { fill: var(--ink-soft); font: 500 10.5px var(--mono); letter-spacing: 0.02em; }
-.fl-glyph { fill: var(--ink); font: 500 10px var(--mono); }
+.flow[data-active] .fl-tile:not(.is-active) { opacity: 0.32; }
+.fl-tile.is-active { transform: scale(1.14); }
+
+.fl-tile-box { stroke: var(--ink); stroke-width: 1; transition: stroke 160ms ease, stroke-width 160ms ease; }
+.fl-tile:hover .fl-tile-box,
+.fl-tile:focus-visible .fl-tile-box,
+.fl-tile.is-active .fl-tile-box { stroke: var(--violet); stroke-width: 2.6; }
+
+.fl-glyph { fill: var(--ink); font: 600 7.5px var(--mono); }
 .fl-thin { stroke: var(--ink); stroke-width: 0.8; }
-.fl-rule { stroke: var(--ink); stroke-width: 0.6; }
+.fl-rule { stroke: var(--ink); stroke-width: 0.6; fill: none; }
 
-/* the paths through TACO */
-.fl-path {
+/* the funnel and the way through TACO */
+.fl-funnel { fill: #f1effd; }
+
+.fl-way {
   fill: none;
-  stroke: #b8bac2;
-  stroke-width: 1.2;
-  transition: stroke 200ms ease, stroke-width 200ms ease;
+  stroke: var(--violet);
+  stroke-width: 2;
+  stroke-linecap: round;
+  opacity: 0;
+  transition: opacity 160ms ease;
 }
 
-.fl-set.is-active .fl-path { stroke: var(--violet); stroke-width: 2; }
+.fl-way-dot { fill: var(--violet); opacity: 0; transition: opacity 160ms ease; }
+.flow[data-active] .fl-way,
+.flow[data-active] .fl-way-dot { opacity: 1; }
 
-.fl-band-box { fill: #fff; stroke: var(--ink); stroke-width: 1.6; transition: stroke 200ms ease; }
-.flow[data-active] .fl-band-box { stroke: var(--violet); stroke-width: 2.4; }
-.fl-band-title { fill: var(--ink); font: 600 18px var(--sans); }
-.fl-type { stroke: var(--ink); stroke-width: 1; }
-.fl-type-name { fill: var(--ink); font: 500 13px var(--sans); }
+/* TACO */
+.fl-hub-ring { fill: none; stroke: var(--violet); stroke-width: 1.4; stroke-dasharray: 3 4; transition: stroke-width 160ms ease; }
+.flow[data-active] .fl-hub-ring { stroke-width: 2.6; stroke-dasharray: none; }
+.fl-hub-disc { fill: #fff; stroke: var(--ink); stroke-width: 1.6; }
+.fl-hub-name { fill: var(--ink); font: 600 20px var(--sans); }
 
-/* in TACO: one shape for all */
-.fl-box { fill: #fff; stroke: var(--ink); stroke-width: 1.2; transition: stroke 200ms ease, stroke-width 200ms ease; }
-.fl-row { fill: #e9e6fb; }
+/* what comes out */
+.fl-port { transition: opacity 200ms ease; }
+.fl-port-line { fill: none; stroke: #b8bac2; stroke-width: 1.4; stroke-linecap: round; transition: stroke 160ms ease, stroke-width 160ms ease; }
+.fl-port.is-used .fl-port-line { stroke: var(--violet); stroke-width: 2; }
+.flow[data-active] .fl-port:not(.is-used) { opacity: 0.3; }
+.fl-port-dot { stroke: var(--ink); stroke-width: 1; }
+.fl-port-name { fill: var(--ink); font: 500 13px var(--sans); }
 
-.fl-set.is-active .fl-card,
-.fl-set.is-active .fl-box,
-.fl-set:focus-visible .fl-card,
-.fl-set:focus-visible .fl-box { stroke: var(--violet); stroke-width: 2.6; }
+/* one row per sample */
+.fl-table-box { fill: #fff; stroke: var(--ink); stroke-width: 1.2; transition: stroke 160ms ease, stroke-width 160ms ease; }
+.flow[data-active] .fl-table-box { stroke: var(--violet); stroke-width: 2.4; }
+.fl-table-name { fill: var(--ink); font: 600 13px var(--sans); }
+.flow:not([data-active]) .fl-table-name { fill: var(--faint); font-weight: 500; }
+.fl-table-count { fill: var(--ink-soft); font: 400 11.5px var(--mono); }
+.fl-cell { fill: #eeedf6; }
+.fl-cell.is-id { fill: #dcd7fa; }
+.fl-file { stroke: var(--ink); stroke-width: 0.8; }
 
 /* the panel under the drawing */
 .flow-info {
   min-height: 150px;
-  margin-top: 14px;
+  margin-top: 12px;
   padding-top: 12px;
   border-top: 1px solid var(--edge);
   color: var(--ink-soft);
@@ -105,7 +131,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .fl-set, .fl-card, .fl-path, .fl-band-box, .fl-box { transition: none; }
+  .fl-tile, .fl-tile-box, .fl-way, .fl-way-dot, .fl-hub-ring, .fl-port, .fl-port-line, .fl-table-box { transition: none; }
 }
 
 @media (max-width: 560px) {

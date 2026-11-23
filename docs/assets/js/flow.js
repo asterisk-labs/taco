@@ -1,8 +1,8 @@
-// The landing figure: five public datasets, each stored its own way, pass
-// through TACO and come out with one shape. Rasters become Rumi files, which
-// decode on a CPU or a GPU; tables and JSON stay tables and JSON. Five of the
-// datasets below are shown on every load, CloudSEN12 and four at random. Pointing at one, tapping
-// it or focusing it lights its path and fills the panel under the drawing.
+// The landing figure: forty public datasets, each stored its own way, pour
+// through TACO and come out in one shape. Rasters become Rumi files, which
+// decode on a CPU or a GPU; tables become Parquet and JSON stays JSON. Every
+// dataset is a tile; pointing at one or focusing it lights it,
+// draws its way through TACO and fills the table and the panel below.
 // Nothing moves on its own.
 //
 // The facts come from the TorchGeo dataset documentation, docs.torchgeo.org,
@@ -18,21 +18,20 @@
 
   var NS = 'http://www.w3.org/2000/svg';
   var W = 660;
-  var H = 322;
-  var SHOWN = 5;
+  var H = 432;
 
   var TASKS = {
     C: 'classification', S: 'segmentation', CD: 'change detection', OD: 'object detection',
     I: 'instance segmentation', R: 'regression', T: 'time series'
   };
   var TYPES = { rumi: '#492ae8', table: '#f7cc09', json: '#c4ffc2' };
-  var TINTS = ['#d8efd6', '#f3e6b3', '#d3e5f3', '#f3dccd', '#f2d4dc'];
-  var LABELS = {
-    tif: 'TIFF', bands: 'TIFF', png: 'PNG', jpg: 'JPEG', h5: 'HDF5', tar: 'TAR.GZ',
-    json: 'JSON', geojson: 'GeoJSON', xml: 'XML', npy: 'NPY', npz: 'NPZ', csv: 'CSV',
-    nc: 'NetCDF', jp2: 'JP2', shp: 'SHP'
+  // each tile takes the tint of its first format, so the mosaic shows how
+  // mixed the formats are
+  var TINTS = {
+    tif: '#d8efd6', bands: '#d8efd6', png: '#f2d4dc', jpg: '#d3e5f3', jp2: '#d3e5f3',
+    h5: '#f3dccd', npy: '#e4e2f3', npz: '#e4e2f3', nc: '#e2eed8', tar: '#dbe6f3',
+    json: '#f3e6b3', geojson: '#f3e6b3', csv: '#f3e6b3', xml: '#f3e6b3', shp: '#e7f0dc'
   };
-
   // name, task codes, source, samples, classes, size in px, resolution in m,
   // bands, license, the formats today, the glyphs that draw them, and the files
   // of one sample in TACO
@@ -86,9 +85,10 @@
     };
   });
 
-  var CARD = { w: 120, gap: 15, y: 0, h: 104 };
-  var BAND = { x: 0, y: 136, w: 660, h: 50 };
-  var BOX = { y: 222, h: 98 };
+  var TILE = { w: 58, h: 40, pitch: 66, row: 48, x: 4, y: 6, cols: 10 };
+  var HUB = { x: 330, y: 262, r: 34 };
+  var PORTS = [['rumi', 'Rumi', 242], ['table', 'Parquet', 330], ['json', 'JSON', 418]];
+  var TABLE = { x: 190, y: 338, w: 280, h: 90 };
 
   function el(tag, attrs, parent) {
     var node = document.createElementNS(NS, tag);
@@ -110,159 +110,135 @@
     return 'json';
   }
 
-  // Five datasets on every load: CloudSEN12, at a random place, and four more
-  // drawn with a Fisher-Yates shuffle.
-  var ALWAYS = 'CloudSEN12';
-
-  function pick() {
-    var pool = POOL.filter(function (d) { return d.name !== ALWAYS; });
+  // the forty tiles in a new order on every load
+  function shuffled() {
+    var pool = POOL.slice();
     for (var i = pool.length - 1; i > 0; i--) {
       var j = Math.floor(Math.random() * (i + 1));
       var t = pool[i]; pool[i] = pool[j]; pool[j] = t;
     }
-    var sets = pool.slice(0, SHOWN - 1);
-    var fixed = POOL.filter(function (d) { return d.name === ALWAYS; })[0];
-    sets.splice(Math.floor(Math.random() * SHOWN), 0, fixed);
-    return sets;
+    return pool;
   }
 
-  function doc(g, x, y, mark, fill) {
-    el('path', { d: 'M' + x + ' ' + (y + 6) + ' h22 l8 8 v26 h-30 Z', fill: fill, 'class': 'fl-thin' }, g);
-    text(g, x + 15, y + 31, mark, 'fl-glyph', 'middle');
+  function doc(g, x, y, mark) {
+    el('path', { d: 'M' + x + ' ' + y + ' h12 l5 5 v17 h-17 Z', fill: '#fff', 'class': 'fl-thin' }, g);
+    text(g, x + 8.5, y + 15, mark, 'fl-glyph', 'middle');
   }
 
-  // One glyph per format, drawn in the box from (x, y), w wide.
+  // One small glyph per format, drawn in a 22 by 22 box from (x, y).
   var GLYPHS = {
-    tif: function (g, x, y, w) {
-      var tones = ['#9cc58f', '#c9b27c', '#6f9f64', '#d7cf9a', '#86b0c9', '#b5c98c'];
-      var cols = Math.max(2, Math.floor((w - 2) / 15));
-      for (var r = 0; r < 3; r++) {
-        for (var c = 0; c < cols; c++) {
-          el('rect', { x: x + c * 15 + (r % 2) * 2, y: y + 4 + r * 15 + (c % 2), width: 11, height: 11, fill: tones[(r * 5 + c * 3) % tones.length], 'class': 'fl-thin' }, g);
-        }
+    tif: function (g, x, y) {
+      var tones = ['#9cc58f', '#c9b27c', '#6f9f64', '#86b0c9'];
+      for (var k = 0; k < 4; k++) {
+        el('rect', { x: x + (k % 2) * 11, y: y + Math.floor(k / 2) * 11, width: 9, height: 9, fill: tones[k], 'class': 'fl-thin' }, g);
       }
     },
-    bands: function (g, x, y, w) {
-      for (var b = 0; b < 5; b++) {
-        el('rect', { x: x + b * 5, y: y + 4 + b * 4, width: Math.min(44, w - 22), height: 28, fill: b % 2 ? '#e8e0c4' : '#f8f2da', 'class': 'fl-thin' }, g);
-      }
+    bands: function (g, x, y) {
+      for (var b = 0; b < 3; b++) el('rect', { x: x + b * 3, y: y + b * 3, width: 15, height: 15, fill: b % 2 ? '#e8e0c4' : '#f8f2da', 'class': 'fl-thin' }, g);
     },
-    png: function (g, x, y, w) {
-      var s = Math.min(30, (w - 6) / 2);
-      el('rect', { x: x, y: y + 6, width: s, height: s, fill: '#c9c2b4', 'class': 'fl-thin' }, g);
-      el('path', { d: 'M' + x + ' ' + (y + 6 + s) + ' l' + s * 0.4 + ' ' + -s * 0.45 + ' l' + s * 0.25 + ' ' + s * 0.25 + ' l' + s * 0.35 + ' ' + -s * 0.3 + ' v' + s * 0.5 + ' Z', fill: '#8f8676' }, g);
-      el('rect', { x: x + s + 5, y: y + 12, width: s, height: s, fill: '#111', 'class': 'fl-thin' }, g);
-      el('rect', { x: x + s + 5 + s * 0.3, y: y + 12 + s * 0.25, width: s * 0.35, height: s * 0.4, fill: '#fff' }, g);
+    png: function (g, x, y) {
+      el('rect', { x: x, y: y, width: 14, height: 14, fill: '#c9c2b4', 'class': 'fl-thin' }, g);
+      el('path', { d: 'M' + x + ' ' + (y + 14) + ' l5 -6 l4 3 l5 -4 v7 Z', fill: '#8f8676' }, g);
+      el('rect', { x: x + 9, y: y + 9, width: 12, height: 12, fill: '#111', 'class': 'fl-thin' }, g);
+      el('rect', { x: x + 13, y: y + 12, width: 4, height: 5, fill: '#fff' }, g);
     },
-    jpg: function (g, x, y, w) {
-      var s = Math.min(32, (w - 6) / 1.6);
-      [[0, 4, -3], [s * 0.55, 12, 4]].forEach(function (a) {
-        var px = x + a[0];
-        var py = y + a[1];
-        var p = el('g', { transform: 'rotate(' + a[2] + ' ' + (px + s / 2) + ' ' + (py + s / 2) + ')' }, g);
-        el('rect', { x: px, y: py, width: s, height: s * 0.8, fill: '#bcd4e6', 'class': 'fl-thin' }, p);
-        el('circle', { cx: px + s * 0.72, cy: py + s * 0.25, r: s * 0.1, fill: '#f7cc09' }, p);
-        el('path', { d: 'M' + px + ' ' + (py + s * 0.8) + ' l' + s * 0.45 + ' ' + -s * 0.4 + ' l' + s * 0.55 + ' ' + s * 0.4 + ' Z', fill: '#7a9a6c' }, p);
-      });
+    jpg: function (g, x, y) {
+      el('rect', { x: x, y: y + 2, width: 21, height: 17, fill: '#bcd4e6', 'class': 'fl-thin' }, g);
+      el('circle', { cx: x + 15, cy: y + 7, r: 2.2, fill: '#f7cc09' }, g);
+      el('path', { d: 'M' + x + ' ' + (y + 19) + ' l8 -8 l13 8 Z', fill: '#7a9a6c' }, g);
     },
-    h5: function (g, x, y, w) {
-      var n = w > 60 ? 3 : 2;
-      for (var k = 0; k < n; k++) {
-        var cx = x + 11 + k * (w > 60 ? 30 : 24);
-        var top = y + 8 + (k % 2) * 5;
-        el('path', { d: 'M' + (cx - 10) + ' ' + top + ' v24 a10 4 0 0 0 20 0 v-24', fill: '#f0cdb8', 'class': 'fl-thin' }, g);
-        el('ellipse', { cx: cx, cy: top, rx: 10, ry: 4, fill: '#f7e1d3', 'class': 'fl-thin' }, g);
-      }
+    h5: function (g, x, y) {
+      el('path', { d: 'M' + (x + 2) + ' ' + (y + 4) + ' v13 a8 3.2 0 0 0 16 0 v-13', fill: '#f0cdb8', 'class': 'fl-thin' }, g);
+      el('ellipse', { cx: x + 10, cy: y + 4, rx: 8, ry: 3.2, fill: '#f7e1d3', 'class': 'fl-thin' }, g);
+    },
+    nc: function (g, x, y) {
+      for (var b = 0; b < 3; b++) el('rect', { x: x + 6 - b * 3, y: y + b * 4, width: 15, height: 11, fill: '#dfe9d6', 'class': 'fl-thin' }, g);
     },
     tar: function (g, x, y) {
-      [[0, 4, -4], [32, 0, 3], [64, 8, -2]].forEach(function (a) {
-        var bx = x + a[0];
-        var by = y + a[1];
-        var box = el('g', { transform: 'rotate(' + a[2] + ' ' + (bx + 13) + ' ' + (by + 20) + ')' }, g);
-        el('rect', { x: bx, y: by, width: 26, height: 38, fill: '#c7dcef', 'class': 'fl-thin' }, box);
-        el('rect', { x: bx, y: by + 8, width: 26, height: 5, fill: '#7fa8cf' }, box);
-      });
+      el('rect', { x: x + 3, y: y, width: 15, height: 21, fill: '#c7dcef', 'class': 'fl-thin' }, g);
+      el('rect', { x: x + 3, y: y + 4, width: 15, height: 3, fill: '#7fa8cf' }, g);
     },
-    json: function (g, x, y) { doc(g, x, y, '{ }', '#fff'); },
-    geojson: function (g, x, y) { doc(g, x, y, '{ }', '#eef6ea'); },
-    xml: function (g, x, y) { doc(g, x, y, '</>', '#fff'); },
-    npy: function (g, x, y) { doc(g, x, y, '[ ]', '#eef3f8'); },
-    npz: function (g, x, y, w) {
-      doc(g, x, y, '[ ]', '#eef3f8');
-      if (w > 60) doc(g, x + 36, y + 4, '[ ]', '#eef3f8');
-    },
-    jp2: function (g, x, y, w) { GLYPHS.jpg(g, x, y, w); },
-    nc: function (g, x, y) {
-      [[16, 0], [8, 6], [0, 12]].forEach(function (a) {
-        el('rect', { x: x + a[0], y: y + 4 + a[1], width: 34, height: 26, fill: '#dfe9d6', 'class': 'fl-thin' }, g);
-      });
+    json: function (g, x, y) { doc(g, x, y, '{}'); },
+    geojson: function (g, x, y) { doc(g, x, y, '{}'); },
+    xml: function (g, x, y) { doc(g, x, y, '<>'); },
+    npy: function (g, x, y) { doc(g, x, y, '[]'); },
+    npz: function (g, x, y) { doc(g, x, y, '[]'); },
+    csv: function (g, x, y) {
+      el('rect', { x: x + 1, y: y + 1, width: 18, height: 19, fill: '#fff', 'class': 'fl-thin' }, g);
+      el('path', { d: 'M' + (x + 1) + ' ' + (y + 7.5) + ' h18 M' + (x + 1) + ' ' + (y + 14) + ' h18 M' + (x + 8) + ' ' + (y + 1) + ' v19', 'class': 'fl-rule' }, g);
     },
     shp: function (g, x, y) {
-      el('path', { d: 'M' + (x + 2) + ' ' + (y + 30) + ' l8 -20 l14 6 l6 16 l-12 10 Z', fill: '#e7f0dc', 'class': 'fl-thin' }, g);
+      el('path', { d: 'M' + (x + 1) + ' ' + (y + 14) + ' l5 -12 l9 4 l4 10 l-8 6 Z', fill: '#e7f0dc', 'class': 'fl-thin' }, g);
     },
-    csv: function (g, x, y) {
-      el('rect', { x: x, y: y + 6, width: 30, height: 34, fill: '#fff', 'class': 'fl-thin' }, g);
-      for (var r = 1; r < 4; r++) el('path', { d: 'M' + x + ' ' + (y + 6 + r * 8.5) + ' h30', 'class': 'fl-rule' }, g);
-      el('path', { d: 'M' + (x + 12) + ' ' + (y + 6) + ' v34', 'class': 'fl-rule' }, g);
-    }
+    jp2: function (g, x, y) { GLYPHS.jpg(g, x, y); }
   };
 
   function build(svg, sets) {
-    var v = { sets: [] };
-    var defs = el('defs', {}, svg);
-    [['fl-head', '#b8bac2'], ['fl-head-on', '#492ae8']].forEach(function (m) {
-      var head = el('marker', { id: m[0], markerWidth: 8, markerHeight: 8, refX: 6.5, refY: 4, orient: 'auto' }, defs);
-      el('path', { d: 'M0,0 L8,4 L0,8 Z', fill: m[1] }, head);
-    });
+    var v = { tiles: [] };
 
-    // TACO, and the three formats a dataset leaves it in
-    var band = el('g', {}, svg);
-    el('rect', { 'class': 'fl-band-box', x: BAND.x, y: BAND.y, width: BAND.w, height: BAND.h }, band);
-    el('image', { href: 'assets/svg/taco-mark-static.svg?v=1', x: BAND.x + 14, y: BAND.y + 7, width: 36, height: 36 }, band);
-    text(band, BAND.x + 58, BAND.y + 31, 'TACO', 'fl-band-title');
-    [['rumi', 'Rumi'], ['table', 'Parquet'], ['json', 'JSON']].forEach(function (f, k) {
-      var x = BAND.x + 400 + k * 88;
-      el('rect', { 'class': 'fl-type', x: x, y: BAND.y + 19, width: 12, height: 12, fill: TYPES[f[0]] }, band);
-      text(band, x + 18, BAND.y + 30, f[1], 'fl-type-name');
-    });
+    // the funnel the tiles pour into
+    var top = TILE.y + 4 * TILE.row + 2;
+    el('path', {
+      'class': 'fl-funnel',
+      d: 'M0 ' + top + ' C200 ' + top + ' 296 ' + (top + 10) + ' ' + (HUB.x - 26) + ' ' + (HUB.y - HUB.r + 6) +
+        ' L' + (HUB.x + 26) + ' ' + (HUB.y - HUB.r + 6) + ' C364 ' + (top + 10) + ' 460 ' + top + ' 660 ' + top + ' Z'
+    }, svg);
 
+    // the way of the dataset that is shown, through TACO
+    v.way = el('path', { 'class': 'fl-way' }, svg);
+    v.wayDot = el('circle', { 'class': 'fl-way-dot', r: 3.5 }, svg);
+
+    // the tiles, a little out of line, as they come
     sets.forEach(function (set, i) {
-      var x = i * (CARD.w + CARD.gap);
-      var cx = x + CARD.w / 2;
-      var gx = W / 2 + (i - 2) * 46;
+      var col = i % TILE.cols;
+      var row = Math.floor(i / TILE.cols);
+      var x = TILE.x + col * TILE.pitch;
+      var y = TILE.y + row * TILE.row;
+      var turn = ((i * 37) % 9) - 4;
       var g = el('g', {
-        'class': 'fl-set', tabindex: '0', role: 'button', 'data-set': String(i),
+        'class': 'fl-tile', tabindex: '0', 'data-set': String(i),
         'aria-label': set.name + ', ' + set.samples + ' samples'
       }, svg);
-
-      // today: its own tint, its own pile, its own formats
-      el('rect', { 'class': 'fl-card', x: x, y: CARD.y, width: CARD.w, height: CARD.h, fill: TINTS[i % TINTS.length] }, g);
-      text(g, x + 10, CARD.y + 19, set.short, 'fl-name');
-      if (set.glyphs.length === 1) GLYPHS[set.glyphs[0]](g, x + 10, CARD.y + 26, 100);
+      var inner = el('g', { transform: 'rotate(' + turn + ' ' + (x + TILE.w / 2) + ' ' + (y + TILE.h / 2) + ')' }, g);
+      el('rect', { 'class': 'fl-tile-box', x: x, y: y, width: TILE.w, height: TILE.h, fill: TINTS[set.glyphs[0]] }, inner);
+      if (set.glyphs.length === 1) GLYPHS[set.glyphs[0]](inner, x + 18, y + 9);
       else {
-        GLYPHS[set.glyphs[0]](g, x + 10, CARD.y + 26, 62);
-        GLYPHS[set.glyphs[1]](g, x + 78, CARD.y + 26, 32);
+        GLYPHS[set.glyphs[0]](inner, x + 6, y + 9);
+        GLYPHS[set.glyphs[1]](inner, x + 31, y + 9);
       }
-      var tags = [];
-      set.glyphs.forEach(function (k) { if (tags.indexOf(LABELS[k]) < 0) tags.push(LABELS[k]); });
-      text(g, x + 10, CARD.y + 94, tags.join(' + '), 'fl-format');
-
-      // through TACO
-      el('path', { 'class': 'fl-path', d: 'M' + cx + ' ' + (CARD.y + CARD.h) + ' C' + cx + ' ' + (BAND.y - 12) + ' ' + gx + ' ' + (CARD.y + CARD.h + 8) + ' ' + gx + ' ' + (BAND.y - 3), 'marker-end': 'url(#fl-head)' }, g);
-      el('path', { 'class': 'fl-path', d: 'M' + gx + ' ' + (BAND.y + BAND.h) + ' C' + gx + ' ' + (BOX.y - 10) + ' ' + cx + ' ' + (BAND.y + BAND.h + 8) + ' ' + cx + ' ' + (BOX.y - 3), 'marker-end': 'url(#fl-head)' }, g);
-
-      // in TACO: the files of one sample, then one row per sample
-      el('rect', { 'class': 'fl-box', x: x, y: BOX.y, width: CARD.w, height: BOX.h }, g);
-      text(g, x + 10, BOX.y + 19, set.short, 'fl-name');
-      set.files.forEach(function (f, k) {
-        el('rect', { 'class': 'fl-type', x: x + 10 + k * 16, y: BOX.y + 28, width: 12, height: 12, fill: TYPES[fileType(f)] }, g);
-      });
-      for (var r = 0; r < 3; r++) {
-        el('rect', { 'class': 'fl-row', x: x + 10, y: BOX.y + 50 + r * 9, width: 100, height: 5 }, g);
-      }
-      text(g, x + 10, BOX.y + 90, set.samples, 'fl-format');
-      v.sets.push(g);
+      v.tiles.push({ g: g, x: x + TILE.w / 2, y: y + TILE.h });
     });
+
+    // TACO, where every dataset goes in
+    var hub = el('g', { 'class': 'fl-hub' }, svg);
+    el('circle', { 'class': 'fl-hub-ring', cx: HUB.x, cy: HUB.y, r: HUB.r + 7 }, hub);
+    el('circle', { 'class': 'fl-hub-disc', cx: HUB.x, cy: HUB.y, r: HUB.r }, hub);
+    el('image', { href: 'assets/svg/taco-mark-static.svg?v=1', x: HUB.x - 25, y: HUB.y - 27, width: 50, height: 50 }, hub);
+    text(hub, HUB.x + HUB.r + 18, HUB.y + 7, 'TACO', 'fl-hub-name');
+
+    // what comes out: rasters as Rumi, tables as Parquet, JSON as JSON
+    v.ports = PORTS.map(function (p) {
+      var g = el('g', { 'class': 'fl-port', 'data-type': p[0] }, svg);
+      el('path', { 'class': 'fl-port-line', d: 'M' + HUB.x + ' ' + (HUB.y + HUB.r + 7) + ' C' + HUB.x + ' ' + (HUB.y + HUB.r + 26) + ' ' + p[2] + ' ' + (HUB.y + HUB.r + 12) + ' ' + p[2] + ' ' + (TABLE.y - 22) }, g);
+      el('circle', { 'class': 'fl-port-dot', cx: p[2], cy: TABLE.y - 16, r: 6, fill: TYPES[p[0]] }, g);
+      text(g, p[2] + 11, TABLE.y - 12, p[1], 'fl-port-name');
+      return g;
+    });
+
+    // one row per sample, the same for every dataset
+    var table = el('g', { 'class': 'fl-table' }, svg);
+    el('rect', { 'class': 'fl-table-box', x: TABLE.x, y: TABLE.y, width: TABLE.w, height: TABLE.h }, table);
+    v.name = text(table, TABLE.x + 12, TABLE.y + 21, '', 'fl-table-name');
+    v.count = text(table, TABLE.x + TABLE.w - 12, TABLE.y + 21, '', 'fl-table-count', 'end');
+    v.rows = [];
+    for (var r = 0; r < 4; r++) {
+      var ry = TABLE.y + 33 + r * 13;
+      var row = el('g', {}, table);
+      el('rect', { 'class': 'fl-cell is-id', x: TABLE.x + 12, y: ry, width: 34, height: 7 }, row);
+      el('rect', { 'class': 'fl-cell', x: TABLE.x + 52, y: ry, width: 70, height: 7 }, row);
+      var files = el('g', {}, row);
+      v.rows.push(files);
+    }
     return v;
   }
 
@@ -287,51 +263,52 @@
       '</div>';
   }
 
-  // nothing until a dataset is pointed at, tapped or focused
-  var HINT = '';
-
   taco.flowFigure = function (figure) {
-    var sets = pick();
+    var sets = shuffled();
     var svg = el('svg', { viewBox: '0 0 ' + W + ' ' + H, role: 'group', 'aria-label': figure.getAttribute('data-label') || '' }, figure);
     var info = document.createElement('div');
     info.className = 'flow-info';
     info.setAttribute('aria-live', 'polite');
     figure.appendChild(info);
     var view = build(svg, sets);
-    var pinned = null;
 
-    function show(key) {
-      var set = key === null ? null : sets[Number(key)];
-      if (set) figure.setAttribute('data-active', key);
-      else figure.removeAttribute('data-active');
-      view.sets.forEach(function (g) {
-        var on = g.getAttribute('data-set') === key;
-        g.classList.toggle('is-active', on);
-        g.querySelectorAll('.fl-path').forEach(function (path) {
-          path.setAttribute('marker-end', on ? 'url(#fl-head-on)' : 'url(#fl-head)');
+    function fill(set) {
+      // the table shows the files of one sample of the dataset, in every row
+      view.name.textContent = set ? set.short : 'one row per sample';
+      view.count.textContent = set ? set.samples + ' rows' : '';
+      view.rows.forEach(function (files) {
+        while (files.firstChild) files.removeChild(files.firstChild);
+        (set ? set.files : ['a.rumi', 'b.rumi', 'c.parquet']).forEach(function (f, k) {
+          el('rect', { 'class': 'fl-file', x: TABLE.x + 134 + k * 21, y: Number(files.parentNode.firstChild.getAttribute('y')) - 1.5, width: 16, height: 10, fill: set ? TYPES[fileType(f)] : '#e4e4e8' }, files);
         });
       });
-      info.innerHTML = set ? describe(set) : HINT;
+      var used = set ? set.files.map(fileType) : [];
+      view.ports.forEach(function (p) { p.classList.toggle('is-used', used.indexOf(p.getAttribute('data-type')) >= 0); });
     }
 
-    view.sets.forEach(function (g) {
-      var key = g.getAttribute('data-set');
-      var toggle = function () {
-        pinned = pinned === key ? null : key;
-        show(pinned || key);
-      };
-      g.addEventListener('mouseenter', function () { show(key); });
-      g.addEventListener('mouseleave', function () { show(pinned); });
-      g.addEventListener('focus', function () { show(key); });
-      g.addEventListener('blur', function () { show(pinned); });
-      // a tap or a click keeps a dataset shown, a second one lets it go
-      g.addEventListener('click', toggle);
-      g.addEventListener('keydown', function (event) {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault();
-          toggle();
-        }
-      });
+    function show(key) {
+      var i = key === null ? -1 : Number(key);
+      var set = i >= 0 ? sets[i] : null;
+      if (set) figure.setAttribute('data-active', key);
+      else figure.removeAttribute('data-active');
+      view.tiles.forEach(function (t, k) { t.g.classList.toggle('is-active', k === i); });
+      if (set) {
+        var t = view.tiles[i];
+        var hubTop = HUB.y - HUB.r - 8;
+        view.way.setAttribute('d', 'M' + t.x + ' ' + (t.y + 2) + ' C' + t.x + ' ' + (t.y + 60) + ' ' + HUB.x + ' ' + (hubTop - 50) + ' ' + HUB.x + ' ' + hubTop);
+        view.wayDot.setAttribute('cx', t.x);
+        view.wayDot.setAttribute('cy', t.y + 2);
+      }
+      fill(set);
+      info.innerHTML = set ? describe(set) : '';
+    }
+
+    view.tiles.forEach(function (t, k) {
+      var key = String(k);
+      t.g.addEventListener('mouseenter', function () { show(key); });
+      t.g.addEventListener('mouseleave', function () { show(null); });
+      t.g.addEventListener('focus', function () { show(key); });
+      t.g.addEventListener('blur', function () { show(null); });
     });
     show(null);
   };

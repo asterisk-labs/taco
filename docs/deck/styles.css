@@ -169,128 +169,47 @@ code, pre { font-family: var(--mono); font-variant-ligatures: none; }
 .s02 .st-hold { fill: none; stroke: #777; stroke-width: 1.5; stroke-dasharray: 4 3; }
 .s02 .st-fig .st-tag { font: 500 11px var(--mono); fill: var(--dim); text-anchor: middle; }
 
-/* 03 One change detection sample: its three files, then its metadata, then the frame that makes
-   them one sample. The tiles are drawings, not the files' pixels. */
-.s03 .sm-wr { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; gap: 14px; }
-.s03 .sm-fig { display: block; width: 100%; height: auto; overflow: visible; font-family: var(--sans); }
-.s03 .sm-px { shape-rendering: crispEdges; }
-.s03 .sm-edge { fill: none; stroke: #9b9ea6; stroke-width: 1.2; }
-.s03 .sm-path { fill: var(--ink); font: 600 13.5px var(--mono); text-anchor: middle; }
-.s03 .sm-what { fill: var(--dim); font: 400 14px var(--sans); text-anchor: middle; }
-.s03 .sm-card { fill: var(--wash); stroke: #9b9ea6; stroke-width: 1.2; }
-.s03 .sm-key { fill: var(--dim); font: 500 15px var(--sans); }
-.s03 .sm-val { fill: var(--ink); font: 600 15px var(--mono); text-anchor: end; }
-.s03 .sm-rule { stroke: var(--rule); }
-.s03 .sm-box { fill: none; stroke: var(--violet); stroke-width: 2.4; }
-.s03 .sm-chip { fill: var(--violet); }
-.s03 .sm-chip-text { fill: #fff; font: 600 13px var(--mono); white-space: pre; }
-.s03 .sm-meta, .s03 .sm-frame { opacity: 0; transition: opacity .3s ease; }
-.s03:is([data-step="2"], [data-step="3"]) .sm-meta { opacity: 1; }
-.s03[data-step="3"] .sm-frame { opacity: 1; }
+/* 03 to 07 The slides of the first TACO deck (deck/overview, April 2026): their text and
+   figures, set in two columns on this shell. Steps show one block at a time. */
+.od .od-step,
+.od .od-cols.od-step { display: none; }
+.od[data-step="1"] .od-step[data-k="1"],
+.od[data-step="2"] .od-step[data-k="2"],
+.od[data-step="3"] .od-step[data-k="3"],
+.od[data-step="4"] .od-step[data-k="4"] { display: grid; }
+.od .od-cols { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); gap: 30px; align-items: center; margin-top: 12px; }
+.od .od-text h2 { margin: 0 0 6px; font-size: 19px; font-weight: 600; letter-spacing: -.02em; }
+.od .od-text h2 + p + h2 { margin-top: 12px; }
+.od .od-text p { margin: 0 0 9px; color: var(--soft); font-size: 14px; line-height: 1.45; }
+.od .od-text strong { color: var(--ink); font-weight: 600; }
+.od code { padding: 0 3px; background: var(--wash); color: var(--ink); font-size: .88em; }
+.od .od-note { color: var(--faint); font-size: 12.5px; }
+.od .od-fig { margin: 0; min-height: 0; height: 100%; display: flex; align-items: center; justify-content: center; }
+.od .od-fig img { display: block; max-width: 100%; max-height: 372px; }
+.od-how .od-fig img { max-height: 340px; }
+.od-table { width: 100%; margin-top: 6px; border-collapse: collapse; font-size: 12px; }
+.od-table th { padding: 4px 6px; border-bottom: 1px solid var(--ink); color: var(--dim); font: 500 10.5px var(--mono); text-align: left; text-transform: uppercase; letter-spacing: .06em; }
+.od-table td { padding: 4px 6px; border-bottom: 1px solid var(--rule); color: var(--soft); }
+.od-table td:first-child { color: var(--ink); font-weight: 500; }
+.od-table .yes { color: var(--mint); font-weight: 600; }
+.od-table .no { color: #b42318; font-weight: 600; }
+.od-table code { font-size: 11px; }
 
-/* 04 The contract. The code stays; each step lights its line and shows its panel below. */
-.s04 .ct-wr { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; gap: 12px; }
-.s04 .ct-code { margin: 0; padding: 12px 18px; background: var(--wash); color: var(--ink); font: 13.5px/1.6 var(--mono); }
-.s04 .ct-code .ln { display: block; margin: 0 -18px; padding: 0 18px; white-space: pre; transition: background .3s ease; }
-.s04[data-step="1"] .ct-code .is-k1,
-.s04[data-step="2"] .ct-code .is-k2 { background: #c4ffc2; }
-.s04 .ct-miss { transition: background .3s ease; }
-.s04[data-step="3"] .ct-miss { background: #ffc4c2; color: var(--ink); font-weight: 700; }
-.s04 .ct-stage { display: grid; min-height: 150px; }
-.s04 .ct-panel { grid-area: 1 / 1; display: flex; align-items: center; gap: 32px; opacity: 0; visibility: hidden; transition: opacity .3s ease, visibility .3s; }
-.s04[data-step="1"] .ct-panel[data-k="1"],
-.s04[data-step="2"] .ct-panel[data-k="2"],
-.s04[data-step="3"] .ct-panel[data-k="3"] { opacity: 1; visibility: visible; }
-.s04 .ct-lead { flex: 1; min-width: 0; color: var(--ink-soft); font-size: 21px; line-height: 1.3; }
-.s04 .ct-lead .title-mark { color: var(--ink); font-weight: 600; }
-.s04 .ct-lead .mono { font-size: 17px; }
-.s04 .ct-files { flex: none; display: flex; flex-direction: column; gap: 8px; }
-.s04 .ct-files span { padding: 7px 14px; border: 1.2px solid var(--ink); background: #fff; font-size: 14px; font-weight: 500; }
-.s04 .ct-cols { flex: none; border-collapse: collapse; font: 12.5px/1 var(--mono); }
-.s04 .ct-cols th { padding: 0 22px 6px 0; border-bottom: 1px solid var(--ink); color: var(--faint); font: 600 10.5px var(--sans); letter-spacing: .08em; text-align: left; text-transform: uppercase; }
-.s04 .ct-cols td { padding: 5px 22px 5px 0; border-bottom: 1px solid var(--grey); color: var(--ink); white-space: nowrap; }
-.s04 .ct-cols tr.is-dim td { color: var(--faint); }
-.s04 .ct-term { flex: none; margin: 0; padding: 12px 18px; background: #16151c; color: #d4d4d8; font: 11.5px/1.5 var(--mono); }
-.s04 .ct-term .ct-cmd { color: #fff; }
-.s04 .ct-term .ct-skip { color: #8b8b95; font-style: italic; }
-.s04 .ct-term b { color: #ffc4c2; font-weight: 700; }
-
-/* 05 The levels as Parquet. Step 1 is the layout, step 2 the two tables, step 3 colours each
-   sample with its children and draws the join. */
-.s05 .lv-wr { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; gap: 12px; }
-.s05 .lv-fig { display: block; width: 100%; height: auto; overflow: visible; font-family: var(--sans); }
-.s05 .lv-tree, .s05 .lv-tables, .s05 .lv-join { transition: opacity .3s ease; }
-.s05 .lv-tables, .s05 .lv-join { opacity: 0; }
-.s05:is([data-step="2"], [data-step="3"]) .lv-tree { opacity: 0; }
-.s05:is([data-step="2"], [data-step="3"]) .lv-tables { opacity: 1; }
-.s05[data-step="3"] .lv-join { opacity: 1; }
-.s05 .lv-t { fill: var(--soft); font: 500 13px var(--mono); white-space: pre; }
-.s05 .lv-root { fill: var(--ink); font-weight: 700; }
-.s05 .lv-d { fill: var(--ink); font-weight: 700; }
-.s05 .lv-m { fill: var(--violet); font-weight: 700; }
-.s05 .lv-faint { fill: var(--faint); font-family: var(--sans); font-size: 14px; }
-.s05 .lv-brace { fill: none; stroke: var(--violet); stroke-width: 1.8; }
-.s05 .lv-say { fill: var(--ink-soft); font: 400 16px var(--sans); white-space: pre; }
-.s05 .lv-say .lv-sk { fill: var(--ink); font: 700 13.5px var(--mono); }
-.s05 .lv-cap { fill: var(--violet); font: 700 13px var(--mono); }
-.s05 .lv-h { fill: var(--faint); font: 500 10px var(--mono); }
-.s05 .lv-hr { stroke: var(--ink); }
-.s05 .lv-r rect { fill: transparent; transition: fill .3s ease; }
-.s05 .lv-r + .lv-r rect, .s05 .lv-hr + .lv-r rect { stroke: none; }
-.s05 .lv-c { fill: var(--soft); font: 500 12px var(--mono); }
-.s05 .lv-c.is-id { font-weight: 700; fill: var(--ink); }
-.s05[data-step="3"] .lv-r.g0 rect { fill: #d8efd6; }
-.s05[data-step="3"] .lv-r.g1 rect { fill: #f3e6b3; }
-.s05[data-step="3"] .lv-r.g2 rect { fill: #f2d4dc; }
-.s05 .lv-join path { fill: none; stroke-width: 1.6; }
-.s05 .lv-join path.g0 { stroke: #3c8f44; }
-.s05 .lv-join path.g1 { stroke: #a8871a; }
-.s05 .lv-join path.g2 { stroke: #b4506a; }
-.s05 .lv-sql { fill: var(--soft); font: 500 12.5px var(--mono); white-space: pre; }
-.s05 .lv-sql .k { fill: var(--ink); font-weight: 700; }
-
-/* 06 Major TOM Core-DEM. The left panel changes per step; the grid of 63 ZIPs stays, dims while
-   the query runs on metadata, and lights the one ZIP the ranges point into. */
-.s06 .mt-wr { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; gap: 10px; }
-.s06 .mt-fig { display: block; width: 100%; height: auto; overflow: visible; font-family: var(--sans); }
-.s06 .mt-k { opacity: 0; transition: opacity .3s ease; }
-.s06[data-step="1"] .mt-k[data-k="1"],
-.s06[data-step="2"] .mt-k[data-k="2"],
-.s06[data-step="3"] .mt-k[data-k="3"] { opacity: 1; }
-.s06 .mt-cap { fill: var(--ink); font: 700 14px var(--mono); }
-.s06 .mt-sub { fill: var(--dim); font: 400 14px var(--sans); text-anchor: end; }
-.s06 .mt-hr { stroke: var(--ink); }
-.s06 .mt-f { fill: var(--soft); font: 500 13px var(--mono); }
-.s06 .mt-s { fill: var(--ink); font: 600 13px var(--mono); text-anchor: end; }
-.s06 .mt-big { fill: var(--ink); font: 700 50px var(--sans); letter-spacing: -.03em; }
-.s06 .mt-unit { fill: var(--ink-soft); font: 500 22px var(--sans); }
-.s06 .mt-sub2 { fill: var(--dim); font: 400 16px var(--sans); }
-.s06 .mt-sqlbox { fill: var(--wash); }
-.s06 .mt-sql { fill: var(--ink); font: 500 12.5px var(--mono); white-space: pre; }
-.s06 .mt-sql .kw { fill: #492ae8; }
-.s06 .mt-sql .st { fill: #17803d; }
-.s06 .mt-sql .nm { fill: #c2410c; }
-.s06 .mt-n { fill: var(--soft); font: 600 18px var(--mono); text-anchor: end; }
-.s06 .mt-l { fill: var(--dim); font: 400 16px var(--sans); }
-.s06 .mt-n.is-on, .s06 .mt-l.is-on { fill: var(--ink); font-weight: 700; }
-.s06 .mt-hit { fill: #c4ffc2; }
-.s06 .mt-ms { fill: var(--violet); font: 700 26px var(--sans); }
-.s06 .mt-h { fill: var(--faint); font: 500 10.5px var(--mono); }
-.s06 .mt-c { fill: var(--soft); font: 500 12.5px var(--mono); }
-.s06 .mt-c.is-num { text-anchor: end; }
-.s06 .mt-c.is-loc { fill: var(--violet); font-weight: 600; }
-.s06 .mt-c.is-faint { fill: var(--faint); font-family: var(--sans); font-size: 14px; }
-.s06 .mt-zip { fill: var(--wash-deep); stroke: #9b9ea6; stroke-width: 1; transition: fill .3s ease, stroke .3s ease, opacity .3s ease; }
-.s06[data-step="2"] .mt-zip { opacity: .35; }
-.s06[data-step="3"] .mt-zip { opacity: .35; }
-.s06[data-step="3"] .mt-zip.is-peru { opacity: 1; fill: var(--violet); stroke: var(--ink); stroke-width: 1.6; }
-.s06 .mt-gcap { fill: var(--dim); font: 400 14px var(--sans); text-anchor: end; transition: opacity .3s ease; }
-.s06[data-step="3"] .mt-gcap { opacity: 0; }
-.s06 .mt-link { fill: none; stroke: var(--violet); stroke-width: 1.8; stroke-dasharray: 4 3; }
-.s06 .mt-bl { fill: var(--ink); font: 600 13px var(--mono); }
-.s06 .mt-br { fill: var(--ink); font: 600 14px var(--sans); text-anchor: end; }
-.s06 .mt-zipbar { fill: var(--wash); stroke: #9b9ea6; stroke-width: 1.2; }
-.s06 .mt-ticks { fill: none; stroke: var(--violet); stroke-width: 1; }
+/* 03 xkcd 927, then the count */
+.od-xkcd .od-step[data-k] { flex: 1; min-height: 0; }
+.od-xkcd[data-step="1"] .od-meme,
+.od-xkcd[data-step="2"] .od-count { display: flex; }
+.od-meme { flex-direction: column; align-items: center; justify-content: center; gap: 12px; }
+.od-meme img { display: block; max-width: 760px; max-height: 330px; }
+.od-credit { color: var(--faint); font-size: 12px; }
+.od-credit a { color: var(--faint); text-decoration: none; }
+.od-count { flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+.od-kicker { margin-bottom: 12px !important; color: var(--faint); font: 600 11px var(--mono); letter-spacing: .15em; text-transform: uppercase; }
+.od-lead { color: var(--soft); font-size: 22px; font-weight: 500; }
+.od-zero { margin: 2px 0 10px !important; font-size: 84px; font-weight: 700; letter-spacing: -.04em; line-height: 1; }
+.od-sub { color: var(--dim); font-size: 16px; line-height: 1.5; }
+.od-rule { width: 420px; margin: 22px 0 16px; border-top: 1px solid var(--rule); }
+.od-one { margin-top: 4px !important; color: var(--violet); font-size: 46px; font-weight: 700; letter-spacing: -.02em; }
 
 /* 07 One code block per language under the figure of libtaco and its bindings. */
 .lnx { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; gap: 12px; }

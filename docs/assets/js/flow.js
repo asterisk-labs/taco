@@ -310,7 +310,28 @@
       t.g.addEventListener('focus', function () { show(key); });
       t.g.addEventListener('blur', function () { show(null); });
     });
+    // The panel keeps the height of the tallest description, measured at the
+    // current width, so pointing at a dataset never moves the page.
+    function reserve() {
+      var shown = info.innerHTML;
+      var tallest = 0;
+      info.style.minHeight = '0px';
+      sets.forEach(function (set) {
+        info.innerHTML = describe(set);
+        tallest = Math.max(tallest, info.offsetHeight);
+      });
+      info.innerHTML = shown;
+      info.style.minHeight = tallest + 'px';
+    }
+
+    var resized = 0;
+    window.addEventListener('resize', function () {
+      window.clearTimeout(resized);
+      resized = window.setTimeout(reserve, 150);
+    });
     show(null);
+    reserve();
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(reserve);
   };
 
   var figure = document.getElementById('flow');

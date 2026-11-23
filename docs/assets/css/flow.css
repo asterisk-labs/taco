@@ -84,7 +84,6 @@
 
 /* the panel under the drawing */
 .flow-info {
-  min-height: 150px;
   margin-top: 12px;
   padding-top: 12px;
   border-top: 1px solid var(--edge);
@@ -136,5 +135,4 @@
 
 @media (max-width: 560px) {
   .flow-cols { grid-template-columns: 1fr; gap: 10px; }
-  .flow-info { min-height: 0; }
 }

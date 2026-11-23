@@ -32,6 +32,9 @@ struct CozipIndex {
 // Reads and verifies the index. Two range reads for a typical archive.
 CozipIndex read_cozip_index(const std::string& uri);
 
+// The same, for a caller that already knows the archive size.
+CozipIndex read_cozip_index(const std::string& uri, std::uint64_t file_size);
+
 // Reads only the fixed prefix that holds the profile byte.
 std::uint8_t read_cozip_profile(const std::string& uri);
 

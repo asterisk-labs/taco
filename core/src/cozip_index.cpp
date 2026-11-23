@@ -128,8 +128,12 @@ std::uint8_t read_cozip_profile(const std::string& uri) {
 }
 
 CozipIndex read_cozip_index(const std::string& uri) {
+    return read_cozip_index(uri, object_size(uri));
+}
+
+CozipIndex read_cozip_index(const std::string& uri, std::uint64_t file_size) {
     CozipIndex index;
-    index.file_size = object_size(uri);
+    index.file_size = file_size;
     check_minimum_size(index.file_size, uri);
 
     // The prefix and the trailing window covered by the integrity hash arrive

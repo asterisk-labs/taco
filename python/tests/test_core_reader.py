@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
+import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Annotated
 
@@ -342,6 +347,69 @@ def test_remote_folder_cache_recovers_when_a_metadata_level_disappears(data: Pat
     dataset = taco.open_dataset(uri)
     assert dataset.contract.levels == ("sample", "children")
     assert dataset.read().num_rows == 6
+
+
+@contextmanager
+def ranged_origin(root: Path) -> Iterator[tuple[str, list[tuple[str, str]]]]:
+    """Serve root with single byte ranges and record each request as (path, range)."""
+    requests: list[tuple[str, str]] = []
+
+    class Handler(SimpleHTTPRequestHandler):
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            super().__init__(*args, directory=str(root), **kwargs)  # type: ignore[arg-type]
+
+        def do_HEAD(self) -> None:
+            requests.append((self.path, "HEAD"))
+            super().do_HEAD()
+
+        def do_GET(self) -> None:
+            header = self.headers.get("Range")
+            requests.append((self.path, header or "GET"))
+            target = Path(self.translate_path(self.path))
+            if header is None or not target.is_file():
+                super().do_GET()
+                return
+            data = target.read_bytes()
+            match = re.fullmatch(r"bytes=(\d+)-(\d*)", header)
+            assert match is not None
+            first = int(match[1])
+            last = min(int(match[2]) if match[2] else len(data) - 1, len(data) - 1)
+            self.send_response(206)
+            self.send_header("Content-Range", f"bytes {first}-{last}/{len(data)}")
+            self.send_header("Content-Length", str(last - first + 1))
+            self.end_headers()
+            self.wfile.write(data[first : last + 1])
+
+        def log_message(self, format: str, *args: object) -> None:
+            pass
+
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{httpd.server_port}", requests
+    finally:
+        httpd.shutdown()
+        thread.join()
+        httpd.server_close()
+
+
+def size_probes(requests: list[tuple[str, str]], path: str) -> int:
+    return sum(1 for seen, kind in requests if seen == path and kind in ("HEAD", "bytes=0-0"))
+
+
+def test_remote_open_sizes_each_object_once(data: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TACO_CACHE_DIR", str(tmp_path / "cache"))
+    with ranged_origin(data) as (base, requests):
+        taco.open_dataset(f"{base}/nested.zip")
+        assert size_probes(requests, "/nested.zip") == 1
+        requests.clear()
+        taco.open_dataset(f"{base}/nested.zip")
+        assert requests == [("/nested.zip", "bytes=0-0")]
+
+        requests.clear()
+        taco.open_dataset(f"{base}/nested/")
+        assert size_probes(requests, "/nested/COLLECTION.json") == 1
 
 
 @pytest.mark.skipif(

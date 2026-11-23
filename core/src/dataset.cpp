@@ -128,12 +128,16 @@ std::string location_base(const std::string& path) {
     return canonical;
 }
 
+std::string remote_size_key(std::uint64_t size) {
+    return "remote size " + std::to_string(size);
+}
+
 // Local archives use size and modification time. Remote objects use the
 // origin-reported content length. If the probe fails, opening fails instead
 // of silently serving metadata that can no longer be validated.
 std::string cache_key(const std::string& source) {
     if (has_uri_scheme(source))
-        return "remote size " + std::to_string(object_size(source));
+        return remote_size_key(object_size(source));
     std::error_code error;
     const auto path = local_path(source);
     const auto size = fs::file_size(path, error);
@@ -167,11 +171,11 @@ std::optional<Container> parse_container(const std::string& name) {
     return std::nullopt;
 }
 
-CacheStamp make_stamp(const std::string& source, Container container, const std::string& validation_source = {}) {
+CacheStamp make_stamp(const std::string& source, Container container, std::string key) {
     CacheStamp stamp;
     stamp.source = source;
     stamp.container = container_name(container);
-    stamp.key = cache_key(validation_source.empty() ? source : validation_source);
+    stamp.key = std::move(key);
     return stamp;
 }
 
@@ -317,9 +321,13 @@ Dataset open_zip(const std::string& source, const std::string& cache_root) {
     std::unique_lock<std::mutex> local_lock;
     LocalExtractions* local = nullptr;
     std::string local_key;
+    // A remote archive is sized once: the cache check, the index and the
+    // stamp all use that answer.
+    std::uint64_t remote_size = 0;
     if (remote) {
+        remote_size = object_size(source);
         cache.emplace(cache_root, cache_identity(source));
-        if (const auto stamp = cache->find({std::string(collection_name)}, expected_key(source));
+        if (const auto stamp = cache->find({std::string(collection_name)}, remote_size_key(remote_size));
             stamp && stamp->container == "zip")
             return cached_dataset(source, Container::zip, location_base(source), *cache);
     } else {
@@ -331,7 +339,7 @@ Dataset open_zip(const std::string& source, const std::string& cache_root) {
             return extracted_dataset(source, found->second);
     }
 
-    const CozipIndex index = read_cozip_index(source);
+    const CozipIndex index = remote ? read_cozip_index(source, remote_size) : read_cozip_index(source);
     if (index.profile != cozip_profile_taco)
         fail("taco needs a TACO-profile archive (profile=2). Got profile=" + profile_name(index.profile) +
              " in: " + source);
@@ -372,7 +380,8 @@ Dataset open_zip(const std::string& source, const std::string& cache_root) {
     std::vector<std::pair<std::string, std::string>> files;
     for (std::size_t i = 0; i < names.size(); ++i)
         files.emplace_back(names[i], contents[i]);
-    cache->store(entry_label(contents[0], Container::zip, source), files, make_stamp(source, Container::zip));
+    cache->store(entry_label(contents[0], Container::zip, source), files,
+                 make_stamp(source, Container::zip, remote_size_key(remote_size)));
     return cached_dataset(source, Container::zip, location_base(source), *cache);
 }
 
@@ -479,9 +488,8 @@ Dataset open_uri_directory(const std::string& source, const std::string& cache_r
     std::vector<std::pair<std::string, std::string>> files = {{std::string(collection_name), collection}};
     for (std::size_t i = 0; i < levels.size(); ++i)
         files.emplace_back(std::string(metadata_prefix) + level_to_file(levels[i].name), contents[i]);
-    auto stamp = make_stamp(directory, container, collection_source);
-    stamp.key = remote_sizes_key(validation_sizes);
-    cache.store(entry_label(collection, container, directory), files, std::move(stamp));
+    cache.store(entry_label(collection, container, directory), files,
+                make_stamp(directory, container, remote_sizes_key(validation_sizes)));
     return cached_dataset(directory, container, tacocat ? parent_path(location) : location, cache);
 }
 

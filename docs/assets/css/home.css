@@ -15,3 +15,9 @@
 @media (min-width: 861px) {
   html[data-route="home"] .hero { min-height: 0; }
 }
+
+/* "Many datasets," is wider than the titles of the other sites, so on a wide
+   screen the title is set a little smaller to stay in its column. */
+@media (min-width: 861px) {
+  html[data-route="home"] .hero h1 { font-size: clamp(46px, 5vw, 72px); }
+}

@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&amp;family=League+Spartan:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=3">
+  <link rel="stylesheet" href="styles.css?v=4">
   <script defer src="app.js?v=1"></script>
 </head>
 <body>
@@ -86,105 +86,289 @@
     <p class="od-kicker">AI4EO dataset packaging</p>
     <p class="od-lead">There are no 14 competing standards. There are</p>
     <p class="od-zero">Zero.</p>
-    <p class="od-sub">Everyone builds their own folder structure,<br>their own scripts, their own README.</p>
     <div class="od-rule"></div>
     <p class="od-lead">TACO is not standard number 15.</p>
     <p class="od-one">It's number 1.</p>
   </div>
 </section>
 
-    <section class="slide od od-problem" aria-label="AI4EO datasets have no standard packaging">
+    <section class="slide dk dk-problem" aria-label="AI4EO datasets have no standard packaging" data-steps="3" data-step="1">
   <header><span class="brand"><img class="brand-icon" src="../assets/svg/taco-mark-static.svg?v=1" alt=""><span class="brand-name">TACO</span></span><span class="count">04 / 9</span></header>
   <h1>AI4EO datasets have <span class="title-mark red">no standard packaging</span></h1>
-  <div class="od-cols">
-    <div class="od-text">
-      <p>Earth observation datasets for machine learning need data and metadata together. Users filter by cloud cover, region, time, split, solar zenith, and dozens of other variables before loading a single pixel. No existing format packages data, metadata, and structure as a queryable portable unit.</p>
-      <p><strong>STAC</strong> stores one JSON per sample: a million samples, a million files. <strong>STAC-GeoParquet</strong> fixes queries but flattens the hierarchy and doesn't bundle data. <strong>TACO</strong> solves both.</p>
-      <table class="od-table">
-        <tr><th></th><th>STAC</th><th>STAC-GP</th><th>TACO</th></tr>
-        <tr><td>Queryable without server</td><td class="no">No</td><td class="yes">Yes</td><td class="yes">Yes</td></tr>
-        <tr><td>Hierarchical samples</td><td class="yes">Yes</td><td class="no">No</td><td class="yes">Yes</td></tr>
-        <tr><td>Structural validation</td><td class="no">No</td><td class="no">No</td><td class="yes">Yes</td></tr>
-        <tr><td>Random access <code>dataset[i]</code></td><td class="no">No</td><td class="yes">O(1)</td><td class="yes">O(1)</td></tr>
-        <tr><td>Access method</td><td>Crawl JSONs + HTTP</td><td>Parquet + HTTP</td><td>Parquet + GDAL VSI</td></tr>
-      </table>
+  <div class="dk-wr">
+    <div class="tabs" role="tablist" aria-label="Steps">
+      <button type="button" role="tab" data-to="1">STAC</button>
+      <button type="button" role="tab" data-to="2">STAC-GeoParquet</button>
+      <button type="button" role="tab" data-to="3">TACO</button>
     </div>
-    <figure class="od-fig"><img src="fig/problem.svg" alt="Data trees of STAC, STAC-GeoParquet and TACO: catalogs, collections, items or samples, folders and assets."></figure>
+    <svg class="dk-fig" viewBox="0 0 864 222" role="img" aria-label="One dataset three ways. STAC: a catalog, collections and one JSON file per item, each pointing at its files. STAC-GeoParquet: one flat table whose rows point at files kept elsewhere. TACO: samples with their files, one Parquet per level and COLLECTION.json, in one unit.">
+      <g class="dk-col" data-dim="2 3" data-on-col="1">
+      <text class="dk-label" x="135" y="18" text-anchor="middle">STAC</text>
+      <rect class="dk-node" x="100" y="34" width="70" height="22"/><text class="dk-tag" x="135" y="49" text-anchor="middle">catalog</text>
+      <path class="dk-line" d="M135 56 V66 H70 V78 M135 66 H200 V78"/>
+      <rect class="dk-node" x="35" y="78" width="70" height="22"/><text class="dk-tag" x="70" y="93" text-anchor="middle">collection</text>
+      <rect class="dk-node" x="165" y="78" width="70" height="22"/><text class="dk-tag" x="200" y="93" text-anchor="middle">collection</text>
+      <path class="dk-line" d="M70 100 V110 H33 V122"/>
+      <path class="dk-doc" d="M22 122 h16 l6 6 v22 h-22 Z"/>
+      <text class="dk-glyph" x="33" y="141" text-anchor="middle">{}</text>
+      <path class="dk-line dk-thin" d="M33 150 V166"/>
+      <rect class="dk-file" x="24" y="168" width="9" height="9"/><rect class="dk-file" x="34" y="172" width="9" height="9"/>
+      <path class="dk-line" d="M70 100 V110 H73 V122"/>
+      <path class="dk-doc" d="M62 122 h16 l6 6 v22 h-22 Z"/>
+      <text class="dk-glyph" x="73" y="141" text-anchor="middle">{}</text>
+      <path class="dk-line dk-thin" d="M73 150 V166"/>
+      <rect class="dk-file" x="64" y="168" width="9" height="9"/><rect class="dk-file" x="74" y="172" width="9" height="9"/>
+      <path class="dk-line" d="M70 100 V110 H113 V122"/>
+      <path class="dk-doc" d="M102 122 h16 l6 6 v22 h-22 Z"/>
+      <text class="dk-glyph" x="113" y="141" text-anchor="middle">{}</text>
+      <path class="dk-line dk-thin" d="M113 150 V166"/>
+      <rect class="dk-file" x="104" y="168" width="9" height="9"/><rect class="dk-file" x="114" y="172" width="9" height="9"/>
+      <path class="dk-line" d="M200 100 V110 H163 V122"/>
+      <path class="dk-doc" d="M152 122 h16 l6 6 v22 h-22 Z"/>
+      <text class="dk-glyph" x="163" y="141" text-anchor="middle">{}</text>
+      <path class="dk-line dk-thin" d="M163 150 V166"/>
+      <rect class="dk-file" x="154" y="168" width="9" height="9"/><rect class="dk-file" x="164" y="172" width="9" height="9"/>
+      <path class="dk-line" d="M200 100 V110 H203 V122"/>
+      <path class="dk-doc" d="M192 122 h16 l6 6 v22 h-22 Z"/>
+      <text class="dk-glyph" x="203" y="141" text-anchor="middle">{}</text>
+      <path class="dk-line dk-thin" d="M203 150 V166"/>
+      <rect class="dk-file" x="194" y="168" width="9" height="9"/><rect class="dk-file" x="204" y="172" width="9" height="9"/>
+      <path class="dk-line" d="M200 100 V110 H243 V122"/>
+      <path class="dk-doc" d="M232 122 h16 l6 6 v22 h-22 Z"/>
+      <text class="dk-glyph" x="243" y="141" text-anchor="middle">{}</text>
+      <path class="dk-line dk-thin" d="M243 150 V166"/>
+      <rect class="dk-file" x="234" y="168" width="9" height="9"/><rect class="dk-file" x="244" y="172" width="9" height="9"/>
+      <text class="dk-small" x="135" y="214" text-anchor="middle">a JSON file per item</text></g>
+      <g class="dk-col" data-dim="1 3">
+      <text class="dk-label" x="432" y="18" text-anchor="middle">STAC-GeoParquet</text>
+      <rect class="dk-table" x="352" y="34" width="160" height="108"/>
+      <rect class="dk-table-head" x="352" y="34" width="160" height="16"/>
+      <rect class="dk-cell" x="360" y="58" width="48" height="7"/><rect class="dk-cell" x="414" y="58" width="40" height="7"/><rect class="dk-cell" x="460" y="58" width="44" height="7"/>
+      <rect class="dk-cell" x="360" y="75" width="48" height="7"/><rect class="dk-cell" x="414" y="75" width="40" height="7"/><rect class="dk-cell" x="460" y="75" width="44" height="7"/>
+      <rect class="dk-cell" x="360" y="92" width="48" height="7"/><rect class="dk-cell" x="414" y="92" width="40" height="7"/><rect class="dk-cell" x="460" y="92" width="44" height="7"/>
+      <rect class="dk-cell" x="360" y="109" width="48" height="7"/><rect class="dk-cell" x="414" y="109" width="40" height="7"/><rect class="dk-cell" x="460" y="109" width="44" height="7"/>
+      <rect class="dk-cell" x="360" y="126" width="48" height="7"/><rect class="dk-cell" x="414" y="126" width="40" height="7"/><rect class="dk-cell" x="460" y="126" width="44" height="7"/>
+      <path class="dk-line dk-dash" d="M368 142 V166"/>
+      <rect class="dk-file" x="363" y="168" width="10" height="10"/>
+      <path class="dk-line dk-dash" d="M400 142 V166"/>
+      <rect class="dk-file" x="395" y="168" width="10" height="10"/>
+      <path class="dk-line dk-dash" d="M432 142 V166"/>
+      <rect class="dk-file" x="427" y="168" width="10" height="10"/>
+      <path class="dk-line dk-dash" d="M464 142 V166"/>
+      <rect class="dk-file" x="459" y="168" width="10" height="10"/>
+      <path class="dk-line dk-dash" d="M496 142 V166"/>
+      <rect class="dk-file" x="491" y="168" width="10" height="10"/>
+      <text class="dk-small" x="432" y="214" text-anchor="middle">one flat table, files elsewhere</text></g>
+      <g class="dk-col" data-dim="1 2">
+      <text class="dk-label" x="729" y="18" text-anchor="middle">TACO</text>
+      <rect class="dk-unit" x="604" y="30" width="250" height="160"/>
+      <rect class="dk-node is-sample" x="622" y="44" width="56" height="20"/><text class="dk-tag" x="650" y="58" text-anchor="middle">sample</text>
+      <path class="dk-line" d="M650 64 V72 H634 V80 M650 72 H666 V80"/>
+      <rect class="dk-file" x="628" y="80" width="12" height="12"/><rect class="dk-file" x="660" y="80" width="12" height="12"/>
+      <rect class="dk-node is-sample" x="702" y="44" width="56" height="20"/><text class="dk-tag" x="730" y="58" text-anchor="middle">sample</text>
+      <path class="dk-line" d="M730 64 V72 H714 V80 M730 72 H746 V80"/>
+      <rect class="dk-file" x="708" y="80" width="12" height="12"/><rect class="dk-file" x="740" y="80" width="12" height="12"/>
+      <rect class="dk-node is-sample" x="782" y="44" width="56" height="20"/><text class="dk-tag" x="810" y="58" text-anchor="middle">sample</text>
+      <path class="dk-line" d="M810 64 V72 H794 V80 M810 72 H826 V80"/>
+      <rect class="dk-file" x="788" y="80" width="12" height="12"/><rect class="dk-file" x="820" y="80" width="12" height="12"/>
+      <rect class="dk-parquet" x="618" y="112" width="222" height="16"/><text class="dk-tag is-light" x="729" y="124" text-anchor="middle">sample.parquet</text>
+      <rect class="dk-parquet" x="618" y="132" width="222" height="16"/><text class="dk-tag is-light" x="729" y="144" text-anchor="middle">children.parquet</text>
+      <rect class="dk-doc-box" x="618" y="152" width="222" height="16"/><text class="dk-tag" x="729" y="164" text-anchor="middle">COLLECTION.json</text>
+      <text class="dk-small" x="729" y="214" text-anchor="middle">samples, files and tables, one unit</text></g>
+    </svg>
+    <div class="dk-note">
+      <p data-k="1">STAC keeps <span class="title-mark">one JSON per item</span>: a million samples are a million files to crawl.</p>
+      <p data-k="2">STAC-GeoParquet is <span class="title-mark">one table you can query</span>, but flat, with the files elsewhere.</p>
+      <p data-k="3">TACO keeps <span class="title-mark">samples, files and tables</span> in one unit you query without a server.</p>
+    </div>
   </div>
 </section>
 
-    <section class="slide od od-solution" aria-label="Declare a contract, build your dataset">
+    <section class="slide dk dk-contract" aria-label="Declare a contract, build your dataset" data-steps="3" data-step="1">
   <header><span class="brand"><img class="brand-icon" src="../assets/svg/taco-mark-static.svg?v=1" alt=""><span class="brand-name">TACO</span></span><span class="count">05 / 9</span></header>
   <h1>Declare a contract, <span class="title-mark">build your dataset</span></h1>
-  <div class="od-cols">
-    <div class="od-text">
-      <p>Before writing a single byte, you declare a <strong>contract</strong> that fixes the shape of your dataset. Every sample obeys this contract. It has two parts.</p>
-      <p>The <strong>structure (σ)</strong> defines the file tree inside each sample: which files and folders exist, their names, and their nesting. Every sample shares the exact same tree.</p>
-      <p>The <strong>metadata (μ)</strong> defines what fields exist at each level of the hierarchy. Each non-leaf level generates its own Parquet table, queryable with SQL, with no server needed.</p>
-      <p>A TACO dataset is valid when every sample satisfies both: <strong>contract = σ ∧ μ</strong>.</p>
+  <div class="dk-wr">
+    <div class="tabs" role="tablist" aria-label="Steps">
+      <button type="button" role="tab" data-to="1">structure</button>
+      <button type="button" role="tab" data-to="2">metadata</button>
+      <button type="button" role="tab" data-to="3">samples</button>
     </div>
-    <figure class="od-fig"><img src="fig/solution.svg" alt="Samples pass through the contract, the tree σ and the schema μ, into a TACO dataset."></figure>
+    <svg class="dk-fig" viewBox="0 0 864 262" role="img" aria-label="Three samples go into a contract of two parts. Sigma, the structure: before/B02.tif, after/B02.tif and mask.tif. Mu, the metadata: split:split as a string, stac:datetime as a timestamp, eo:cloud_cover as a double. The two samples that fit become rows of the TACO dataset; the third, with no mask.tif, is turned away.">
+      <g class="dk-sample">
+      <rect class="dk-card" x="0" y="24" width="176" height="62"/>
+      <text class="dk-tag" x="12" y="42">lima-0001</text>
+      <rect class="dk-file" x="12" y="54" width="14" height="14"/><rect class="dk-file" x="32" y="54" width="14" height="14"/>
+      <rect class="dk-file is-mask" x="52" y="54" width="14" height="14"/>
+      <rect class="dk-cell" x="80" y="56" width="80" height="6"/><rect class="dk-cell" x="80" y="66" width="56" height="6"/>
+      </g>
+      <g class="dk-sample">
+      <rect class="dk-card" x="0" y="102" width="176" height="62"/>
+      <text class="dk-tag" x="12" y="120">lima-0002</text>
+      <rect class="dk-file" x="12" y="132" width="14" height="14"/><rect class="dk-file" x="32" y="132" width="14" height="14"/>
+      <rect class="dk-file is-mask" x="52" y="132" width="14" height="14"/>
+      <rect class="dk-cell" x="80" y="134" width="80" height="6"/><rect class="dk-cell" x="80" y="144" width="56" height="6"/>
+      </g>
+      <g class="dk-sample is-bad">
+      <rect class="dk-card" x="0" y="180" width="176" height="62"/>
+      <text class="dk-tag" x="12" y="198">lima-0003</text>
+      <rect class="dk-file" x="12" y="210" width="14" height="14"/><rect class="dk-file" x="32" y="210" width="14" height="14"/>
+      <rect class="dk-file is-missing" x="52" y="210" width="14" height="14"/>
+      <rect class="dk-cell" x="80" y="212" width="80" height="6"/><rect class="dk-cell" x="80" y="222" width="56" height="6"/>
+      </g>
+      <path class="dk-line" d="M176 55 C232 55 236 130 288 130"/>
+      <path class="dk-line" d="M176 133 H288"/>
+      <path class="dk-line" d="M176 211 C232 211 236 136 288 136"/>
+      <rect class="dk-box" x="290" y="14" width="284" height="234"/>
+      <text class="dk-label" x="306" y="38">contract</text>
+      <g class="dk-half" data-on="1"><rect class="dk-pane" x="304" y="50" width="256" height="88"/>
+      <text class="dk-greek" x="318" y="76">σ</text><text class="dk-small" x="340" y="75">structure</text>
+      <text class="dk-mono" x="318" y="100">before/B02.tif</text><text class="dk-mono" x="318" y="116">after/B02.tif</text><text class="dk-mono" x="318" y="132">mask.tif</text></g>
+      <g class="dk-half" data-on="2"><rect class="dk-pane" x="304" y="146" width="256" height="88"/>
+      <text class="dk-greek" x="318" y="172">μ</text><text class="dk-small" x="340" y="171">metadata</text>
+      <text class="dk-mono" x="318" y="196">split:split</text><text class="dk-mono-s" x="546" y="196" text-anchor="end">string</text>
+      <text class="dk-mono" x="318" y="212">stac:datetime</text><text class="dk-mono-s" x="546" y="212" text-anchor="end">timestamp</text>
+      <text class="dk-mono" x="318" y="228">eo:cloud_cover</text><text class="dk-mono-s" x="546" y="228" text-anchor="end">double</text></g>
+      <g data-k="3"><path class="dk-arrow" d="M574 120 H688"/><path class="dk-arrow" d="M574 140 H688"/>
+      <rect class="dk-unit" x="690" y="64" width="174" height="134"/><text class="dk-label" x="704" y="88">TACO dataset</text>
+      <rect class="dk-row" x="704" y="102" width="146" height="12"/><rect class="dk-row" x="704" y="120" width="146" height="12"/>
+      <text class="dk-tag" x="710" y="111">lima-0001</text><text class="dk-tag" x="710" y="129">lima-0002</text>
+      <path class="dk-reject" d="M176 211 C220 211 232 252 250 252"/><text class="dk-no" x="256" y="256">mask.tif missing</text></g>
+    </svg>
+    <div class="dk-note">
+      <p data-k="1">The <span class="title-mark">structure σ</span> fixes the files of every sample, before the first one is written.</p>
+      <p data-k="2">The <span class="title-mark">metadata μ</span> fixes the fields of each level and their types.</p>
+      <p data-k="3">A sample gets in only if it fits both: <span class="title-mark">contract = σ ∧ μ</span>.</p>
+    </div>
   </div>
 </section>
 
-    <section class="slide od od-layout" aria-label="How it looks on disk">
+    <section class="slide dk dk-layout" aria-label="How it looks on disk" data-steps="3" data-step="1">
   <header><span class="brand"><img class="brand-icon" src="../assets/svg/taco-mark-static.svg?v=1" alt=""><span class="brand-name">TACO</span></span><span class="count">06 / 9</span></header>
   <h1>How it looks <span class="title-mark">on disk</span></h1>
-  <div class="od-cols">
-    <div class="od-text">
-      <p><code>COLLECTION.json</code> stores the contract and dataset-level fields like license, providers, and spatial extent. <code>DATA/</code> holds the files: samples are numbered <code>0, 1, 2, ..., N-1</code>, and the path to any file is predictable from the index and the contract alone.</p>
-      <p>Metadata lives in Parquet files, one per level of the hierarchy. <code>sample.parquet</code> has one row per sample. <code>children.parquet</code> has one row per child inside each sample. If the structure has subfolders like <code>before/</code> and <code>after/</code>, each gets its own Parquet with one row per file inside it.</p>
-      <p>A TACO dataset can exist as a <strong>FOLDER</strong> (plain directory, supports incremental append) or as a <strong>cloud-optimized ZIP</strong> (single archive, immutable, byte-range accessible).</p>
+  <div class="dk-wr">
+    <div class="tabs" role="tablist" aria-label="Steps">
+      <button type="button" role="tab" data-to="1">COLLECTION.json</button>
+      <button type="button" role="tab" data-to="2">DATA/</button>
+      <button type="button" role="tab" data-to="3">METADATA/</button>
     </div>
-    <figure class="od-fig"><img src="fig/layout.svg" alt="A TACO dataset on disk: COLLECTION.json, DATA/ with numbered samples, and METADATA/ with one Parquet per tree level."></figure>
+    <svg class="dk-fig" viewBox="0 0 864 230" role="img" aria-label="A TACO dataset on disk. COLLECTION.json holds the contract, license, providers, extent and splits. DATA/ holds the files by sample number: 0/ and 1/ each with before/, after/ and mask.tif, up to N-1/. METADATA/ holds one Parquet per level: sample.parquet, children.parquet, children__before.parquet and children__after.parquet.">
+      <g data-on-group="1" data-dim="2 3">
+      <text class="dk-label" x="0" y="20">COLLECTION.json</text>
+      <path class="dk-doc-big" d="M0 34 h150 l20 20 v150 h-170 Z"/>
+      <text class="dk-small" x="16" y="70">the contract, σ and μ</text>
+      <rect class="dk-cell" x="16" y="84" width="120" height="7"/><rect class="dk-cell" x="16" y="98" width="96" height="7"/>
+      <text class="dk-small" x="16" y="132">license, providers,</text><text class="dk-small" x="16" y="150">extent, splits</text>
+      <rect class="dk-cell" x="16" y="164" width="110" height="7"/><rect class="dk-cell" x="16" y="178" width="80" height="7"/></g>
+      <g data-dim="1 3">
+      <text class="dk-label" x="250" y="20">DATA/</text>
+      <text class="dk-mono" x="250" y="48">0/</text>
+      <text class="dk-mono-s" x="272" y="65">before/</text>
+      <rect class="dk-file" x="332" y="55" width="11" height="11"/><rect class="dk-file" x="346" y="55" width="11" height="11"/><rect class="dk-file" x="360" y="55" width="11" height="11"/>
+      <text class="dk-mono-s" x="272" y="83">after/</text>
+      <rect class="dk-file is-after" x="332" y="73" width="11" height="11"/><rect class="dk-file is-after" x="346" y="73" width="11" height="11"/><rect class="dk-file is-after" x="360" y="73" width="11" height="11"/>
+      <text class="dk-mono-s" x="272" y="101">mask.tif</text>
+      <rect class="dk-file is-mask" x="332" y="91" width="11" height="11"/>
+      <text class="dk-mono" x="250" y="126">1/</text>
+      <text class="dk-mono-s" x="272" y="143">before/</text>
+      <rect class="dk-file" x="332" y="133" width="11" height="11"/><rect class="dk-file" x="346" y="133" width="11" height="11"/><rect class="dk-file" x="360" y="133" width="11" height="11"/>
+      <text class="dk-mono-s" x="272" y="161">after/</text>
+      <rect class="dk-file is-after" x="332" y="151" width="11" height="11"/><rect class="dk-file is-after" x="346" y="151" width="11" height="11"/><rect class="dk-file is-after" x="360" y="151" width="11" height="11"/>
+      <text class="dk-mono-s" x="272" y="179">mask.tif</text>
+      <rect class="dk-file is-mask" x="332" y="169" width="11" height="11"/>
+      <text class="dk-mono" x="250" y="204">N-1/</text></g>
+      <g data-dim="1 2">
+      <text class="dk-label" x="470" y="20">METADATA/</text>
+      <rect class="dk-parquet" x="470" y="36" width="22" height="30"/>
+      <path class="dk-pq-lines" d="M470 46 h22 M470 56 h22 M481 36 v30"/>
+      <text class="dk-mono" x="504" y="49">sample.parquet</text><text class="dk-mono-s" x="504" y="64">a row per sample</text>
+      <rect class="dk-parquet" x="470" y="82" width="22" height="30"/>
+      <path class="dk-pq-lines" d="M470 92 h22 M470 102 h22 M481 82 v30"/>
+      <text class="dk-mono" x="504" y="95">children.parquet</text><text class="dk-mono-s" x="504" y="110">a row per child</text>
+      <rect class="dk-parquet" x="470" y="128" width="22" height="30"/>
+      <path class="dk-pq-lines" d="M470 138 h22 M470 148 h22 M481 128 v30"/>
+      <text class="dk-mono" x="504" y="141">children__before.parquet</text><text class="dk-mono-s" x="504" y="156">a row per file in before/</text>
+      <rect class="dk-parquet" x="470" y="174" width="22" height="30"/>
+      <path class="dk-pq-lines" d="M470 184 h22 M470 194 h22 M481 174 v30"/>
+      <text class="dk-mono" x="504" y="187">children__after.parquet</text><text class="dk-mono-s" x="504" y="202">a row per file in after/</text>
+      </g>
+    </svg>
+    <div class="dk-note">
+      <p data-k="1"><span class="title-mark">COLLECTION.json</span> holds the contract and what describes the whole dataset.</p>
+      <p data-k="2"><span class="title-mark">DATA/</span> holds the files by sample number, so every path follows from the contract.</p>
+      <p data-k="3"><span class="title-mark">METADATA/</span> holds one Parquet per level of the tree, ready for SQL.</p>
+    </div>
   </div>
 </section>
 
-    <section class="slide od od-how" aria-label="How it works" data-steps="4" data-step="1">
+    <section class="slide dk dk-how" aria-label="How it works" data-steps="4" data-step="1">
   <header><span class="brand"><img class="brand-icon" src="../assets/svg/taco-mark-static.svg?v=1" alt=""><span class="brand-name">TACO</span></span><span class="count">07 / 9</span></header>
   <h1>How it <span class="title-mark">works</span></h1>
-  <div class="tabs" role="tablist" aria-label="Steps">
-    <button type="button" role="tab" data-to="1">cloud-optimized ZIP</button>
-    <button type="button" role="tab" data-to="2">Parquet</button>
-    <button type="button" role="tab" data-to="3">VSI paths</button>
-    <button type="button" role="tab" data-to="4">training</button>
-  </div>
-  <div class="od-cols od-step" data-k="1">
-    <div class="od-text">
-      <h2>The problem with normal ZIP</h2>
-      <p>A ZIP stores its file index, the Central Directory, at the end of the archive. For a dataset with one million samples and three files each, the CD alone weighs around 200 MB. To open anything remotely, you have to fetch those 200 MB from the tail first. This is why many people assume ZIP is slow for large datasets.</p>
-      <h2>Cloud-optimized ZIP flips this</h2>
-      <p>A small index at byte 0 stores offsets to a handful of key files. In TACO, those are the Parquets in <code>METADATA/</code> and <code>COLLECTION.json</code>. A few hundred bytes instead of hundreds of megabytes.</p>
-      <p>Once you reach the Parquets, you have pointers to every data file in the archive. The CD at the end becomes irrelevant.</p>
-      <p class="od-note">FOLDER mode skips this step.</p>
+  <div class="dk-wr">
+    <div class="tabs" role="tablist" aria-label="Steps">
+      <button type="button" role="tab" data-to="1">ZIP index</button>
+      <button type="button" role="tab" data-to="2">Parquet</button>
+      <button type="button" role="tab" data-to="3">VSI path</button>
+      <button type="button" role="tab" data-to="4">training</button>
     </div>
-    <figure class="od-fig"><img src="fig/coz.svg" alt="A normal ZIP with its Central Directory at the end, against a cloud-optimized ZIP with a small index at byte 0."></figure>
-  </div>
-  <div class="od-cols od-step" data-k="2">
-    <div class="od-text">
-      <h2>Metadata loads once, access is instant</h2>
-      <p>When you open a TACO dataset, the reader loads the Parquet files from <code>METADATA/</code> into in-memory tables. Even for one million samples, the files are small on disk, so this takes a moment. It happens once.</p>
-      <p>After that, every sample is a direct row lookup. Filtering by cloud cover, split, or region scans an in-memory table. Random access in microseconds.</p>
-      <p>Each row represents a node in the sample tree. When the node is a file, the reader builds a VSI path, a pointer to the exact bytes on disk or cloud.</p>
+    <svg class="dk-fig" viewBox="0 0 864 240" role="img" aria-label="Four steps. A plain ZIP is read from its Central Directory at the end; a TACO ZIP has an index at byte 0 that points at the metadata. The metadata is a table: of four Major TOM Core-DEM rows, the two in Peru above 4,500 m are kept. Each kept row has a path: /vsisubfile/577605662_48266 and the archive URL. Four workers read those paths with Rumi into a batch for the model.">
+      <g data-k="1">
+      <text class="dk-small" x="0" y="44">a ZIP</text>
+      <rect class="dk-bar" x="120" y="26" width="580" height="30"/>
+      <rect class="dk-cd" x="700" y="26" width="164" height="30"/><text class="dk-tag" x="782" y="45" text-anchor="middle">Central Directory</text>
+      <path class="dk-hop" d="M782 64 C782 86 120 86 120 64"/><text class="dk-small" x="450" y="100" text-anchor="middle">a reader starts at the end</text>
+      <text class="dk-small" x="0" y="164">a TACO ZIP</text>
+      <rect class="dk-index" x="120" y="146" width="26" height="30"/>
+      <rect class="dk-bar" x="146" y="146" width="460" height="30"/>
+      <rect class="dk-parquet" x="606" y="146" width="94" height="30"/><text class="dk-tag is-light" x="653" y="165" text-anchor="middle">metadata</text>
+      <rect class="dk-cd is-quiet" x="700" y="146" width="164" height="30"/><text class="dk-tag is-quiet" x="782" y="165" text-anchor="middle">Central Directory</text>
+      <path class="dk-arrow" d="M133 184 C133 214 653 214 653 184"/><text class="dk-small" x="133" y="234">byte 0</text></g>
+      <g data-k="2">
+      <text class="dk-mono" x="0" y="20">WHERE "geoenrich:admin_countries" = 'Peru' AND "geoenrich:elevation" &gt; 4500</text>
+      <rect class="dk-table" x="0" y="36" width="864" height="150"/>
+      <text class="dk-mono-s" x="16" y="58">id</text><text class="dk-mono-s" x="250" y="58">country</text><text class="dk-mono-s" x="380" y="58">elevation</text><text class="dk-mono-s" x="500" y="58">dem.rumi::location</text>
+      <g class="dk-trow">
+      <rect class="dk-keep" x="2" y="66" width="860" height="24"/>
+      <text class="dk-mono" x="16" y="82">MT10km_0003D_0833L</text><text class="dk-mono" x="250" y="82">Peru</text><text class="dk-mono" x="380" y="82">191 m</text><text class="dk-mono-s" x="500" y="82">/vsisubfile/...</text></g>
+      <g class="dk-trow is-kept">
+      <rect class="dk-keep" x="2" y="94" width="860" height="24"/>
+      <text class="dk-mono" x="16" y="110">MT10km_0100D_0854L</text><text class="dk-mono" x="250" y="110">Peru</text><text class="dk-mono" x="380" y="110">4,787 m</text><text class="dk-mono-s" x="500" y="110">/vsisubfile/...</text></g>
+      <g class="dk-trow is-kept">
+      <rect class="dk-keep" x="2" y="122" width="860" height="24"/>
+      <text class="dk-mono" x="16" y="138">MT10km_0102D_0852L</text><text class="dk-mono" x="250" y="138">Peru</text><text class="dk-mono" x="380" y="138">4,531 m</text><text class="dk-mono-s" x="500" y="138">/vsisubfile/...</text></g>
+      <g class="dk-trow">
+      <rect class="dk-keep" x="2" y="150" width="860" height="24"/>
+      <text class="dk-mono" x="16" y="166">MT10km_0164D_0745L</text><text class="dk-mono" x="250" y="166">Bolivia</text><text class="dk-mono" x="380" y="166">4,772 m</text><text class="dk-mono-s" x="500" y="166">/vsisubfile/...</text></g>
+      <text class="dk-small" x="0" y="210">Major TOM Core-DEM: 492 of 1,735,044 samples kept, in 14 ms</text></g>
+      <g data-k="3">
+      <text class="dk-path" x="0" y="96"><tspan class="is-a">/vsisubfile/</tspan><tspan class="is-b">577605662</tspan><tspan>_</tspan><tspan class="is-b">48266</tspan><tspan>,</tspan><tspan class="is-c">/vsicurl/https://data.source.coop/major-tom/core-dem/</tspan></text>
+      <text class="dk-path" x="0" y="122"><tspan class="is-c">core-dem_MT3000km_0001D_0003L.zip</tspan></text>
+      <path class="dk-brace" d="M0 70 V60 H113 V70"/><text class="dk-small" x="0" y="50">a byte range of</text>
+      <path class="dk-brace" d="M116 70 V60 H259 V70"/><text class="dk-small" x="188" y="50" text-anchor="middle">offset and size, from the row</text>
+      <path class="dk-brace" d="M0 132 V142 H317 V132"/><text class="dk-small" x="158" y="162" text-anchor="middle">the archive, wherever it lives</text>
+      <text class="dk-small" x="0" y="214">48,266 bytes of one ZIP of 1.23 GB, and nothing else</text></g>
+      <g data-k="4">
+      <rect class="dk-node" x="0" y="88" width="120" height="40"/><text class="dk-label" x="60" y="113" text-anchor="middle">sampler</text>
+      <path class="dk-line" d="M120 108 C160 108 160 40 200 40"/>
+      <rect class="dk-worker" x="200" y="22" width="270" height="36"/><text class="dk-mono" x="214" y="44">worker 0</text><text class="dk-mono-s" x="458" y="44" text-anchor="end">rumi.read(location)</text>
+      <path class="dk-line" d="M470 40 C505 40 505 108 540 108"/>
+      <path class="dk-line" d="M120 108 C160 108 160 86 200 86"/>
+      <rect class="dk-worker" x="200" y="68" width="270" height="36"/><text class="dk-mono" x="214" y="90">worker 1</text><text class="dk-mono-s" x="458" y="90" text-anchor="end">rumi.read(location)</text>
+      <path class="dk-line" d="M470 86 C505 86 505 108 540 108"/>
+      <path class="dk-line" d="M120 108 C160 108 160 132 200 132"/>
+      <rect class="dk-worker" x="200" y="114" width="270" height="36"/><text class="dk-mono" x="214" y="136">worker 2</text><text class="dk-mono-s" x="458" y="136" text-anchor="end">rumi.read(location)</text>
+      <path class="dk-line" d="M470 132 C505 132 505 108 540 108"/>
+      <path class="dk-line" d="M120 108 C160 108 160 178 200 178"/>
+      <rect class="dk-worker" x="200" y="160" width="270" height="36"/><text class="dk-mono" x="214" y="182">worker 3</text><text class="dk-mono-s" x="458" y="182" text-anchor="end">rumi.read(location)</text>
+      <path class="dk-line" d="M470 178 C505 178 505 108 540 108"/>
+      <rect class="dk-unit" x="540" y="78" width="150" height="60"/><text class="dk-label" x="615" y="104" text-anchor="middle">batch</text><text class="dk-mono-s" x="615" y="122" text-anchor="middle">[4, C, H, W]</text>
+      <path class="dk-arrow" d="M690 108 H760"/><rect class="dk-node" x="764" y="88" width="100" height="40"/><text class="dk-label" x="814" y="113" text-anchor="middle">model</text></g>
+    </svg>
+    <div class="dk-note">
+      <p data-k="1">A TACO ZIP keeps <span class="title-mark">an index at byte 0</span> that points straight at the metadata.</p>
+      <p data-k="2">The metadata is <span class="title-mark">a table you filter</span>, before a single file is read.</p>
+      <p data-k="3">Each kept row carries <span class="title-mark">the path to its bytes</span>: an offset, a size and the archive.</p>
+      <p data-k="4">A dataloader reads <span class="title-mark">only those bytes</span>, and Rumi decodes them on the GPU.</p>
     </div>
-    <figure class="od-fig"><img src="fig/parquet.svg" alt="sample.parquet as a table, filtered with WHERE cloud_cover &lt; 10, each kept row with its VSI path."></figure>
-  </div>
-  <div class="od-cols od-step" data-k="3">
-    <div class="od-text">
-      <h2>From filtered rows to raw bytes</h2>
-      <p>Each row that passed the filter carries a VSI path. Think of it as a URL that works for anything, not just HTTP. <code>/vsicurl/</code> reads over HTTP. <code>/vsis3/</code> reads from S3. <code>/vsisubfile/</code> reads a byte range from any source.</p>
-      <p>These paths are chainable. <code>/vsisubfile/8234_1024,/vsicurl/https://hf.co/ds.zip</code> tells the reader: connect to this URL, jump to byte 8234, read 1024 bytes. One path, only the bytes you need.</p>
-      <p>FOLDER mode is the same chain without <code>/vsisubfile/</code>. The files are individual, so there is no byte range to resolve. <code>/vsicurl/https://hf.co/DATA/42/before/B02.tif</code> works just as well.</p>
-    </div>
-    <figure class="od-fig"><img src="fig/vsi.svg" alt="How a chained VSI path is read right to left: connect to the URL, jump to the offset, read the size."></figure>
-  </div>
-  <div class="od-cols od-step" data-k="4">
-    <div class="od-text">
-      <h2>From query to training loop</h2>
-      <p>TACO slots naturally into ML pipelines. Query the metadata, filter the samples you need, iterate. Your dataloader receives VSI paths and reads them.</p>
-      <p>VSI paths work the same whether the dataset is on local disk or on a remote server. Download everything and train offline, or stream directly from cloud storage. The format works either way, you choose what fits your setup.</p>
-    </div>
-    <figure class="od-fig"><img src="fig/dataloader.svg" alt="A PyTorch Dataset over a TACO dataset: the sampler picks indices, four workers open the VSI paths, and collate stacks a batch."></figure>
   </div>
 </section>
 

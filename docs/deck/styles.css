@@ -169,33 +169,8 @@ code, pre { font-family: var(--mono); font-variant-ligatures: none; }
 .s02 .st-hold { fill: none; stroke: #777; stroke-width: 1.5; stroke-dasharray: 4 3; }
 .s02 .st-fig .st-tag { font: 500 11px var(--mono); fill: var(--dim); text-anchor: middle; }
 
-/* 03 to 07 The slides of the first TACO deck (deck/overview, April 2026): their text and
-   figures, set in two columns on this shell. Steps show one block at a time. */
-.od .od-step,
-.od .od-cols.od-step { display: none; }
-.od[data-step="1"] .od-step[data-k="1"],
-.od[data-step="2"] .od-step[data-k="2"],
-.od[data-step="3"] .od-step[data-k="3"],
-.od[data-step="4"] .od-step[data-k="4"] { display: grid; }
-.od .od-cols { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); gap: 30px; align-items: center; margin-top: 12px; }
-.od .od-text h2 { margin: 0 0 6px; font-size: 19px; font-weight: 600; letter-spacing: -.02em; }
-.od .od-text h2 + p + h2 { margin-top: 12px; }
-.od .od-text p { margin: 0 0 9px; color: var(--soft); font-size: 14px; line-height: 1.45; }
-.od .od-text strong { color: var(--ink); font-weight: 600; }
-.od code { padding: 0 3px; background: var(--wash); color: var(--ink); font-size: .88em; }
-.od .od-note { color: var(--faint); font-size: 12.5px; }
-.od .od-fig { margin: 0; min-height: 0; height: 100%; display: flex; align-items: center; justify-content: center; }
-.od .od-fig img { display: block; max-width: 100%; max-height: 372px; }
-.od-how .od-fig img { max-height: 340px; }
-.od-table { width: 100%; margin-top: 6px; border-collapse: collapse; font-size: 12px; }
-.od-table th { padding: 4px 6px; border-bottom: 1px solid var(--ink); color: var(--dim); font: 500 10.5px var(--mono); text-align: left; text-transform: uppercase; letter-spacing: .06em; }
-.od-table td { padding: 4px 6px; border-bottom: 1px solid var(--rule); color: var(--soft); }
-.od-table td:first-child { color: var(--ink); font-weight: 500; }
-.od-table .yes { color: var(--mint); font-weight: 600; }
-.od-table .no { color: #b42318; font-weight: 600; }
-.od-table code { font-size: 11px; }
-
-/* 03 xkcd 927, then the count */
+/* 03 How standards proliferate, xkcd 927, then the count. */
+.od .od-step { display: none; }
 .od-xkcd .od-step[data-k] { flex: 1; min-height: 0; }
 .od-xkcd[data-step="1"] .od-meme,
 .od-xkcd[data-step="2"] .od-count { display: flex; }
@@ -207,9 +182,84 @@ code, pre { font-family: var(--mono); font-variant-ligatures: none; }
 .od-kicker { margin-bottom: 12px !important; color: var(--faint); font: 600 11px var(--mono); letter-spacing: .15em; text-transform: uppercase; }
 .od-lead { color: var(--soft); font-size: 22px; font-weight: 500; }
 .od-zero { margin: 2px 0 10px !important; font-size: 84px; font-weight: 700; letter-spacing: -.04em; line-height: 1; }
-.od-sub { color: var(--dim); font-size: 16px; line-height: 1.5; }
-.od-rule { width: 420px; margin: 22px 0 16px; border-top: 1px solid var(--rule); }
+.od-rule { width: 420px; margin: 18px 0 16px; border-top: 1px solid var(--rule); }
 .od-one { margin-top: 4px !important; color: var(--violet); font-size: 46px; font-weight: 700; letter-spacing: -.02em; }
+
+/* 04 to 07 Step figures drawn for this deck from the ideas of the first TACO deck
+   (deck/overview, April 2026): one figure, one sentence per step. data-k shows a part in
+   its steps, data-dim fades it, data-on lights it. */
+.slide[data-step="4"] .tabs [data-to="4"] { border-color: var(--ink); color: var(--ink); }
+.dk .dk-wr { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; gap: 14px; }
+.dk .dk-fig { display: block; width: 100%; height: auto; max-height: 290px; overflow: visible; font-family: var(--sans); }
+.dk .dk-note { min-height: 52px; }
+.dk .dk-note p { display: none; max-width: 820px; margin: 0 auto; color: var(--ink-soft); font-size: 19px; line-height: 1.35; text-align: center; }
+.dk .dk-note .title-mark { color: var(--ink); font-weight: 600; }
+.dk[data-step="1"] .dk-note [data-k="1"],
+.dk[data-step="2"] .dk-note [data-k="2"],
+.dk[data-step="3"] .dk-note [data-k="3"],
+.dk[data-step="4"] .dk-note [data-k="4"] { display: block; }
+.dk .dk-fig [data-k] { opacity: 0; transition: opacity .3s ease; }
+.dk[data-step="1"] .dk-fig [data-k~="1"],
+.dk[data-step="2"] .dk-fig [data-k~="2"],
+.dk[data-step="3"] .dk-fig [data-k~="3"],
+.dk[data-step="4"] .dk-fig [data-k~="4"] { opacity: 1; }
+.dk .dk-fig [data-dim] { transition: opacity .3s ease; }
+.dk[data-step="1"] .dk-fig [data-dim~="1"],
+.dk[data-step="2"] .dk-fig [data-dim~="2"],
+.dk[data-step="3"] .dk-fig [data-dim~="3"] { opacity: .22; }
+
+.dk-label { fill: var(--ink); font: 600 16px var(--sans); }
+.dk-small { fill: var(--dim); font: 400 13.5px var(--sans); }
+.dk-tag { fill: var(--ink); font: 500 11px var(--mono); }
+.dk-tag.is-light { fill: #fff; }
+.dk-tag.is-quiet { fill: var(--faint); }
+.dk-mono { fill: var(--ink); font: 500 13px var(--mono); }
+.dk-mono-s { fill: var(--dim); font: 400 11.5px var(--mono); }
+.dk-glyph { fill: var(--ink); font: 600 9px var(--mono); }
+.dk-greek { fill: var(--violet); font: 700 20px var(--sans); }
+.dk-no { fill: #b42318; font: 600 12.5px var(--mono); }
+.dk-line { fill: none; stroke: #9b9ea6; stroke-width: 1.4; }
+.dk-line.dk-thin { stroke-width: 1; }
+.dk-dash { stroke-dasharray: 3 3; }
+.dk-arrow { fill: none; stroke: var(--violet); stroke-width: 2.2; }
+.dk-hop { fill: none; stroke: #b42318; stroke-width: 1.8; stroke-dasharray: 4 3; }
+.dk-reject { fill: none; stroke: #b42318; stroke-width: 2; }
+.dk-brace { fill: none; stroke: var(--violet); stroke-width: 1.6; }
+.dk-node { fill: var(--wash); stroke: var(--ink); stroke-width: 1.2; }
+.dk-node.is-sample { fill: #ece9fd; stroke: var(--violet); }
+.dk-doc { fill: #fff; stroke: var(--ink); stroke-width: 1.1; }
+.dk-doc-big { fill: #fff; stroke: var(--ink); stroke-width: 1.4; }
+.dk-doc-box { fill: #c4ffc2; stroke: var(--ink); stroke-width: 1; }
+.dk-file { fill: #9cc7e6; stroke: var(--ink); stroke-width: .9; }
+.dk-file.is-after { fill: #b9d99a; }
+.dk-file.is-mask { fill: #2b2f36; }
+.dk-file.is-missing { fill: #fff; stroke: #b42318; stroke-width: 1.4; stroke-dasharray: 3 2; }
+.dk-table { fill: #fff; stroke: var(--ink); stroke-width: 1.2; }
+.dk-table-head { fill: var(--wash-deep); }
+.dk-cell { fill: #e9e6fb; }
+.dk-row { fill: #ece9fd; }
+.dk-unit { fill: #fff; stroke: var(--violet); stroke-width: 2.4; }
+.dk-parquet { fill: var(--violet); stroke: var(--ink); stroke-width: 1; }
+.dk-pq-lines { fill: none; stroke: #fff; stroke-width: 1; }
+.dk-card { fill: var(--wash); stroke: #9b9ea6; stroke-width: 1.2; }
+.dk-box { fill: #fff; stroke: var(--ink); stroke-width: 1.4; }
+.dk-pane { fill: var(--wash); stroke: none; transition: fill .3s ease, stroke .3s ease; }
+.dk-contract[data-step="1"] [data-on="1"] .dk-pane,
+.dk-contract[data-step="2"] [data-on="2"] .dk-pane { fill: #ece9fd; stroke: var(--violet); stroke-width: 2; }
+.dk-contract .dk-sample { transition: opacity .3s ease; }
+.dk-contract[data-step="3"] .dk-sample.is-bad .dk-card { stroke: #b42318; }
+.dk-bar { fill: #f4f4f6; stroke: var(--ink); stroke-width: 1.2; }
+.dk-cd { fill: #e4e4e8; stroke: var(--ink); stroke-width: 1.2; }
+.dk-cd.is-quiet { opacity: .4; }
+.dk-index { fill: var(--violet); stroke: var(--ink); stroke-width: 1.2; }
+.dk-keep { fill: transparent; }
+.dk-trow.is-kept .dk-keep { fill: #c4ffc2; }
+.dk-trow:not(.is-kept) text { fill: var(--faint); }
+.dk-path { fill: var(--ink); font: 500 16px var(--mono); }
+.dk-path .is-a { fill: var(--dim); }
+.dk-path .is-b { fill: var(--violet); font-weight: 700; }
+.dk-path .is-c { fill: var(--ink-soft); }
+.dk-worker { fill: #fff; stroke: #9b9ea6; stroke-width: 1.2; }
 
 /* 07 One code block per language under the figure of libtaco and its bindings. */
 .lnx { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; gap: 12px; }

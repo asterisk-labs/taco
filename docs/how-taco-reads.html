@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#ffffff">
+<meta name="description" content="One remote read of a TACO dataset, request by request: the index at byte 0, the metadata in one range, a query with no request, and one range per file.">
+<title>TACO · How TACO reads</title>
+<link rel="icon" href="assets/svg/taco-mark-static.svg?v=1" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=League+Spartan:wght@300;400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/reading.css?v=1">
+<link rel="stylesheet" href="assets/css/docs.css?v=3">
+</head>
+<body>
+<div class="page">
+  <header class="masthead">
+    <a class="lockup" href="index.html" aria-label="TACO home">
+      <img class="marksvg" src="assets/svg/taco-mark.svg?v=1" alt="">
+      <span class="wm-sm">TACO</span>
+    </a>
+
+    <div class="offsite" aria-label="Project links">
+      <a href="https://github.com/asterisk-labs/taco" title="GitHub" aria-label="TACO on GitHub" rel="noopener noreferrer">
+        <svg class="github" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 .3a12 12 0 0 0-3.8 23.4c.6.1.8-.3.8-.6v-2.1c-3.3.7-4-1.6-4-1.6-.5-1.4-1.3-1.7-1.3-1.7-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1.1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.8-1.6-2.7-.3-5.5-1.3-5.5-5.9 0-1.3.5-2.4 1.2-3.2-.1-.3-.5-1.5.1-3.2 0 0 1-.3 3.3 1.2a11.5 11.5 0 0 1 6 0c2.3-1.5 3.3-1.2 3.3-1.2.6 1.7.2 2.9.1 3.2.8.8 1.2 1.9 1.2 3.2 0 4.6-2.8 5.6-5.5 5.9.4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6A12 12 0 0 0 12 .3"></path></svg>
+      </a>
+      <a class="pypi" href="https://pypi.org/project/taco-eo/" title="PyPI" aria-label="TACO on PyPI" rel="noopener noreferrer">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.3 14.3 4.7v6.6L8 14.7l-6.3-3.4V4.7Z"></path><path d="M1.7 4.7 8 8.1l6.3-3.4M8 8.1v6.6"></path></svg>
+        <img class="mark-color" src="assets/svg/pypi-color.svg" alt="" width="18" height="16">
+      </a>
+      <a class="cozip" href="https://asterisk.coop/cozip/" title="cozip" aria-label="cozip, the ZIP layout of TACO archives" rel="noopener noreferrer">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 2.5h11v11h-11Z"></path><path d="M2.5 5.5h11M7.2 5.5v2M8.8 7.5v2M7.2 9.5v2"></path></svg>
+        <img class="mark-color" src="assets/svg/cozip-mark-static.svg" alt="" width="16" height="16">
+      </a>
+      <a class="asterisk" href="https://asterisk.coop" title="asterisk labs" aria-label="asterisk labs" rel="noopener noreferrer">
+        <img class="mark-mono" src="assets/svg/asterisk-mark-black.svg" alt="" width="16" height="18">
+        <img class="mark-color" src="assets/svg/asterisk-mark-color.svg" alt="" width="16" height="18">
+      </a>
+    </div>
+
+    <nav class="nav" aria-label="Sections">
+      <a href="docs.html" class="here">Docs</a>
+      <a href="api.html">API</a>
+      <a href="playground/index.html">Playground</a>
+      <a href="spec/index.html">Spec</a>
+      <a href="onepager/index.html">One-pager</a>
+      <a href="deck/index.html">Deck</a>
+    </nav>
+  </header>
+
+  <main class="doc">
+    <nav class="toc" aria-label="Contents">
+      <p class="toc-title">Docs</p>
+      <ol class="toc-pages">
+        <li><a href="docs.html">Overview</a></li>
+        <li><a href="how-taco-reads.html" class="here" aria-current="page">How TACO reads</a></li>
+        <li><a href="spec/index.html">Specification</a></li>
+      </ol>
+    </nav>
+
+    <article class="content">
+      <h1>How TACO reads</h1>
+      <ul class="facts">
+        <li>One remote read, logged request by request, with TACO 0.14.2 in Python.</li>
+      </ul>
+      <aside class="series" aria-label="Section">
+        <p class="series-title">Docs, in 3 pages</p>
+        <ol>
+          <li><a href="docs.html">Overview</a></li>
+          <li class="here" aria-current="page">How TACO reads</li>
+          <li><a href="spec/index.html">Specification</a></li>
+        </ol>
+      </aside>
+
+      <h2 class="part" id="example">The example</h2>
+      <p>The dataset has the contract of the <a href="docs.html#example">overview</a>, an image before, an image after and a change mask per sample, with 10,000 samples of 64 by 64 pixel GeoTIFFs. Its ZIP is 219,225,967 bytes. A small HTTP server that answers range requests serves it and logs every request it receives. Its local address is shown as <code>https://host</code>. The code opens the dataset, picks two validation samples with SQL and reads the first image after the change with rasterio:</p>
+<pre><code class="language-python">import rasterio
+import taco
+
+ds = taco.open_dataset("https://host/lima10k.zip")
+rows = ds.sql("""
+    SELECT id, "after/B02.tif::location"
+    FROM dataset
+    WHERE "split:split" = 'validation'
+    ORDER BY id
+    LIMIT 2
+""").to_pylist()
+rows[0]
+with rasterio.open(rows[0]["after/B02.tif::location"]) as src:
+    src.crs.to_epsg(), src.read(1).shape</code></pre>
+<pre class="output"><code>{'id': 'lima-00026', 'after/B02.tif::location': '/vsisubfile/577841_8552,/vsicurl/https://host/lima10k.zip'}
+(32718, (64, 64))</code></pre>
+      <p>Then it reads the second sample's image and opens the dataset again. The server logged ten requests in all:</p>
+      <table class="spec">
+        <thead><tr><th>step</th><th>request</th><th>bytes</th><th>what for</th></tr></thead>
+        <tr><td rowspan="6"><a href="#open">open</a></td><td><code>bytes=0-0</code></td><td>1</td><td>The size of the archive, which keys the cache.</td></tr>
+        <tr><td><code>bytes=0-0</code></td><td>1</td><td>The size again, for the cozip reader.</td></tr>
+        <tr><td><code>bytes=0-65535</code></td><td>65,536</td><td>The head, with the cozip index at byte 0.</td></tr>
+        <tr><td><code>bytes=219193199-219225966</code></td><td>32,768</td><td>The last 32 KiB, hashed with the index. Sent with the head, in one batch.</td></tr>
+        <tr><td><code>bytes=217146995-217198861</code></td><td>51,867</td><td><code>COLLECTION.json</code> and the four Parquet tables, in one range.</td></tr>
+        <tr><td><code>bytes=0-0</code></td><td>1</td><td>The size, stamped on the new cache entry.</td></tr>
+        <tr><td><a href="#query">query</a></td><td>none</td><td>0</td><td>DuckDB reads the cached tables.</td></tr>
+        <tr><td rowspan="2"><a href="#fetch">first file</a></td><td><code>HEAD</code></td><td>0</td><td>GDAL learns the size of the archive, once per URL.</td></tr>
+        <tr><td><code>bytes=573440-589823</code></td><td>16,384</td><td>The 16 KiB block of GDAL that holds the 8,552 bytes from 577,841.</td></tr>
+        <tr><td><a href="#fetch">second file</a></td><td><code>bytes=704512-720895</code></td><td>16,384</td><td>One block.</td></tr>
+        <tr><td><a href="#again">open again</a></td><td><code>bytes=0-0</code></td><td>1</td><td>The size, to check the cache entry.</td></tr>
+      </table>
+      <p>The open moved 150,174 bytes, less than 0.07% of the archive, and nothing in the archive was downloaded or extracted. The sections below take the four steps in order.</p>
+
+      <h2 class="part" id="open">1. Open</h2>
+      <p>The reader never lists the archive and never parses its Central Directory, the table of contents a ZIP keeps at its end. A TACO ZIP is a <a href="https://asterisk.coop/cozip/" rel="noopener noreferrer">cozip</a>: the first entry, at byte 0, is an index of the entries a reader needs, here <code>COLLECTION.json</code> and the four Parquet tables. Step through the figure:</p>
+      <figure class="steps" data-step="1">
+        <div class="steps-say">
+          <p data-k="1" data-name="size"><b>Size.</b> The first requests ask for one byte, and the answer carries <mark class="steps-mark">the size of the archive</mark>, 219,225,967 bytes. The cache is keyed on it, and the reader needs it to find the end.</p>
+          <p data-k="2" data-name="index"><b>Index.</b> Two ranges in one batch: <mark class="steps-mark">the first 64 KiB, which hold the index, and the last 32 KiB</mark>. The index stores a hash of itself and those last 32 KiB, so a truncated or replaced archive fails here, before any offset is trusted.</p>
+          <p data-k="3" data-name="metadata"><b>Metadata.</b> The writer puts <code>COLLECTION.json</code> and the Parquet tables together, just before the Central Directory, so <mark class="steps-mark is-green">one range of 51,867 bytes</mark> brings all five. They are written to the cache as files.</p>
+        </div>
+        <div class="steps-view">
+        <svg viewBox="0 0 660 190" role="img" aria-label="The 219,225,967 bytes of lima10k.zip: the cozip index at byte 0, 30,000 files, then COLLECTION.json and four Parquet tables, then the Central Directory. The reader asks for the size with one-byte requests, then for the first 64 KiB and the last 32 KiB in one batch, then for the 51,867 bytes of metadata in one range.">
+          <defs><marker id="tr-head" markerWidth="8" markerHeight="8" refX="6.5" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#492ae8"></path></marker></defs>
+          <rect class="tc-seg" x="0" y="80" width="44" height="44" fill="#492ae8"></rect>
+          <text class="tc-label is-light" x="22" y="106">index</text>
+          <rect class="tc-file" x="44" y="80" width="400" height="44" fill="#f4f4f6"></rect>
+          <text class="tc-label is-faint" x="244" y="106">DATA/, 30,000 files</text>
+          <rect class="tc-seg" x="444" y="80" width="18" height="44" fill="#2b1a8f"></rect>
+          <rect class="tc-seg" x="462" y="80" width="62" height="44" fill="#492ae8"></rect>
+          <rect class="tc-seg tc-cd" x="524" y="80" width="118" height="44"></rect>
+          <text class="tc-label" x="583" y="106">Central Directory</text>
+          <rect class="tc-seg tc-end" x="642" y="80" width="18" height="44"></rect>
+          <text class="tc-ruler" x="0" y="146">byte 0</text>
+          <text class="tc-ruler" x="330" y="146" text-anchor="middle">not to scale</text>
+          <text class="tc-ruler" x="660" y="146" text-anchor="end">219,225,967</text>
+
+          <g data-k="1">
+            <path class="tc-span" d="M0 74 V66 H8 V74"></path>
+            <text class="tc-say" x="0" y="58">bytes=0-0</text>
+            <path class="tc-arrow" d="M120 40 H640" marker-end="url(#tr-head)"></path>
+            <text class="tc-note" x="120" y="30">the answer says how long the archive is</text>
+          </g>
+
+          <g data-k="2">
+            <path class="tc-span" d="M0 74 V66 H64 V74"></path>
+            <text class="tc-say" x="0" y="58">bytes=0-65535</text>
+            <path class="tc-span" d="M612 74 V66 H660 V74"></path>
+            <text class="tc-say" x="660" y="58" text-anchor="end">last 32 KiB</text>
+            <text class="tc-note" x="0" y="176">one batch: the index, and the end of the archive it is hashed with</text>
+          </g>
+
+          <g data-k="3">
+            <path class="tc-span" d="M444 74 V66 H524 V74"></path>
+            <text class="tc-say" x="484" y="58" text-anchor="middle">51,867 bytes</text>
+            <text class="tc-ruler" x="450" y="170" text-anchor="end">json</text>
+            <text class="tc-ruler" x="474" y="170">4 Parquet</text>
+            <path class="tc-link" d="M453 128 V160 M493 128 V158"></path>
+            <text class="tc-note" x="0" y="176">one range, cached as files</text>
+          </g>
+        </svg>
+        </div>
+      </figure>
+      <p>The cache lives in <code>TACO_CACHE_DIR</code>, by default <code>~/.cache/taco</code>, one folder per dataset:</p>
+<pre><code class="language-text">lima-change-10k-zip-http-.../
+├── COLLECTION.json
+├── METADATA/
+│   ├── sample.parquet
+│   ├── children.parquet
+│   ├── children__before.parquet
+│   └── children__after.parquet
+└── taco-cache.json</code></pre>
+      <p>A remote FOLDER has no index, so the reader asks for <code>COLLECTION.json</code> first and then for the Parquet files it names. A TACOCAT is read the same way from its <code>.tacocat/</code> folder, which holds the metadata of every partition. Neither is ever listed (<a href="api.html#sources">Sources and cache</a>).</p>
+
+      <h2 class="part" id="query">2. Query</h2>
+      <p>A query runs in <a href="https://duckdb.org/" rel="noopener noreferrer">DuckDB</a>, inside the process, over the cached Parquet tables. The query of the example sent no request. A filter by split, date, place or any other field costs nothing on the network, however many samples the dataset holds, and so does <code>read</code>.</p>
+      <p>The answer is a table with one row per sample. A file column holds a location, which is text: the reader has not touched a file yet.</p>
+
+      <h2 class="part" id="locate">3. Locate</h2>
+      <p>The location of <code>after/B02.tif</code> in sample <code>lima-00026</code> comes from its row in <code>children/after</code>, as the <a href="docs.html#bytes">overview</a> shows, and from the form of the source:</p>
+<pre><code class="language-text">/vsisubfile/577841_8552,/vsicurl/https://host/lima10k.zip
+            ^^^^^^ ^^^^ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+            offset size the archive, as GDAL names a URL</code></pre>
+      <p>A source on S3, Google Cloud, Azure or Hugging Face gives <code>/vsis3/</code>, <code>/vsigs/</code>, <code>/vsiaz/</code> or <code>/vsihf/</code> in place of <code>/vsicurl/</code> (<a href="api.html#sources">API</a>). Building it sends no request.</p>
+
+      <h2 class="part" id="fetch">4. Fetch</h2>
+      <p>The bytes are fetched by whatever opens the location. rasterio passed it to GDAL, which asked for the size of the URL once, with <code>HEAD</code>, then read the 16 KiB block that holds the file. GDAL reads <code>/vsicurl/</code> in blocks of 16 KiB and keeps them, so the second file cost one request.</p>
+      <p>A plain HTTP client fetches exactly the file. A range includes its last byte, so it is <code>offset</code> to <code>offset + size - 1</code>:</p>
+<pre><code class="language-python">import urllib.request
+
+request = urllib.request.Request("https://host/lima10k.zip", headers={"Range": "bytes=577841-586392"})
+data = urllib.request.urlopen(request).read()
+len(data), data[:4]</code></pre>
+<pre class="output"><code>(8552, b'II*\x00')</code></pre>
+      <p>The four bytes are the start of a little-endian TIFF. The server logged one request, for 8,552 bytes.</p>
+
+      <h2 class="part" id="again">Open again</h2>
+      <p>The second <code>open_dataset</code> sent one request. It asked for the size of the archive, found the same 219,225,967 bytes stamped on the cache entry, and used the cached files. A size that changed rebuilds the entry, and so does <code>TACO_CACHE_REFRESH</code>. A dataset is never modified in place, so a new version belongs at a new URL, as <a href="api.html#hosting">Hosting</a> says.</p>
+
+      <h2 class="part" id="dataloader">In a DataLoader</h2>
+      <p>Open the dataset once, in the main process, and give the workers the locations. They are strings, so they cross into worker processes as they are, and each worker opens only the files of its samples:</p>
+<pre><code class="language-python">import numpy as np
+import rasterio
+import taco
+import torch
+from torch.utils.data import DataLoader, Dataset
+
+FILES = ["before/B02.tif", "after/B02.tif", "mask.tif"]
+
+
+class LimaChange(Dataset):
+    def __init__(self, source, split):
+        columns = ", ".join(f'"{name}::location"' for name in FILES)
+        self.rows = taco.open_dataset(source).sql(
+            f"""SELECT {columns} FROM dataset WHERE "split:split" = '{split}' ORDER BY "taco:sample_index" """
+        ).to_pylist()
+
+    def __len__(self):
+        return len(self.rows)
+
+    def __getitem__(self, i):
+        arrays = []
+        for name in FILES:
+            with rasterio.open(self.rows[i][f"{name}::location"]) as src:
+                arrays.append(src.read(1).astype(np.float32))
+        return torch.from_numpy(np.stack(arrays[:2])), torch.from_numpy(arrays[2])
+
+
+if __name__ == "__main__":
+    data = LimaChange("https://host/lima10k.zip", "validation")
+    for images, masks in DataLoader(data, batch_size=32, num_workers=4):
+        pass
+    print(len(data), tuple(images.shape), tuple(masks.shape))</code></pre>
+<pre class="output"><code>1021 (29, 2, 64, 64) (29, 64, 64)</code></pre>
+      <p>One pass over the 1,021 validation samples read 3,063 files, 22.0 MB. The server logged:</p>
+      <table class="spec">
+        <thead><tr><th>requests</th><th>from</th></tr></thead>
+        <tr><td>1</td><td>The open in the main process, a size check, since the metadata was cached.</td></tr>
+        <tr><td>4 <code>HEAD</code></td><td>GDAL, once in each worker.</td></tr>
+        <tr><td>2,177 ranges, 43.4 MB</td><td>GDAL's 16 KiB blocks. The three files of a sample sit next to each other, so a block often holds two of them.</td></tr>
+      </table>
+      <p>No request touched the metadata again, and no worker read a file outside its batch. GDAL trades bytes for requests here; its <a href="https://gdal.org/en/stable/user/configoptions.html" rel="noopener noreferrer">configuration options</a> such as <code>CPL_VSIL_CURL_CHUNK_SIZE</code> tune the block size.</p>
+
+      <h2 class="part" id="code">Where it lives</h2>
+      <table class="spec">
+        <tr><th><code>core/src/dataset.cpp</code></th><td>Opens a source, finds or builds its cache entry, and keeps the levels.</td></tr>
+        <tr><th><code>core/src/cozip_index.cpp</code></th><td>Reads the index at byte 0 and checks its hash against the last 32 KiB.</td></tr>
+        <tr><th><code>core/src/transport.cpp</code></th><td>Asks <a href="https://asterisk.coop/karu/" rel="noopener noreferrer">Karu</a> for sizes and batches of ranges, over HTTP, S3, Google Cloud, Azure or Hugging Face.</td></tr>
+        <tr><th>DuckDB</th><td>Runs <code>read</code> and <code>sql</code> over the cached tables, with the SQL the core generates.</td></tr>
+        <tr><th><code>python/taco/reader/</code></th><td>The Python reader over the C core. R and Julia load the same core, and JavaScript repeats these steps with <code>fetch</code>.</td></tr>
+      </table>
+
+      <nav class="pager" aria-label="Pages">
+        <a class="prev" href="docs.html"><span>Previous</span>Overview</a>
+        <a class="next" href="spec/index.html"><span>Next</span>Specification</a>
+      </nav>
+    </article>
+
+    <nav class="toc onpage" aria-label="On this page">
+      <p class="toc-title">On this page</p>
+      <ol class="toc-sections">
+        <li><a href="#example">The example</a></li>
+        <li><a href="#open">1. Open</a></li>
+        <li><a href="#query">2. Query</a></li>
+        <li><a href="#locate">3. Locate</a></li>
+        <li><a href="#fetch">4. Fetch</a></li>
+        <li><a href="#again">Open again</a></li>
+        <li><a href="#dataloader">In a DataLoader</a></li>
+        <li><a href="#code">Where it lives</a></li>
+      </ol>
+    </nav>
+  </main>
+
+  <footer class="colophon">
+    <span>Made with</span>
+    <span class="heart" role="img" aria-label="love"></span>
+    <span>by</span>
+    <a class="by" href="https://asterisk.coop" rel="noopener noreferrer" aria-label="Asterisk Labs">
+      <img src="assets/svg/asterisk-mark.svg" alt="Asterisk Labs">
+    </a>
+  </footer>
+</div>
+<script src="assets/js/toc.js?v=1" defer></script>
+<script src="assets/js/code.js?v=1" defer></script>
+<script src="assets/js/steps.js?v=1" defer></script>
+</body>
+</html>

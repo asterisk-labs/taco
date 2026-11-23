@@ -103,6 +103,7 @@ PAGE = """<!DOCTYPE html>
     </div>
 
     <nav class="nav" aria-label="Sections">
+      <a href="{root}docs.html">Docs</a>
       <a href="{root}api.html">API</a>
       <a href="{root}playground/index.html">Playground</a>
       <a href="{root}spec/index.html" class="here">Spec</a>

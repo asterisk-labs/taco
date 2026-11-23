@@ -150,7 +150,6 @@ const map = new maplibregl.Map({
         tiles: ["https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}"],
         tileSize: 256,
         maxzoom: 16,
-        attribution: "© Esri, HERE, Garmin, © OpenStreetMap contributors, GIS User Community",
       },
       labels: {
         type: "raster",
@@ -163,7 +162,6 @@ const map = new maplibregl.Map({
         tiles: ["https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"],
         tileSize: 256,
         maxzoom: 16,
-        attribution: "© Esri, Vantor, Earthstar Geographics, GIS User Community",
       },
       "satellite-labels": {
         type: "raster",
@@ -185,18 +183,6 @@ const map = new maplibregl.Map({
 });
 map.addControl(basemapControl(), "top-left");
 map.addControl(new maplibregl.NavigationControl({ showCompass: true, visualizePitch: true }), "bottom-right");
-map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-right");
-// Esri and OpenStreetMap ask for their credit, so it stays one click away behind the
-// (i) button instead of over the map. MapLibre opens the compact control when the first
-// attribution arrives; close it then.
-function collapseCredit() {
-  const credit = map.getContainer().querySelector(".maplibregl-ctrl-attrib.maplibregl-compact-show");
-  if (!credit) return;
-  credit.removeAttribute("open");
-  credit.classList.remove("maplibregl-compact-show");
-  map.off("sourcedata", collapseCredit);
-}
-map.on("sourcedata", collapseCredit);
 const mapReady = new Promise((resolve) => map.on("load", resolve));
 
 map.on("click", (event) => {

@@ -1,14 +1,17 @@
 // The landing figure: five public datasets, each stored its own way, pass
 // through TACO and come out with one shape. Rasters become Rumi files, which
 // decode on a CPU or a GPU; tables and JSON stay tables and JSON. Five of the
-// datasets below are drawn at random on every load. Pointing at one, tapping
+// datasets below are shown on every load, CloudSEN12 and four at random. Pointing at one, tapping
 // it or focusing it lights its path and fills the panel under the drawing.
 // Nothing moves on its own.
 //
 // The facts come from the TorchGeo dataset documentation, docs.torchgeo.org,
 // version 0.10.1: the row of each dataset in its summary tables, and the file
-// formats its own page states. NA marks a cell the docs leave empty. The TACO
-// side is one way to package each dataset, an example and not a published one.
+// formats its own page states. CloudSEN12 is not in TorchGeo: its facts come
+// from the tacofoundation/cloudsen12 card on Hugging Face, and its sample
+// count from the CloudSEN12Plus viewer there. Only datasets with a license
+// are listed; NA marks another cell the docs leave empty. The TACO side is one
+// way to package each dataset, an example and not a published one.
 
 (function (taco) {
   'use strict';
@@ -20,45 +23,60 @@
 
   var TASKS = {
     C: 'classification', S: 'segmentation', CD: 'change detection', OD: 'object detection',
-    I: 'instance segmentation', R: 'regression'
+    I: 'instance segmentation', R: 'regression', T: 'time series'
   };
   var TYPES = { rumi: '#492ae8', table: '#f7cc09', json: '#c4ffc2' };
   var TINTS = ['#d8efd6', '#f3e6b3', '#d3e5f3', '#f3dccd', '#f2d4dc'];
   var LABELS = {
     tif: 'TIFF', bands: 'TIFF', png: 'PNG', jpg: 'JPEG', h5: 'HDF5', tar: 'TAR.GZ',
-    json: 'JSON', geojson: 'GeoJSON', xml: 'XML', npy: 'NPY', npz: 'NPZ', csv: 'CSV'
+    json: 'JSON', geojson: 'GeoJSON', xml: 'XML', npy: 'NPY', npz: 'NPZ', csv: 'CSV',
+    nc: 'NetCDF', jp2: 'JP2', shp: 'SHP'
   };
 
   // name, task codes, source, samples, classes, size in px, resolution in m,
   // bands, license, the formats today, the glyphs that draw them, and the files
   // of one sample in TACO
   var POOL = [
+    ['CloudSEN12', 'S', 'Sentinel-2 L1C and L2A', '50.2K', '4', '509x509, 2,000x2,000', '10-60', 'MSI', 'CC0-1.0', 'GeoTIFF copies on ScienceDataBank', ['tif'], ['l1c.rumi', 'l2a.rumi', 'label.rumi']],
     ['EuroSAT', 'C', 'Sentinel-2', '27,000', '10', '64x64', '10', 'MSI', 'MIT', '13-channel GeoTIFF', ['tif'], ['image.rumi']],
     ['BigEarthNet', 'C', 'Sentinel-1/2', '590,326', '19-43', '120x120', '10', 'SAR, MSI', 'CDLA-Permissive-1.0', 'a GeoTIFF per band, a JSON per image', ['bands', 'json'], ['s1.rumi', 's2.rumi', 'labels.json']],
     ['SEN12MS', 'S', 'Sentinel-1/2, MODIS', '180,662', '33', '256x256', '10', 'SAR, MSI', 'CC-BY-4.0', 'GeoTIFF triplets in tar.gz archives', ['tar'], ['s1.rumi', 's2.rumi', 'landcover.rumi']],
     ['So2Sat', 'C', 'Sentinel-1/2', '400,673', '17', '32x32', '10', 'SAR, MSI', 'CC-BY-4.0', 'HDF5', ['h5'], ['s1.rumi', 's2.rumi']],
-    ['LEVIR-CD', 'CD', 'Google Earth', '637', '2', '1,024x1,024', '0.5', 'RGB', 'NA', 'PNG images and masks', ['png'], ['before.rumi', 'after.rumi', 'mask.rumi']],
     ['OSCD', 'CD', 'Sentinel-2', '24', '2', '241-1,180', '60', 'MSI', 'CC-BY-NC-SA-4.0', '13-channel TIFF, PNG masks', ['tif', 'png'], ['before.rumi', 'after.rumi', 'mask.rumi']],
     ['xBD', 'CD', 'Maxar', '3,732', '4', '1,024x1,024', '0.8', 'RGB', 'CC-BY-NC-SA-4.0', 'PNG images and masks', ['png'], ['pre.rumi', 'post.rumi', 'damage.rumi']],
     ['Cloud Cover Detection', 'S', 'Sentinel-2', '22,728', '2', '512x512', '10', 'MSI', 'CC-BY-4.0', 'GeoTIFF images and labels', ['tif'], ['image.rumi', 'clouds.rumi'], 'Cloud Cover'],
     ['RESISC45', 'C', 'Google Earth', '31,500', '45', '256x256', '0.2-30', 'RGB', 'CC-BY-NC-4.0', 'JPEG', ['jpg'], ['image.rumi']],
     ['LoveDA', 'S', 'Google Earth', '5,987', '7', '1,024x1,024', '0.3', 'RGB', 'CC-BY-NC-SA-4.0', 'PNG images and masks', ['png'], ['image.rumi', 'mask.rumi']],
-    ['Potsdam', 'S', 'Aerial', '38', '6', '6,000x6,000', '0.05', 'MSI', 'NA', 'GeoTIFF images and colour masks', ['tif'], ['image.rumi', 'mask.rumi']],
-    ['Inria Aerial Image Labeling', 'S', 'Aerial', '360', '2', '5,000x5,000', '0.3', 'RGB', 'NA', 'GeoTIFF images and labels', ['tif'], ['image.rumi', 'buildings.rumi'], 'Inria Aerial'],
     ['SpaceNet 1', 'I', 'WorldView-2', '9,735', 'NA', '406x439', '0.5-1', 'RGB, MSI', 'CC-BY-SA-4.0', 'GeoTIFF, GeoJSON labels', ['tif', 'geojson'], ['rgb.rumi', 'msi.rumi', 'labels.geojson']],
-    ['ETCI2021', 'S', 'Sentinel-1', '66,810', '2', '256x256', '5-20', 'SAR', 'NA', 'a PNG per band, PNG masks', ['png'], ['vv.rumi', 'vh.rumi', 'flood.rumi']],
+    ['SpaceNet 2', 'I', 'WorldView-3', '14,119', 'NA', '650x650', '0.3-1.24', 'RGB, MSI', 'CC-BY-SA-4.0', 'GeoTIFF, GeoJSON labels', ['tif', 'geojson'], ['rgb.rumi', 'msi.rumi', 'labels.geojson']],
+    ['SpaceNet 7', 'I', 'Planet Dove', '1,889', 'NA', '1,024x1,024', '4', 'RGB', 'CC-BY-SA-4.0', 'GeoTIFF mosaics, GeoJSON labels', ['tif', 'geojson'], ['mosaic.rumi', 'labels.geojson']],
     ['SeasoNet', 'S', 'Sentinel-2', '1,759,830', '33', '120x120', '10', 'MSI', 'CC-BY-4.0', 'a GeoTIFF per resolution', ['bands'], ['bands_10m.rumi', 'bands_20m.rumi', 'bands_60m.rumi', 'mask.rumi']],
     ['FAIR1M', 'OD', 'Gaofen, Google Earth', '15,000', '37', '1,024x1,024', '0.3-0.8', 'RGB', 'CC-BY-NC-SA-3.0', 'TIFF, XML boxes', ['tif', 'xml'], ['image.rumi', 'boxes.parquet']],
     ['DFC2022', 'S', 'Aerial', '3,981', '15', '2,000x2,000', '0.5', 'RGB', 'CC-BY-4.0', 'GeoTIFF images, DEMs and masks', ['tif'], ['image.rumi', 'dem.rumi', 'mask.rumi']],
     ['CaBuAr', 'CD', 'Sentinel-2', '424', '2', '512x512', '20', 'MSI', 'OpenRAIL', 'one HDF5', ['h5'], ['before.rumi', 'after.rumi', 'mask.rumi']],
+    ['ChaBuD', 'CD', 'Sentinel-2', '356', '2', '512x512', '10', 'MSI', 'OpenRAIL', 'one HDF5', ['h5'], ['before.rumi', 'after.rumi', 'mask.rumi']],
     ['ReforesTree', 'OD', 'Aerial', '100', '6', '4,000x4,000', '0.02', 'RGB', 'CC-BY-4.0', 'PNG, CSV annotations', ['png', 'csv'], ['image.rumi', 'trees.parquet']],
-    ['Million-AID', 'C', 'Google Earth', '1M', '51-73', 'NA', '0.5-153', 'RGB', 'NA', 'JPEG', ['jpg'], ['image.rumi']],
+    ['EverWatch', 'OD', 'Aerial', '5,325', '8', '1,500x1,500', '0.01', 'RGB', 'CC0-1.0', 'PNG, CSV annotations', ['png', 'csv'], ['image.rumi', 'birds.parquet']],
     ['Western USA Live Fuel Moisture', 'R', 'Landsat 8, Sentinel-1', '2,615', 'NA', 'NA', 'NA', 'NA', 'CC-BY-NC-ND-4.0', 'a GeoJSON per point', ['geojson'], ['point.geojson'], 'Fuel Moisture'],
     ['Forest Damage', 'OD', 'Drone', '1,543', '4', '1,500x1,500', 'NA', 'RGB', 'CDLA-Permissive-1.0', 'JPEG, XML boxes', ['jpg', 'xml'], ['image.rumi', 'boxes.parquet']],
     ['SKIPP’D', 'R', 'Fish-eye camera', '363,375', 'NA', '64x64', 'NA', 'RGB', 'CC-BY-4.0', 'HDF5, NPY timestamps', ['h5', 'npy'], ['sky.rumi']],
     ['Substation', 'S', 'OpenStreetMap, Sentinel-2', '27K', '2', '228x228', '10', 'MSI', 'CC-BY-4.0', 'an NPZ per point', ['npz'], ['image.rumi', 'mask.rumi']],
     ['MMEarth', 'C', 'Aster, Sentinel, ERA5', '100K-1M', 'NA', '128x128', '10', 'MSI', 'CC-BY-4.0', 'one HDF5, JSON metadata', ['h5', 'json'], ['s1.rumi', 's2.rumi', 'aster.rumi', 'stats.json']],
-    ['Digital Typhoon', 'C', 'Himawari', '189,364', '8', '512', '5000', 'Infrared', 'CC-BY-4.0', 'HDF5, CSV metadata', ['h5', 'csv'], ['infrared.rumi', 'track.parquet']]
+    ['Digital Typhoon', 'C', 'Himawari', '189,364', '8', '512', '5000', 'Infrared', 'CC-BY-4.0', 'HDF5, CSV metadata', ['h5', 'csv'], ['infrared.rumi', 'track.parquet']],
+    ['CaFFe', 'S', 'Sentinel-1, TerraSAR-X, TanDEM-X, ENVISAT, ERS-1/2, ALOS PALSAR, RADARSAT-1', '19,092', '2 or 4', '512x512', '6-20', 'SAR', 'CC-BY-4.0', 'PNG images and masks', ['png'], ['image.rumi', 'mask.rumi']],
+    ['SSL4EO-L', 'T', 'Landsat', '1M', 'NA', '264x264', '30', 'MSI', 'CC0-1.0', 'a GeoTIFF per patch', ['tif'], ['image.rumi']],
+    ['DL4GAM', 'S', 'Sentinel-2', '2,251 or 11,440', '2', '256x256', '10', 'MSI', 'CC-BY-4.0', 'NetCDF stacks of images and masks', ['nc'], ['image.rumi', 'mask.rumi']],
+    ['FireRisk', 'C', 'NAIP aerial', '91,872', '7', '320x320', '1', 'RGB', 'CC-BY-NC-4.0', 'PNG', ['png'], ['image.rumi']],
+    ['GeoNRW', 'S', 'Aerial', '7,783', '11', '1,000x1,000', '1', 'RGB, DEM', 'CC-BY-4.0', 'JP2 images, TIFF DEMs and labels', ['jp2', 'tif'], ['rgb.rumi', 'dem.rumi', 'labels.rumi']],
+    ['IDTReeS', 'OD', 'Aerial', '591', '33', '200x200', '0.1-1', 'RGB', 'CC-BY-4.0', 'GeoTIFF, shapefile crowns, CSV species', ['tif', 'shp'], ['rgb.rumi', 'crowns.parquet']],
+    ['LandCover.ai', 'S', 'Aerial', '10,674', '5', '512x512', '0.25-0.5', 'RGB', 'CC-BY-NC-SA-4.0', 'JPG chips, PNG masks', ['jpg', 'png'], ['image.rumi', 'mask.rumi']],
+    ['NASA Marine Debris', 'OD', 'PlanetScope', '707', '1', '256x256', '3', 'RGB', 'Apache-2.0', 'GeoTIFF, NPY boxes', ['tif', 'npy'], ['image.rumi', 'boxes.parquet'], 'Marine Debris'],
+    ['PASTIS', 'I', 'Sentinel-1/2', '2,433', '19', '128x128 per date', '10', 'MSI', 'CC-BY-4.0', 'NPY time series and annotations', ['npy'], ['s2.rumi', 'labels.rumi']],
+    ['PatternNet', 'C', 'Google Earth', '30,400', '38', '256x256', '0.06-5', 'RGB', 'CC-BY-4.0', 'JPEG', ['jpg'], ['image.rumi']],
+    ['QuakeSet', 'C, R', 'Sentinel-1', '3,327', '2', '512x512', '10', 'SAR', 'OpenRAIL', 'one HDF5', ['h5'], ['sar.rumi']],
+    ['USAVars', 'R', 'NAIP aerial', '100K', 'NA', 'NA', '4', 'RGB, NIR', 'CC-BY-4.0', '4-channel GeoTIFF', ['tif'], ['image.rumi']],
+    ['ZueriCrop', 'I', 'Sentinel-2', '116K', '48', '24x24', '10', 'MSI', 'CC-BY-NC-4.0', 'one HDF5', ['h5'], ['s2.rumi', 'mask.rumi', 'instances.rumi']],
+    ['SustainBench Crop Yield', 'R', 'MODIS', '11K', 'NA', '32x32', 'NA', 'MSI', 'CC-BY-SA-4.0', 'NPZ stacks', ['npz'], ['image.rumi'], 'Crop Yield']
   ].map(function (d) {
     return {
       name: d[0], short: d[12] || d[0],
@@ -92,14 +110,20 @@
     return 'json';
   }
 
-  // Five datasets, shuffled with Fisher-Yates, on every load.
+  // Five datasets on every load: CloudSEN12, at a random place, and four more
+  // drawn with a Fisher-Yates shuffle.
+  var ALWAYS = 'CloudSEN12';
+
   function pick() {
-    var pool = POOL.slice();
+    var pool = POOL.filter(function (d) { return d.name !== ALWAYS; });
     for (var i = pool.length - 1; i > 0; i--) {
       var j = Math.floor(Math.random() * (i + 1));
       var t = pool[i]; pool[i] = pool[j]; pool[j] = t;
     }
-    return pool.slice(0, SHOWN);
+    var sets = pool.slice(0, SHOWN - 1);
+    var fixed = POOL.filter(function (d) { return d.name === ALWAYS; })[0];
+    sets.splice(Math.floor(Math.random() * SHOWN), 0, fixed);
+    return sets;
   }
 
   function doc(g, x, y, mark, fill) {
@@ -166,6 +190,15 @@
     npz: function (g, x, y, w) {
       doc(g, x, y, '[ ]', '#eef3f8');
       if (w > 60) doc(g, x + 36, y + 4, '[ ]', '#eef3f8');
+    },
+    jp2: function (g, x, y, w) { GLYPHS.jpg(g, x, y, w); },
+    nc: function (g, x, y) {
+      [[16, 0], [8, 6], [0, 12]].forEach(function (a) {
+        el('rect', { x: x + a[0], y: y + 4 + a[1], width: 34, height: 26, fill: '#dfe9d6', 'class': 'fl-thin' }, g);
+      });
+    },
+    shp: function (g, x, y) {
+      el('path', { d: 'M' + (x + 2) + ' ' + (y + 30) + ' l8 -20 l14 6 l6 16 l-12 10 Z', fill: '#e7f0dc', 'class': 'fl-thin' }, g);
     },
     csv: function (g, x, y) {
       el('rect', { x: x, y: y + 6, width: 30, height: 34, fill: '#fff', 'class': 'fl-thin' }, g);
@@ -245,7 +278,7 @@
       '<div class="flow-cols">' +
       '<div><p class="flow-k">Today</p>' +
       '<p>' + where.join(', ') + '</p>' +
-      '<p>' + set.samples + ' samples, ' + set.classes + ' classes</p>' +
+      '<p>' + set.samples + ' samples' + (set.classes === 'NA' ? '' : ', ' + set.classes + ' classes') + '</p>' +
       '<p>' + set.today + '</p>' +
       '<p>License ' + set.license + '</p></div>' +
       '<div><p class="flow-k is-taco">In TACO</p>' +
@@ -254,8 +287,8 @@
       '</div>';
   }
 
-  var HINT = '<p class="flow-hint">Point at a dataset. Rasters become Rumi, which decodes on a CPU or a GPU; tables and JSON stay as they are.</p>' +
-    '<p class="flow-source">Five of ' + POOL.length + ' datasets, drawn at random on each load. Facts from the <a href="https://docs.torchgeo.org/en/stable/api/datasets.html" rel="noopener noreferrer">TorchGeo docs</a>.</p>';
+  // nothing until a dataset is pointed at, tapped or focused
+  var HINT = '';
 
   taco.flowFigure = function (figure) {
     var sets = pick();

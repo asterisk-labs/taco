@@ -66,10 +66,8 @@
   font: 400 13.5px/1.45 var(--sans);
 }
 
+.flow-info:empty { border-top-color: transparent; }
 .flow-info p { margin: 0; }
-.flow-hint { max-width: 52ch; font-size: 15px; line-height: 1.5; }
-.flow-source { margin-top: 6px !important; color: var(--faint); font-size: 12.5px; }
-.flow-source a { color: var(--violet); }
 
 .flow-title { margin-bottom: 8px !important; font-size: 15px; }
 .flow-title b { margin-right: 6px; color: var(--ink); font-weight: 600; }

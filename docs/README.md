@@ -42,9 +42,10 @@ identifiers: never move them.
 The API pages measure
 [Major TOM Core-DEM](https://source.coop/major-tom/core-dem), a public TACOCAT of
 1,735,044 samples on Source Cooperative, with the Python reader on a laptop. The
-landing figure draws five of 26 datasets at random on each load and takes their facts
-from the [TorchGeo dataset docs](https://docs.torchgeo.org/en/stable/api/datasets.html),
-writing NA where those docs leave a cell empty. Its TACO side, rasters as Rumi, tables
+landing figure shows CloudSEN12 and four of 39 more datasets, drawn at random on each
+load. Their facts come from the
+[TorchGeo dataset docs](https://docs.torchgeo.org/en/stable/api/datasets.html), and
+CloudSEN12's from its Hugging Face card. Only datasets with a license are listed. Its TACO side, rasters as Rumi, tables
 as Parquet and JSON as JSON, is an example, not a published dataset. The small examples write their
 own dataset, so they run anywhere. Keep every number on
 the site measured; when the reader changes, measure again.

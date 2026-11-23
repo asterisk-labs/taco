@@ -40,7 +40,6 @@
     </div>
 
     <nav class="nav" aria-label="Sections">
-      <a href="docs.html">Docs</a>
       <a href="api.html" class="here">API</a>
       <a href="playground/index.html">Playground</a>
       <a href="spec/index.html">Spec</a>
@@ -68,8 +67,112 @@
 <p class="lede">Python writes TACO datasets and reads them. R and Julia read them through the same C core, and JavaScript reads them on its own. This page covers what they share. Each language page has the calls and examples.</p>
 
       <h2 class="part" id="how">How it works</h2>
-      <p>A TACO dataset is a list of samples. A sample is one training or evaluation example: the files that belong together, such as two images and a change mask, and the metadata that describes them. One contract, declared before the first sample is written, fixes which files every sample holds and which fields each level stores, and each level is one Parquet table. The writer refuses a sample that does not fit, so every reader can trust the shape of every sample.</p>
-      <p>The <a href="docs.html">Docs</a> follow one small dataset through these ideas with figures, and <a href="how-taco-reads.html">How TACO reads</a> logs a remote read request by request. This page covers the calls and the rules the languages share.</p>
+      <p>A TACO dataset is a list of samples. A sample is one training or evaluation example: the files that belong together, such as two images and a change mask, and the metadata that describes them. One contract, declared before the first sample is written, fixes which files every sample holds and which fields each level stores. The writer refuses a sample that does not fit, so every reader can trust the shape of every sample.</p>
+      <p>The figures below use a dataset of two samples written with the Python writer. The figures on the landing page use <a href="https://source.coop/major-tom/core-dem" rel="noopener noreferrer">Major TOM Core-DEM</a>, a public dataset of 1,735,044 samples on Source Cooperative, read with the reader in Python on a laptop. Step through each figure with the names under it or the arrow keys.</p>
+      <figure class="steps" data-step="1">
+        <div class="steps-say">
+          <p data-k="1" data-name="samples"><b>Samples.</b> Each sample is a folder of files and a row of metadata. These two have <mark class="steps-mark">the same three files</mark>, an image before, an image after and a change mask, and each has a split, a date and a position.</p>
+          <p data-k="2" data-name="contract"><b>Contract.</b> The contract declares <mark class="steps-mark">the files of every sample and the fields of each level</mark>. Folders follow from the paths, so this structure has the levels <code>sample</code>, <code>children</code>, <code>children/before</code> and <code>children/after</code>.</p>
+          <p data-k="3" data-name="levels"><b>Levels.</b> Each level is <mark class="steps-mark">one Parquet table with one row per node</mark>. <code>sample</code> has a row per sample, <code>children</code> a row per direct child of a sample, and <code>children/before</code> a row per file in every <code>before/</code> folder.</p>
+          <p data-k="4" data-name="parents"><b>Parents.</b> A row points at its parent with <code>internal:parent_id</code>, which equals <code>internal:current_id</code> in the level above. <mark class="steps-mark is-green">1/before/B02.tif</mark> has parent 3, the row <code>1/before</code>, whose parent is sample 1, <code>lima-0002</code>.</p>
+        </div>
+        <div class="steps-view">
+        <svg viewBox="0 0 660 236" role="img" aria-label="Two samples, lima-0001 and lima-0002, each with before/B02.tif, after/B02.tif and mask.tif and a split, a date and a centroid. The contract declares the three files and the sample fields. The metadata is four tables: sample with two rows, children with six rows, children/before and children/after with two rows each. Row 1 of children/before has parent 3, the row 1/before of children, whose parent is sample 1, lima-0002.">
+          <g data-k="1">
+            <rect class="tc-box" x="0" y="8" width="320" height="160"></rect>
+            <text class="tc-title" x="14" y="32">lima-0001</text>
+            <text class="tc-ruler" x="306" y="32" text-anchor="end">DATA/0/</text>
+            <text class="tc-mono" x="14" y="60">before/</text>
+            <rect x="28" y="70" width="9" height="12" fill="#d3e5f3" stroke="#000" stroke-width="0.8"></rect>
+            <text class="tc-mono" x="44" y="80">B02.tif</text>
+            <text class="tc-mono" x="14" y="104">after/</text>
+            <rect x="28" y="114" width="9" height="12" fill="#f3e6b3" stroke="#000" stroke-width="0.8"></rect>
+            <text class="tc-mono" x="44" y="124">B02.tif</text>
+            <rect x="14" y="136" width="9" height="12" fill="#d8efd6" stroke="#000" stroke-width="0.8"></rect>
+            <text class="tc-mono" x="30" y="146">mask.tif</text>
+            <text class="tc-mono is-faint" x="130" y="60">split:split</text>
+            <text class="tc-mono" x="226" y="60">train</text>
+            <text class="tc-mono is-faint" x="130" y="80">stac:datetime</text>
+            <text class="tc-mono" x="226" y="80">2024-01-02</text>
+            <text class="tc-mono is-faint" x="130" y="100">stac:centroid</text>
+            <text class="tc-mono" x="226" y="100">-77.0, -12.1</text>
+
+            <rect class="tc-box" x="340" y="8" width="320" height="160"></rect>
+            <text class="tc-title" x="354" y="32">lima-0002</text>
+            <text class="tc-ruler" x="646" y="32" text-anchor="end">DATA/1/</text>
+            <text class="tc-mono" x="354" y="60">before/</text>
+            <rect x="368" y="70" width="9" height="12" fill="#d3e5f3" stroke="#000" stroke-width="0.8"></rect>
+            <text class="tc-mono" x="384" y="80">B02.tif</text>
+            <text class="tc-mono" x="354" y="104">after/</text>
+            <rect x="368" y="114" width="9" height="12" fill="#f3e6b3" stroke="#000" stroke-width="0.8"></rect>
+            <text class="tc-mono" x="384" y="124">B02.tif</text>
+            <rect x="354" y="136" width="9" height="12" fill="#d8efd6" stroke="#000" stroke-width="0.8"></rect>
+            <text class="tc-mono" x="370" y="146">mask.tif</text>
+            <text class="tc-mono is-faint" x="470" y="60">split:split</text>
+            <text class="tc-mono" x="566" y="60">validation</text>
+            <text class="tc-mono is-faint" x="470" y="80">stac:datetime</text>
+            <text class="tc-mono" x="566" y="80">2024-01-03</text>
+            <text class="tc-mono is-faint" x="470" y="100">stac:centroid</text>
+            <text class="tc-mono" x="566" y="100">-76.8, -12.2</text>
+            <text class="tc-note" x="0" y="196">a sample: its files, and the metadata that describes them</text>
+          </g>
+
+          <g data-k="2">
+            <rect x="0" y="8" width="660" height="124" fill="#f6f6f4"></rect>
+            <text class="tc-mono" x="16" y="36">taco.Contract(</text>
+            <text class="tc-mono" x="32" y="56">structure=["before/B02.tif", "after/B02.tif", "mask.tif"],</text>
+            <text class="tc-mono" x="32" y="76">metadata=[taco.Level("sample", stac=STAC, split=Split)],</text>
+            <text class="tc-mono" x="16" y="96">)</text>
+            <text class="tc-say" x="0" y="164">three files in every sample, and the stac and split fields on every sample row</text>
+            <text class="tc-note" x="0" y="190">levels: sample, children, children/before, children/after</text>
+          </g>
+
+          <g data-k="3 4">
+            <text class="tc-title" x="0" y="24">sample</text>
+            <rect class="tc-box" x="0" y="34" width="130" height="64"></rect>
+            <text class="tc-mono is-head" x="10" y="50">cur</text>
+            <text class="tc-mono is-head" x="36" y="50">id</text>
+            <text class="tc-mono" x="10" y="68">0</text><text class="tc-mono" x="36" y="68">lima-0001</text>
+            <text class="tc-mono" x="10" y="86" data-on="4">1</text><text class="tc-mono" x="36" y="86">lima-0002</text>
+
+            <text class="tc-title" x="140" y="24">children</text>
+            <rect class="tc-box" x="140" y="34" width="150" height="136"></rect>
+            <text class="tc-mono is-head" x="150" y="50">cur</text>
+            <text class="tc-mono is-head" x="176" y="50">par</text>
+            <text class="tc-mono is-head" x="202" y="50">path</text>
+            <text class="tc-mono" x="150" y="68">0</text><text class="tc-mono" x="176" y="68">0</text><text class="tc-mono" x="202" y="68">0/before</text>
+            <text class="tc-mono" x="150" y="86">1</text><text class="tc-mono" x="176" y="86">0</text><text class="tc-mono" x="202" y="86">0/after</text>
+            <text class="tc-mono" x="150" y="104">2</text><text class="tc-mono" x="176" y="104">0</text><text class="tc-mono" x="202" y="104">0/mask.tif</text>
+            <text class="tc-mono" x="150" y="122" data-on="4">3</text><text class="tc-mono" x="176" y="122" data-on="4">1</text><text class="tc-mono" x="202" y="122">1/before</text>
+            <text class="tc-mono" x="150" y="140">4</text><text class="tc-mono" x="176" y="140">1</text><text class="tc-mono" x="202" y="140">1/after</text>
+            <text class="tc-mono" x="150" y="158">5</text><text class="tc-mono" x="176" y="158">1</text><text class="tc-mono" x="202" y="158">1/mask.tif</text>
+
+            <text class="tc-title" x="300" y="24">children/before</text>
+            <rect class="tc-box" x="300" y="34" width="185" height="64"></rect>
+            <text class="tc-mono is-head" x="310" y="50">cur</text>
+            <text class="tc-mono is-head" x="336" y="50">par</text>
+            <text class="tc-mono is-head" x="362" y="50">path</text>
+            <text class="tc-mono" x="310" y="68">0</text><text class="tc-mono" x="336" y="68">0</text><text class="tc-mono" x="362" y="68">0/before/B02.tif</text>
+            <text class="tc-mono" x="310" y="86">1</text><text class="tc-mono" x="336" y="86" data-on="4">3</text><text class="tc-mono" x="362" y="86">1/before/B02.tif</text>
+
+            <text class="tc-title" x="495" y="24">children/after</text>
+            <rect class="tc-box" x="495" y="34" width="165" height="64"></rect>
+            <text class="tc-mono is-head" x="505" y="50">cur</text>
+            <text class="tc-mono is-head" x="531" y="50">par</text>
+            <text class="tc-mono is-head" x="557" y="50">path</text>
+            <text class="tc-mono" x="505" y="68">0</text><text class="tc-mono" x="531" y="68">1</text><text class="tc-mono" x="557" y="68">0/after/B02.tif</text>
+            <text class="tc-mono" x="505" y="86">1</text><text class="tc-mono" x="531" y="86">4</text><text class="tc-mono" x="557" y="86">1/after/B02.tif</text>
+            <text class="tc-note" x="0" y="200">cur, par and path are internal:current_id, internal:parent_id and internal:relative_path</text>
+          </g>
+          <g data-k="4">
+            <rect class="tc-lit" x="302" y="74" width="181" height="18"></rect>
+            <rect class="tc-lit" x="142" y="110" width="146" height="18"></rect>
+            <rect class="tc-lit" x="2" y="74" width="126" height="18"></rect>
+            <text class="tc-say" x="0" y="226">a child row joins its parent on internal:parent_id = internal:current_id</text>
+          </g>
+        </svg>
+        </div>
+      </figure>
       <p>A reader never lists <code>DATA/</code>. It reads <code>COLLECTION.json</code> and the Parquet files, filters them with SQL, and builds the location of every file it returns from the row, so nothing is extracted. For Major TOM Core-DEM, the first open downloads 70.3 MB of metadata for 1,735,044 samples, which took between 55 s and 101 s in three runs here, and about 2 s once cached. A query for the samples in Peru above 4,500 m then keeps 492 of them in 14 ms, and their files are 492 byte ranges, 16.5 MB of the 23.6 GB of DEM files.</p>
 
       <h2 class="part" id="languages">Languages</h2>
@@ -102,7 +205,7 @@
         <tr><td><code>img*[4,16].tif</code></td><td>A variable sequence: <code>img0.tif</code> to <code>img{k-1}.tif</code> with no gaps, where 4 &le; k &le; 16 and no index has a leading zero. The <code>*</code> is an index, not a glob.</td></tr>
       </table>
       <p>Paths are relative POSIX paths of printable ASCII, so the same contract works in a folder and in a ZIP. A name cannot hold <code>&lt; &gt; : " \ | ?</code>, end with a space or a period, or contain <code>__</code>, and <code>*</code>, <code>[</code> and <code>]</code> appear only in a sequence. Two names in a folder that differ only in letter case conflict, because case-insensitive file systems and SQL treat them as one (<a href="spec/index.html#52-structure">spec 5.2</a> and <a href="spec/index.html#53-reserved-characters">5.3</a>).</p>
-      <p>The order of the structure matters. A folder takes the place of its first path, and child rows follow that order, so the <code>children</code> rows of the <a href="docs.html#levels">Docs example</a> list <code>before</code>, <code>after</code>, then <code>mask.tif</code>.</p>
+      <p>The order of the structure matters. A folder takes the place of its first path, and child rows follow that order, so the levels in the figure list <code>before</code>, <code>after</code>, then <code>mask.tif</code>.</p>
 
       <h2 class="part" id="metadata">Metadata</h2>
       <p>Every level of the structure is a level of metadata: <code>sample</code>, <code>children</code>, and <code>children/&lt;folder&gt;</code> for each folder, stored as <code>METADATA/sample.parquet</code>, <code>children.parquet</code> and <code>children__before.parquet</code>. A level may have no fields of its own. Each field has a qualified name, an Arrow type, a nullability and a description.</p>

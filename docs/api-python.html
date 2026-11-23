@@ -40,7 +40,6 @@
     </div>
 
     <nav class="nav" aria-label="Sections">
-      <a href="docs.html">Docs</a>
       <a href="api.html" class="here">API</a>
       <a href="playground/index.html">Playground</a>
       <a href="spec/index.html">Spec</a>
@@ -215,7 +214,7 @@ sorted(os.listdir("taco-cache"))</code></pre>
       <p>The same root holds the MajorTOM index that <a href="#builtins">GeoEnrich</a> downloads while writing. Downloads show a tqdm bar in an interactive terminal and stay silent otherwise. Payloads are never cached.</p>
 
       <h2 class="part" id="writing">Writing</h2>
-      <p>A build declares a contract, describes the dataset in a collection, opens a writer, adds samples and runs it. The <a href="docs.html">Docs</a> explain the model, and <a href="api.html#contract">Contract</a> and <a href="api.html#metadata">Metadata</a> give its rules. This example writes three samples from bytes, so it runs anywhere:</p>
+      <p>A build declares a contract, describes the dataset in a collection, opens a writer, adds samples and runs it. <a href="api.html#how">How it works</a>, <a href="api.html#contract">Contract</a> and <a href="api.html#metadata">Metadata</a> explain the model. This example writes three samples from bytes, so it runs anywhere:</p>
 <pre><code class="language-python">from pydantic import BaseModel, Field
 
 import taco

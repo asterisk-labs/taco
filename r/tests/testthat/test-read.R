@@ -264,10 +264,13 @@ describe("read_bytes", {
     home <- tempfile()
     dir.create(home)
     writeBin(charToRaw("payload"), file.path(home, "payload.bin"))
-    old_home <- Sys.getenv("HOME")
-    Sys.setenv(HOME = home)
-    on.exit(Sys.setenv(HOME = old_home), add = TRUE)
-    expect_identical(taco::read_bytes("~/payload.bin"), charToRaw("payload"))
+    # On Windows R expands ~ from R_USER or the Documents folder, not HOME.
+    if (.Platform$OS.type != "windows") {
+      old_home <- Sys.getenv("HOME")
+      Sys.setenv(HOME = home)
+      on.exit(Sys.setenv(HOME = old_home), add = TRUE)
+      expect_identical(taco::read_bytes("~/payload.bin"), charToRaw("payload"))
+    }
     expect_error(taco::read_bytes(NA_character_), "non-empty")
     expect_error(taco::read_bytes(1), "non-empty")
     expect_error(taco::read_bytes("/vsisubfile/x_4,a.zip"), "could not resolve")

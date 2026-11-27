@@ -46,3 +46,22 @@ function inspect(source, query::AbstractString)
     return DataFrame(kind=vcat(fill("structure", length(structure)), fill("level", length(levels))),
                      value=vcat(structure, levels))
 end
+
+
+"""
+    read_bytes(location) -> Vector{UInt8}
+    read_bytes(locations) -> Vector{Vector{UInt8}}
+
+Read complete files from `::location` values, local paths or URLs. A vector
+returns one byte vector per location, in input order. `~` and `~/` are expanded.
+"""
+read_bytes(location::AbstractString) = only(_native_read_bytes([_check_location(location)]))
+read_bytes(locations::AbstractVector) = _native_read_bytes(String[_check_location(location) for location in locations])
+
+
+function _check_location(location)
+    location isa AbstractString || throw(ArgumentError("taco: locations must be strings"))
+    path = _c_text(location, "location")
+    isempty(path) && throw(ArgumentError("taco: locations must be non-empty"))
+    return path == "~" || startswith(path, "~/") ? expanduser(path) : path
+end

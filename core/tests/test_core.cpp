@@ -1321,6 +1321,9 @@ void test_progress() {
     events.clear();
     taco::fetch_files({});
     CHECK(events.empty());
+    // In-memory reads do not report progress.
+    taco::read_objects({archive});
+    CHECK(events.empty());
     taco_set_progress(nullptr, nullptr);
 }
 
@@ -1359,6 +1362,22 @@ void test_fetch() {
     CHECK_THROWS(taco::fetch_files({taco::Fetch{archive, index.file_size + 1, 0, target("x")}}), "past the end");
     CHECK_THROWS(taco::fetch_files({taco::Fetch{data("does_not_exist.zip"), 0, 4, target("y")}}), "could not");
     CHECK_THROWS(taco::fetch_files({taco::Fetch{archive, 0, 4, target("")}}), "could not write");
+
+    const std::string subfile = "/vsisubfile/" + std::to_string(collection->offset) + "_" +
+                                std::to_string(collection->size) + "," + archive;
+    const std::string folder_collection = data("taco_folder/COLLECTION.json");
+    const auto objects = taco::read_objects({subfile, folder_collection, subfile});
+    CHECK(objects.size() == 3);
+    CHECK(objects[0] == whole.substr(collection->offset, collection->size));
+    CHECK(objects[1] == read_file(folder_collection));
+    CHECK(objects[2] == objects[0]);
+    CHECK(taco::read_objects({}).empty());
+    CHECK((taco::read_objects({"/vsisubfile/0_4," + archive}) == Strings{"PK\x03\x04"}));
+    CHECK_THROWS(taco::read_objects({"/vsisubfile/x_4," + archive}), "could not resolve");
+    CHECK_THROWS(taco::read_objects({"/vsisubfile/4,"}), "could not resolve");
+    CHECK_THROWS(taco::read_objects({"/vsisubfile/" + std::to_string(index.file_size) + "_4," + archive}),
+                 "could not read");
+    CHECK_THROWS(taco::read_objects({data("does_not_exist.bin")}), "could not");
 }
 
 void test_c_api() {
@@ -1412,6 +1431,32 @@ void test_c_api() {
     const taco_fetch_item unnamed = {nullptr, 0, 4, head.c_str()};
     CHECK(taco_fetch(&unnamed, 1) == TACO_ERR_INVALID);
     CHECK(contains(taco_last_error(), "must not be NULL"));
+
+    const std::string folder_collection = data("taco_folder/COLLECTION.json");
+    const char* locations[] = {archive.c_str(), folder_collection.c_str()};
+    taco_bytes* bytes = nullptr;
+    CHECK(taco_read_bytes(locations, 2, &bytes) == TACO_OK);
+    CHECK(bytes != nullptr);
+    CHECK(taco_bytes_size(bytes, 0) == fs::file_size(archive));
+    CHECK(std::string(reinterpret_cast<const char*>(taco_bytes_data(bytes, 1)), taco_bytes_size(bytes, 1)) ==
+          read_file(folder_collection));
+    CHECK(taco_bytes_data(bytes, 2) == nullptr);
+    CHECK(taco_bytes_size(bytes, 2) == 0);
+    taco_bytes_free(bytes);
+    taco_bytes_free(nullptr);
+    CHECK(taco_bytes_data(nullptr, 0) == nullptr);
+    CHECK(taco_read_bytes(nullptr, 0, &bytes) == TACO_OK);
+    CHECK(taco_bytes_size(bytes, 0) == 0);
+    taco_bytes_free(bytes);
+    CHECK(taco_read_bytes(nullptr, 1, &bytes) == TACO_ERR_INVALID);
+    CHECK(bytes == nullptr);
+    const char* missing[] = {nullptr};
+    CHECK(taco_read_bytes(missing, 1, &bytes) == TACO_ERR_INVALID);
+    CHECK(contains(taco_last_error(), "must not contain NULL"));
+    const std::string absent = data("does_not_exist.bin");
+    const char* absent_locations[] = {absent.c_str()};
+    CHECK(taco_read_bytes(absent_locations, 1, &bytes) != TACO_OK);
+    CHECK(bytes == nullptr);
     taco_shutdown();
     taco_shutdown();
 }
@@ -1449,6 +1494,10 @@ void test_remote() {
                        taco::Fetch{base + "/folder/COLLECTION.json", 0, 0, (out / "COLLECTION.json").generic_string()}});
     CHECK(read_file(out / "head.bin") == "PK\x03\x04");
     CHECK(contains(read_file(out / "COLLECTION.json"), "\"taco:version\""));
+
+    const auto objects = taco::read_objects({"/vsisubfile/0_4," + archive.location_base, base + "/folder/COLLECTION.json"});
+    CHECK(objects[0] == "PK\x03\x04");
+    CHECK(contains(objects[1], "\"taco:version\""));
 }
 
 } // namespace

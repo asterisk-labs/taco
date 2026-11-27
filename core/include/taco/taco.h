@@ -102,6 +102,17 @@ typedef struct {
 // writer exports samples with it.
 TACO_API taco_status taco_fetch(const taco_fetch_item* items, size_t count);
 
+typedef struct taco_bytes taco_bytes;
+
+// Reads complete files in input order. Locations may be paths, URIs or
+// ::location values. The caller frees *out with taco_bytes_free.
+TACO_API taco_status taco_read_bytes(const char* const* locations, size_t count, taco_bytes** out);
+
+// Data pointers belong to the result and stay valid until taco_bytes_free.
+TACO_API const uint8_t* taco_bytes_data(const taco_bytes* bytes, size_t index);
+TACO_API uint64_t taco_bytes_size(const taco_bytes* bytes, size_t index);
+TACO_API void taco_bytes_free(taco_bytes* bytes);
+
 #ifdef __cplusplus
 } // extern "C"
 #endif

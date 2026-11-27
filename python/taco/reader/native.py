@@ -67,6 +67,12 @@ _ffi.cdef(
     } taco_fetch_item;
 
     taco_status taco_fetch(const taco_fetch_item* items, size_t count);
+
+    typedef struct taco_bytes taco_bytes;
+    taco_status taco_read_bytes(const char* const* locations, size_t count, taco_bytes** out);
+    const uint8_t* taco_bytes_data(const taco_bytes* bytes, size_t index);
+    uint64_t taco_bytes_size(const taco_bytes* bytes, size_t index);
+    void taco_bytes_free(taco_bytes* bytes);
     """
 )
 
@@ -260,10 +266,32 @@ def fetch(items: Sequence[tuple[str, int, int, str | PathLike[str]]]) -> None:
     _check(_load().taco_fetch(array, len(items)))
 
 
+def read_bytes(locations: Sequence[str | PathLike[str]]) -> list[bytes]:
+    """Read whole files into memory in input order."""
+    library = _load()
+    try:
+        read = library.taco_read_bytes
+        data = library.taco_bytes_data
+        size = library.taco_bytes_size
+        free = library.taco_bytes_free
+    except AttributeError as exc:
+        raise ContainerError(
+            "the TACO core does not support read_bytes; build it with `make core` or set TACO_LIB to a newer libtaco"
+        ) from exc
+    keep = [_ffi.new("char[]", _encode(location)) for location in locations]
+    out = _ffi.new("taco_bytes **")
+    _check(read(_ffi.new("char *[]", keep), len(keep), out))
+    try:
+        return [_ffi.buffer(data(out[0], index), size(out[0], index))[:] for index in range(len(keep))]
+    finally:
+        free(out[0])
+
+
 __all__ = [
     "LIBRARY_ENV",
     "NativeDataset",
     "fetch",
     "profile",
+    "read_bytes",
     "sql",
 ]

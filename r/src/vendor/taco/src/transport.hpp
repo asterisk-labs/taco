@@ -29,8 +29,12 @@ std::vector<std::string> read_ranges(const std::vector<Range>& ranges);
 // A whole object, refusing anything larger than limit bytes.
 std::string read_object(const std::string& uri, std::uint64_t limit, const std::string& what);
 
-// Like read_ranges, in bounded batches that report their progress as phase.
+// Read ranges in bounded batches. An empty phase suppresses progress.
 std::vector<std::string> download(const std::vector<Range>& ranges, const std::string& phase);
+
+// Read whole files in input order, without progress. A bounded /vsisubfile/
+// location needs no size request.
+std::vector<std::string> read_objects(const std::vector<std::string>& uris);
 
 // A byte range copied into a local file. A zero length copies from offset to
 // the end of the object.

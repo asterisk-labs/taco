@@ -18,6 +18,10 @@ struct taco_dataset {
     taco::Dataset value;
 };
 
+struct taco_bytes {
+    std::vector<std::string> values;
+};
+
 namespace {
 
 thread_local std::string last_error;
@@ -175,4 +179,34 @@ taco_status taco_fetch(const taco_fetch_item* items, size_t count) {
         }
         taco::fetch_files(fetches);
     });
+}
+
+taco_status taco_read_bytes(const char* const* locations, size_t count, taco_bytes** out) {
+    if (out)
+        *out = nullptr;
+    return guard([&] {
+        require(out && (locations || count == 0), "taco_read_bytes: locations and out must not be NULL");
+        std::vector<std::string> uris;
+        for (size_t i = 0; i < count; ++i) {
+            require(locations[i] != nullptr, "taco_read_bytes: locations must not contain NULL");
+            uris.emplace_back(locations[i]);
+        }
+        auto bytes = std::make_unique<taco_bytes>();
+        bytes->values = taco::read_objects(uris);
+        *out = bytes.release();
+    });
+}
+
+const uint8_t* taco_bytes_data(const taco_bytes* bytes, size_t index) {
+    if (!bytes || index >= bytes->values.size())
+        return nullptr;
+    return reinterpret_cast<const uint8_t*>(bytes->values[index].data());
+}
+
+uint64_t taco_bytes_size(const taco_bytes* bytes, size_t index) {
+    return bytes && index < bytes->values.size() ? bytes->values[index].size() : 0;
+}
+
+void taco_bytes_free(taco_bytes* bytes) {
+    delete bytes;
 }

@@ -16,4 +16,5 @@ supported because the reader core depends on DuckDB, libcurl, and OpenSSL.
 ```r
 dataset <- taco::open_dataset("dataset.zip")
 samples <- taco::read(dataset)
+first <- taco::read_bytes(samples[["target.tif::location"]][[1]])
 ```

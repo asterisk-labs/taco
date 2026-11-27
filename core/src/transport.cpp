@@ -155,8 +155,9 @@ std::string read_object(const std::string& uri, std::uint64_t limit, const std::
     return std::move(read_ranges({Range{uri, 0, size}}).front());
 }
 
-// Reads ranges in pieces of chunk_bytes, eight pieces per karu batch, handing
-// each piece to sink in range order and reporting the bytes done under phase.
+// Split ranges into chunks of at most chunk_bytes, with at most 8 * chunk_bytes
+// per Karu batch. Pass chunks to sink in range order. An empty phase suppresses
+// progress reports.
 void read_in_batches(const std::vector<Range>& ranges, std::uint64_t chunk_bytes, const std::string& phase,
                      const std::function<void(std::size_t, std::string_view)>& sink) {
     if (chunk_bytes == 0)
@@ -177,7 +178,8 @@ void read_in_batches(const std::vector<Range>& ranges, std::uint64_t chunk_bytes
         return;
     const std::uint64_t batch_bytes = 8 * chunk_bytes;
     std::uint64_t done = 0;
-    report_progress(phase, done, total);
+    if (!phase.empty())
+        report_progress(phase, done, total);
     for (std::size_t start = 0; start < pieces.size();) {
         std::size_t stop = start;
         std::uint64_t bytes = 0;
@@ -193,7 +195,8 @@ void read_in_batches(const std::vector<Range>& ranges, std::uint64_t chunk_bytes
         for (std::size_t i = start; i < stop; ++i)
             sink(pieces[i].range, buffers[i - start]);
         done += bytes;
-        report_progress(phase, done, total);
+        if (!phase.empty())
+            report_progress(phase, done, total);
         start = stop;
     }
 }
@@ -205,6 +208,15 @@ std::vector<std::string> download(const std::vector<Range>& ranges, const std::s
     read_in_batches(ranges, fetch_chunk_bytes, phase,
                     [&](std::size_t range, std::string_view bytes) { buffers[range].append(bytes); });
     return buffers;
+}
+
+std::vector<std::string> read_objects(const std::vector<std::string>& uris) {
+    const std::vector<std::uint64_t> sizes = object_sizes(uris);
+    std::vector<Range> ranges;
+    ranges.reserve(uris.size());
+    for (std::size_t i = 0; i < uris.size(); ++i)
+        ranges.push_back(Range{uris[i], 0, sizes[i]});
+    return download(ranges, "");
 }
 
 void fetch_files(const std::vector<Fetch>& fetches, std::uint64_t chunk_bytes) {

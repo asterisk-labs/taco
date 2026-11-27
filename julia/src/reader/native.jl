@@ -142,6 +142,16 @@ function _symbol(name::Symbol)
 end
 
 
+function _bytes_symbol(name::Symbol)
+    _HANDLE[] == C_NULL && _load_core()
+    symbol = Libdl.dlsym_e(_HANDLE[], name)
+    symbol == C_NULL && error(
+        "taco: the native core does not support read_bytes; build it with `make core` or set TACO_LIB to a newer libtaco",
+    )
+    return symbol
+end
+
+
 function _check_core(status::Cint)
     status == 0 && return nothing
     error(unsafe_string(ccall(_symbol(:taco_last_error), Cstring, ())))
@@ -257,3 +267,32 @@ end
 
 
 _native_profile(source) = _native_text(:taco_profile, source)
+
+
+function _native_read_bytes(locations::Vector{String})
+    isempty(locations) && return Vector{UInt8}[]
+    pointers = [pointer(location) for location in locations]
+    count = Csize_t(length(locations))
+    out = Ref{Ptr{Cvoid}}(C_NULL)
+    native = _bytes_symbol(:taco_read_bytes)
+    data_symbol = _bytes_symbol(:taco_bytes_data)
+    size_symbol = _bytes_symbol(:taco_bytes_size)
+    free_symbol = _bytes_symbol(:taco_bytes_free)
+    status = GC.@preserve locations pointers begin
+        array = pointer(pointers)
+        @_gc_safe_ccall $native(array::Ptr{Ptr{UInt8}}, count::Csize_t, out::Ref{Ptr{Cvoid}})::Cint
+    end
+    _check_core(status)
+    bytes = out[]
+    try
+        return map(0:length(locations)-1) do index
+            nbytes = ccall(size_symbol, UInt64, (Ptr{Cvoid}, Csize_t), bytes, index)
+            data = ccall(data_symbol, Ptr{UInt8}, (Ptr{Cvoid}, Csize_t), bytes, index)
+            file = Vector{UInt8}(undef, nbytes)
+            nbytes > 0 && unsafe_copyto!(pointer(file), data, nbytes)
+            file
+        end
+    finally
+        ccall(free_symbol, Cvoid, (Ptr{Cvoid},), bytes)
+    end
+end

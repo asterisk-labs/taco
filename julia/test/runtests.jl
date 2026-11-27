@@ -117,6 +117,52 @@ const NESTED_FIXTURE = joinpath(@__DIR__, "data", "taco_nested.zip")
         end
     end
 
+    @testset "read_bytes" begin
+        # Read a local file or ZIP range for the expected bytes.
+        function location_bytes(location)
+            m = match(r"^/vsisubfile/(\d+)_(\d+),(.+)$", location)
+            m === nothing && return Base.read(location)
+            return open(m[3]) do io
+                seek(io, parse(Int, m[1]))
+                Base.read(io, parse(Int, m[2]))
+            end
+        end
+
+        mktempdir() do dir
+            # Test the extracted fixture too when unzip is available.
+            sources = Any[FIXTURE, NESTED_FIXTURE]
+            if Sys.which("unzip") !== nothing
+                folder = joinpath(dir, "folder")
+                mkpath(folder)
+                run(`unzip -q $FIXTURE -d $folder`)
+                push!(sources, folder)
+            end
+            for source in sources
+                wide = Taco.read(source)
+                locations = String[]
+                for name in names(wide)
+                    endswith(name, "::location") && append!(locations, wide[!, name])
+                end
+                expected = location_bytes.(locations)
+                @test Taco.read_bytes(locations) == expected
+                @test Taco.read_bytes(first(locations)) == first(expected)
+            end
+            @test Taco.read_bytes(String[]) == Vector{UInt8}[]
+
+            write(joinpath(dir, "payload.bin"), "payload")
+            if !Sys.iswindows()
+                withenv("HOME" => dir) do
+                    @test Taco.read_bytes("~/payload.bin") == Vector{UInt8}("payload")
+                end
+            end
+            @test_throws "non-empty" Taco.read_bytes("")
+            @test_throws "NUL byte" Taco.read_bytes("bad\0.bin")
+            @test_throws "must be strings" Taco.read_bytes([1])
+            @test_throws "could not resolve" Taco.read_bytes("/vsisubfile/x_4,a.zip")
+            @test_throws "could not" Taco.read_bytes(joinpath(dir, "missing.bin"))
+        end
+    end
+
     @testset "timestamps" begin
         dataset = Taco.open_dataset(FIXTURE)
         result = Taco.sql(dataset, """

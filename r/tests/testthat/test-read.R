@@ -231,3 +231,45 @@ describe("query a TACO dataset", {
     expect_equal(result$hour, 3)
   })
 })
+
+
+# Read a local file or ZIP range for the expected bytes.
+location_bytes <- function(location) {
+  parts <- regmatches(location, regexec("^/vsisubfile/([0-9]+)_([0-9]+),(.+)$", location))[[1L]]
+  if (!length(parts)) {
+    return(readBin(location, "raw", file.size(location)))
+  }
+  con <- file(parts[[4L]], "rb")
+  on.exit(close(con))
+  seek(con, as.numeric(parts[[2L]]))
+  readBin(con, "raw", as.numeric(parts[[3L]]))
+}
+
+
+describe("read_bytes", {
+  it("reads ZIP and FOLDER locations singly or together", {
+    folder <- taco_partition(tempfile("folder"), list())
+    for (source in c(taco_fixture(), folder)) {
+      wide <- taco::read(source)
+      locations <- c(wide[["image.bin::location"]], wide[["mask.bin::location"]])
+      expected <- lapply(locations, location_bytes)
+      expect_identical(taco::read_bytes(locations), expected)
+      expect_identical(taco::read_bytes(locations[[1L]]), expected[[1L]])
+    }
+    expect_identical(taco::read_bytes(character()), list())
+  })
+
+  it("expands ~ and reports bad locations", {
+    home <- tempfile()
+    dir.create(home)
+    writeBin(charToRaw("payload"), file.path(home, "payload.bin"))
+    old_home <- Sys.getenv("HOME")
+    Sys.setenv(HOME = home)
+    on.exit(Sys.setenv(HOME = old_home), add = TRUE)
+    expect_identical(taco::read_bytes("~/payload.bin"), charToRaw("payload"))
+    expect_error(taco::read_bytes(NA_character_), "non-empty")
+    expect_error(taco::read_bytes(1), "non-empty")
+    expect_error(taco::read_bytes("/vsisubfile/x_4,a.zip"), "could not resolve")
+    expect_error(taco::read_bytes(file.path(home, "missing.bin")), "could not")
+  })
+})

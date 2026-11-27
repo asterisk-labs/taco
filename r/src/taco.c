@@ -2,6 +2,8 @@
 #include <Rinternals.h>
 #include <R_ext/Rdynload.h>
 
+#include <string.h>
+
 #ifndef __EMSCRIPTEN__
 #include <taco/taco.h>
 
@@ -146,6 +148,43 @@ SEXP taco_r_profile(SEXP source) {
     return take_string(name);
 }
 
+static void free_bytes(SEXP pointer) {
+    taco_bytes* bytes = R_ExternalPtrAddr(pointer);
+    if (bytes) {
+        taco_bytes_free(bytes);
+        R_ClearExternalPtr(pointer);
+    }
+}
+
+SEXP taco_r_read_bytes(SEXP locations) {
+    if (!Rf_isString(locations))
+        Rf_error("`location` must be a character vector");
+    R_xlen_t count = XLENGTH(locations);
+    const char** values = (const char**)R_alloc((size_t)count, sizeof(char*));
+    for (R_xlen_t i = 0; i < count; ++i) {
+        if (STRING_ELT(locations, i) == NA_STRING)
+            Rf_error("`location` must not contain NA");
+        values[i] = Rf_translateCharUTF8(STRING_ELT(locations, i));
+    }
+    taco_bytes* bytes = NULL;
+    if (taco_read_bytes(values, (size_t)count, &bytes) != TACO_OK)
+        core_error();
+    // The finalizer frees the files if an allocation below fails.
+    SEXP pointer = PROTECT(R_MakeExternalPtr(bytes, R_NilValue, R_NilValue));
+    R_RegisterCFinalizerEx(pointer, free_bytes, TRUE);
+    SEXP result = PROTECT(Rf_allocVector(VECSXP, count));
+    for (R_xlen_t i = 0; i < count; ++i) {
+        uint64_t size = taco_bytes_size(bytes, (size_t)i);
+        SEXP file = Rf_allocVector(RAWSXP, (R_xlen_t)size);
+        SET_VECTOR_ELT(result, i, file);
+        if (size)
+            memcpy(RAW(file), taco_bytes_data(bytes, (size_t)i), (size_t)size);
+    }
+    free_bytes(pointer);
+    UNPROTECT(2);
+    return result;
+}
+
 #else
 static SEXP wasm_unavailable(void) {
     Rf_error("the native TACO core is not available on WebAssembly");
@@ -186,6 +225,11 @@ SEXP taco_r_profile(SEXP source) {
     return wasm_unavailable();
 }
 
+SEXP taco_r_read_bytes(SEXP locations) {
+    (void)locations;
+    return wasm_unavailable();
+}
+
 #endif
 
 static const R_CallMethodDef methods[] = {
@@ -195,6 +239,7 @@ static const R_CallMethodDef methods[] = {
     {"taco_r_dataset", (DL_FUNC)&taco_r_dataset, 1},
     {"taco_r_sql", (DL_FUNC)&taco_r_sql, 6},
     {"taco_r_profile", (DL_FUNC)&taco_r_profile, 1},
+    {"taco_r_read_bytes", (DL_FUNC)&taco_r_read_bytes, 1},
     {NULL, NULL, 0}};
 
 void R_init_taco(DllInfo* dll) {

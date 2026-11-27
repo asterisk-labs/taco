@@ -72,7 +72,7 @@
 Pkg.Registry.add(Pkg.RegistrySpec(url = "https://github.com/asterisk-labs/AsteriskRegistry"))
 Pkg.add("Taco")</code></pre>
       <p>Taco.jl calls libtaco through <code>ccall</code>, runs queries with DuckDB.jl and returns <code>DataFrame</code>s. It reads all three containers; the <a href="api-python.html#writing">Python package writes</a> them. See the <a href="api.html">API overview</a> for the shared data model. This page covers Julia calls and behavior.</p>
-      <p>Nothing is exported. Call <a href="#open_dataset"><code>Taco.open_dataset</code></a>, <a href="#read"><code>Taco.read</code></a>, <a href="#sql"><code>Taco.sql</code></a> and <a href="#inspect"><code>Taco.inspect</code></a> with the module name. <code>using Taco</code> brings only <code>Taco</code> into scope, so a bare <code>read</code> is still <code>Base.read</code>.</p>
+      <p>Nothing is exported. Call <a href="#open_dataset"><code>Taco.open_dataset</code></a>, <a href="#read"><code>Taco.read</code></a>, <a href="#sql"><code>Taco.sql</code></a>, <a href="#inspect"><code>Taco.inspect</code></a> and <a href="#read_bytes"><code>Taco.read_bytes</code></a> with the module name. <code>using Taco</code> brings only <code>Taco</code> into scope, so a bare <code>read</code> is still <code>Base.read</code>.</p>
 
       <h2 class="part" id="library">Native library</h2>
       <p>Taco.jl finds libtaco at the first call, not at <code>using Taco</code>, and takes the first of these that applies:</p>
@@ -81,7 +81,7 @@ Pkg.add("Taco")</code></pre>
         <li><code>core/build/libtaco.dylib</code>, <code>libtaco.so</code> or <code>taco.dll</code> of the repository, when Taco.jl is loaded from a clone of it.</li>
         <li>The <code>taco</code> artifact in <code>Artifacts.toml</code>, the release archive of libtaco for the platform, downloaded on first use.</li>
       </ol>
-      <p>The binding requires C API version 3 and refuses any other. A library that cannot be loaded throws an <code>ErrorException</code>:</p>
+      <p>The binding requires C API version 3 and refuses any other. <code>read_bytes</code> also checks that the chosen library provides its functions. A library that cannot be loaded throws an <code>ErrorException</code>:</p>
 <pre class="output"><code>taco: could not load the TACO core from /nonexistent/libtaco.dylib: could not load library "/nonexistent/libtaco.dylib" ... Build it with `make core` or set TACO_LIB</code></pre>
       <p>The <a href="api-c.html#bindings">C page</a> lists which C functions each binding calls.</p>
 
@@ -279,17 +279,17 @@ filter(!startswith("."), readdir("taco-cache"))</code></pre>
       <p>The filter leaves out the names that start with a period: the snapshots that open datasets read, which the process removes when it exits.</p>
 
       <h2 class="part" id="files">Opening the files</h2>
-      <p>A location is a VSI path, as <a href="api.html#files">Open a file</a> explains. Any client that reads a byte range gets the file's bytes, here the Downloads standard library:</p>
-<pre><code class="language-julia">using Downloads
+      <p>A location is a VSI path, as <a href="api.html#files">Open a file</a> explains.</p>
 
-location = row[1, "dem.rumi::location"]
-m = match(r"^/vsisubfile/(\d+)_(\d+),/vsicurl/(.+)$", location)
-offset, len = parse(Int, m[1]), parse(Int, m[2])
-span = "bytes=$offset-$(offset + len - 1)"
-bytes = take!(Downloads.download(String(m[3]), IOBuffer(); headers = ["Range" =&gt; span]))
+      <h3 id="read_bytes">read_bytes</h3>
+<pre><code class="sig language-julia">Taco.read_bytes(location::AbstractString) -&gt; Vector{UInt8}
+Taco.read_bytes(locations::AbstractVector) -&gt; Vector{Vector{UInt8}}</code></pre>
+      <p>Returns the whole file as bytes, without GDAL. Pass a <code>::location</code> value, a local path or a URL. A vector returns one byte vector per location, in input order; Karu groups the requests into bounded batches. <code>~</code> and <code>~/</code> are expanded.</p>
+      <p>The artifact currently listed in <code>Artifacts.toml</code> predates this function. In a source checkout, run <code>make core</code> before calling it, or set <code>TACO_LIB</code> to a newer build.</p>
+<pre><code class="language-julia">bytes = Taco.read_bytes(row[1, "dem.rumi::location"])
 length(bytes), String(bytes[1:4])</code></pre>
 <pre class="output"><code>(42283, "RUMI")</code></pre>
-      <p><code>Downloads.download</code> fails on the <code>SubString</code> a regex match returns, hence <code>String(m[3])</code>.</p>
+      <p>A location that cannot be resolved or read throws an <code>ErrorException</code> with the core's message.</p>
 
       <h2 class="part" id="errors">Errors</h2>
       <p>Julia argument checks raise <code>ArgumentError</code>. Core failures and incompatible source lists raise <code>ErrorException</code>. Bad queries raise <code>DuckDB.QueryException</code>. The examples show each type and message; see <a href="api.html#errors">Errors</a> for causes.</p>

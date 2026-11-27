@@ -395,6 +395,7 @@ dem = rumi.read(row["dem.rumi::location"], row["dem.rumi::header"])
 dem.shape, dem.min(), dem.max()</code></pre>
 <pre class="output"><code>((1, 352, 352), np.int16(3784), np.int16(5840))</code></pre>
       <p>Any client that reads a byte range reads the file too. HTTP ranges include their last byte, so the range is <code>offset</code> to <code>offset + size - 1</code>: the location above, <code>/vsisubfile/577605662_48266,...</code>, is <code>Range: bytes=577605662-577653927</code>.</p>
+      <p>Python, R and Julia can return the raw bytes at a location with <code>read_bytes</code>. Pass a sequence of locations to read several files and get their bytes in the same order (<a href="api-python.html#read_bytes">Python</a>, <a href="api-r.html#read_bytes">R</a>, <a href="api-julia.html#read_bytes">Julia</a>).</p>
 
       <h2 class="part" id="validate">Validate, export, consolidate</h2>
       <p>The Python package has three more calls that work on whole datasets.</p>

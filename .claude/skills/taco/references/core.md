@@ -62,7 +62,17 @@ taco_status  taco_sql(const taco_dataset* const* datasets, size_t count,
                       const taco_read_options* options, char** out_sql);
 taco_status  taco_profile(const char* source, char** out_name);
 taco_status  taco_fetch(const taco_fetch_item* items, size_t count);
+
+taco_status    taco_read_bytes(const char* const* locations, size_t count, taco_bytes** out);
+const uint8_t* taco_bytes_data(const taco_bytes*, size_t index);  // owned by the result
+uint64_t       taco_bytes_size(const taco_bytes*, size_t index);
+void           taco_bytes_free(taco_bytes* bytes);
 ```
+
+`taco_read_bytes` reads whole files into memory, in input order, through
+`read_objects` in `transport.cpp`. It accepts any location karu resolves,
+including a `::location` value. A bounded `/vsisubfile/` location includes its
+size, so it needs no separate size request. The call reports no progress.
 
 Ownership: `const char*` getters return views owned by the dataset, valid until
 `taco_close`. Anything returned through a `char**` must be released with `taco_free`.

@@ -17,6 +17,9 @@ JavaScript reader are documented here. The format follows
   from the bundled AEOI catalogue.
 - The `labels` extension maps file values to class names.
 - The `ml` extension records model inputs and targets and owns the `ml` namespace.
+- `read_bytes` in Python, R and Julia reads one file or a sequence of files as
+  raw bytes, in input order. C API 3 adds `taco_read_bytes` and the `taco_bytes_*`
+  functions.
 - The JavaScript reader can read byte ranges from an asset. The playground uses
   them to render Rumi files through Rumi's JavaScript reader instead of
   downloading the whole file.

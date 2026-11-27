@@ -70,7 +70,7 @@
         <li>C++23, on Karu 0.2.3, libcurl and OpenSSL</li>
       </ul>
       <p class="lede">libtaco is the reader core used by Python, R and Julia. It opens ZIP, FOLDER and TACOCAT datasets, checks their contracts, and generates DuckDB SQL. It does not run queries or write datasets.</p>
-      <p>DuckDB reads the metadata Parquet files and builds file locations from their rows. libtaco does not link DuckDB or a Parquet library. Beyond the CoZIP index and metadata, it reads only byte ranges requested through <code>taco_profile</code> or <code>taco_fetch</code>. The JavaScript reader uses a separate implementation. The C header declares 18 functions, grouped below by purpose.</p>
+      <p>DuckDB reads the metadata Parquet files and builds file locations from their rows. libtaco does not link DuckDB or a Parquet library. Beyond the CoZIP index and metadata, it reads only byte ranges requested through <code>taco_profile</code>, <code>taco_fetch</code> or <code>taco_read_bytes</code>. The JavaScript reader uses a separate implementation. The C header declares 22 functions, grouped below by purpose.</p>
 
       <h2 class="part" id="start">A complete program</h2>
       <p>The program opens the single-partition ZIP of Major TOM Core-DEM, asks libtaco for the wide view, runs a query over it with DuckDB's C API, and copies the file of the highest sample with <code>taco_fetch</code>.</p>
@@ -219,7 +219,7 @@ ctest --test-dir core/build --output-on-failure</code></pre>
       </tbody></table>
       <ul class="list">
         <li>The build writes <code>libtaco.dylib</code>, <code>libtaco.so</code> or <code>taco.dll</code> to <code>core/build/</code>. <code>cmake --install</code> puts it in <code>lib/</code> (the DLL in <code>bin/</code>) and the header in <code>include/taco/</code>. There is no CMake package file, so link the library by name and set an rpath: <code>-Icore/include -Lcore/build -ltaco -Wl,-rpath,$PWD/core/build</code>.</li>
-        <li>Only the 18 <code>taco_*</code> functions are exported. Karu and the rest of the C++ code stay hidden inside the library.</li>
+        <li>Only the 22 <code>taco_*</code> functions are exported. Karu and the rest of the C++ code stay hidden inside the library.</li>
         <li>A development build links the system libcurl and OpenSSL dynamically. Here <code>otool -L</code> lists <code>/usr/lib/libcurl.4.dylib</code> and Homebrew's <code>libcrypto.3.dylib</code>.</li>
         <li>Release builds take curl and OpenSSL from vcpkg instead. <code>core/vcpkg.json</code> pins <code>curl</code> (with <code>ssl</code>, default features off) and <code>openssl</code> to one vcpkg baseline, and the triplets in <code>core/triplets</code> link them statically, so the released library depends on neither. The release workflow checks this with <code>ldd</code>, <code>otool</code> and <code>dumpbin</code>. macOS releases target macOS 11.0, and Linux releases are built in manylinux_2_28 containers.</li>
       </ul>
@@ -237,19 +237,21 @@ ctest --test-dir core/build --output-on-failure</code></pre>
       <ul class="list">
         <li>Every string passed in or returned is NUL-terminated UTF-8. Paths are UTF-8 on every platform, Windows included. A relative local path resolves against the working directory.</li>
         <li>The caller owns every string, array and struct it passes, and they only need to live for the call. libtaco copies what it keeps.</li>
-        <li><code>taco_open</code>, <code>taco_sql</code> and <code>taco_profile</code> set their out-parameter to <code>NULL</code> before anything else, so it is <code>NULL</code> after a failure.</li>
-        <li>A getter given a <code>NULL</code> handle returns <code>NULL</code> or 0, and an index past the count returns <code>NULL</code>.</li>
+        <li><code>taco_open</code>, <code>taco_sql</code>, <code>taco_profile</code> and <code>taco_read_bytes</code> set their out-parameter to <code>NULL</code> before anything else, so it is <code>NULL</code> after a failure.</li>
+        <li>A getter given a <code>NULL</code> handle returns <code>NULL</code> or 0. An index past the count returns <code>NULL</code> for a pointer or 0 for a size.</li>
       </ul>
       <table class="spec"><thead><tr><th>Returned</th><th>Owned by</th><th>Valid until</th><th>Release with</th></tr></thead><tbody>
         <tr><td><code>taco_dataset *</code> from <code>taco_open</code></td><td>the caller</td><td><code>taco_close</code></td><td><code>taco_close</code>, which ignores <code>NULL</code></td></tr>
         <tr><td><code>const char *</code> from a <code>taco_dataset_*</code> getter</td><td>the handle</td><td><code>taco_close</code></td><td>nothing</td></tr>
         <tr><td><code>char *</code> through a <code>char **</code>, from <code>taco_sql</code> and <code>taco_profile</code></td><td>the caller</td><td><code>taco_free</code></td><td><code>taco_free</code>, which ignores <code>NULL</code></td></tr>
+        <tr><td><code>taco_bytes *</code> from <code>taco_read_bytes</code></td><td>the caller</td><td><code>taco_bytes_free</code></td><td><code>taco_bytes_free</code>, which ignores <code>NULL</code></td></tr>
+        <tr><td><code>const uint8_t *</code> from <code>taco_bytes_data</code></td><td>the result</td><td><code>taco_bytes_free</code></td><td>nothing</td></tr>
         <tr><td><code>taco_version_string</code>, <code>taco_dataset_container</code></td><td>the library</td><td>always</td><td>nothing</td></tr>
         <tr><td><code>taco_last_error</code></td><td>the calling thread</td><td>the next failed call on that thread</td><td>nothing; copy it to keep it</td></tr>
       </tbody></table>
 
       <h2 class="part" id="errors">Errors</h2>
-      <p>The calls that can fail return a <code>taco_status</code>: <code>taco_open</code>, <code>taco_sql</code>, <code>taco_profile</code> and <code>taco_fetch</code>. No C++ exception leaves the library; each call turns it into a status and a message. <code>taco_last_error()</code> returns the message of the latest failed call on the calling thread. A successful call does not clear it, so read it only after a status other than <code>TACO_OK</code>.</p>
+      <p>The calls that can fail return a <code>taco_status</code>: <code>taco_open</code>, <code>taco_sql</code>, <code>taco_profile</code>, <code>taco_fetch</code> and <code>taco_read_bytes</code>. No C++ exception leaves the library; each call turns it into a status and a message. <code>taco_last_error()</code> returns the message of the latest failed call on the calling thread. A successful call does not clear it, so read it only after a status other than <code>TACO_OK</code>.</p>
       <table class="spec"><thead><tr><th>Status</th><th>Value</th><th>Returned for</th></tr></thead><tbody>
         <tr><td><code>TACO_OK</code></td><td>0</td><td>Success.</td></tr>
         <tr><td><code>TACO_ERR_INVALID</code></td><td>1</td><td>A <code>NULL</code> argument, a bad read option, a source that is not a valid TACO dataset (another cozip profile, a broken index, an invalid <code>COLLECTION.json</code>, a <code>taco:version</code> other than 3.0.0), a URI Karu does not accept, a <code>TACO_CACHE_SIZE</code> that is not a number of bytes, or a fetch offset past the end of the object.</td></tr>
@@ -351,7 +353,7 @@ SELECT * FROM (
         <li>A statement names the copies by path, so it stays valid only while they exist: until the process that generated it exits, for a local ZIP and a remote source alike. Generate it again in each process instead of storing it.</li>
       </ul>
 
-      <h2 class="part" id="fetch">Profiles and byte copies</h2>
+      <h2 class="part" id="fetch">Profiles and file bytes</h2>
       <table class="spec"><thead><tr><th>Function</th><th>Behavior</th></tr></thead><tbody>
         <tr><td><code>taco_profile</code><br><code>(source, &amp;name)</code></td><td>Reads the size of the object, refuses one below 32,819 bytes, reads its first 58 bytes, checks the <code>__cozip__</code> header and returns <code>"none"</code>, <code>"flat"</code>, <code>"taco"</code> or <code>"unknown:&lt;n&gt;"</code> in <code>*name</code>. It does not read the index or check the hash. Release the name with <code>taco_free</code>. <code>inspect(source, "profile")</code> in the bindings calls it.</td></tr>
         <tr><td><code>taco_fetch</code><br><code>(items, count)</code></td><td>Copies each item's byte range into its file, creating parent directories. <code>items</code> may be <code>NULL</code> when <code>count</code> is 0.</td></tr>
@@ -369,13 +371,24 @@ SELECT * FROM (
         <li>Bytes are read in pieces of at most 8 MiB, grouped into Karu batches of at most 64 MiB, and appended to the files in order, so at most 64 MiB of file data is in memory at a time.</li>
         <li><code>taco.export</code> in Python copies payloads with it.</li>
       </ul>
+      <table class="spec"><thead><tr><th>Function</th><th>Behavior</th></tr></thead><tbody>
+        <tr><td><code>taco_read_bytes</code><br><code>(locations, count, &amp;out)</code></td><td>Reads each file in full and stores the results in <code>*out</code>, in input order. <code>locations</code> may be <code>NULL</code> when <code>count</code> is 0.</td></tr>
+        <tr><td><code>taco_bytes_data</code><br><code>(bytes, index)</code></td><td>The bytes of one file, or <code>NULL</code> for an index past the count.</td></tr>
+        <tr><td><code>taco_bytes_size</code><br><code>(bytes, index)</code></td><td>Its size in bytes, or 0 for an index past the count.</td></tr>
+        <tr><td><code>taco_bytes_free</code><br><code>(bytes)</code></td><td>Frees the result and every file in it.</td></tr>
+      </tbody></table>
+      <ul class="list">
+        <li>Use any path or URI accepted by <code>taco_fetch</code>, including <code>::location</code> values. A bounded <code>/vsisubfile/</code> location includes its size; other locations are sized first, in groups of eight.</li>
+        <li>Files are read in the same 8 MiB pieces and 64 MiB Karu batches as <code>taco_fetch</code>, but every file is kept in memory until <code>taco_bytes_free</code>. No progress is reported.</li>
+        <li><code>read_bytes</code> in Python, R and Julia calls it.</li>
+      </ul>
 
       <h2 class="part" id="progress">Progress</h2>
 <pre><code class="language-c">typedef void (*taco_progress_fn)(const char *phase, uint64_t done, uint64_t total, void *user);
 void taco_set_progress(taco_progress_fn callback, void *user);</code></pre>
       <ul class="list">
         <li>One callback serves the whole process. <code>NULL</code> restores the built-in bar, one line per phase on stderr, drawn only when stderr is a terminal.</li>
-        <li><code>phase</code> is <code>"downloading &lt;name&gt; metadata"</code> while <code>taco_open</code> copies metadata, a local ZIP included, and <code>"downloading &lt;n&gt; file"</code> or <code>"downloading &lt;n&gt; files"</code> in <code>taco_fetch</code>. <code>done</code> and <code>total</code> count bytes. A phase starts at <code>done</code> 0 and ends when <code>done</code> reaches <code>total</code>, which is 0 while unknown. An open served from the cache reports nothing.</li>
+        <li><code>phase</code> is <code>"downloading &lt;name&gt; metadata"</code> while <code>taco_open</code> copies metadata, a local ZIP included, and <code>"downloading &lt;n&gt; file"</code> or <code>"downloading &lt;n&gt; files"</code> in <code>taco_fetch</code>. <code>taco_read_bytes</code> reports nothing. <code>done</code> and <code>total</code> count bytes. A phase starts at <code>done</code> 0 and ends when <code>done</code> reaches <code>total</code>, which is 0 while unknown. An open served from the cache reports nothing.</li>
         <li>The callback runs on the thread doing the work while libtaco holds a lock, so calls from several threads never overlap. It must return normally and must not call <code>taco_set_progress</code>. The bindings swallow every error their bar raises; R evaluates its handler with <code>R_tryEvalSilent</code> so an R error cannot jump through libtaco.</li>
       </ul>
 
@@ -392,8 +405,8 @@ void taco_set_progress(taco_progress_fn callback, void *user);</code></pre>
       <h2 class="part" id="bindings">Bindings</h2>
       <table class="spec"><thead><tr><th>Binding</th><th>Finds the library</th><th>Version check</th><th>Calls</th></tr></thead><tbody>
         <tr><td>Python</td><td><code>TACO_LIB</code>, else <code>taco/_lib/libtaco.dylib</code>, <code>libtaco.so</code> or <code>taco.dll</code> inside the package, loaded with cffi</td><td>Raises <code>ContainerError: the TACO core at &lt;path&gt; has C API &lt;n&gt;, expected 3</code></td><td>Every function but <code>taco_version_string</code> and <code>taco_shutdown</code></td></tr>
-        <tr><td>R</td><td>Compiles its own copy of <code>core/</code> and Karu into the package, against libcurl 7.83 or newer and OpenSSL 3 found with <code>pkg-config</code>. <code>make sync-r-core</code> refreshes the copy.</td><td>Stops at load with <code>libtaco has C API &lt;n&gt;, this package needs 3</code></td><td>Opening, the getters, <code>taco_sql</code>, <code>taco_profile</code>, progress, and <code>taco_shutdown</code> when the package unloads</td></tr>
-        <tr><td>Julia</td><td><code>TACO_LIB</code>, else <code>core/build/</code> in a checkout, else the release archive named in <code>Artifacts.toml</code></td><td>Throws <code>taco: the TACO core at &lt;path&gt; has C API &lt;n&gt;, expected 3</code></td><td>Opening, the collection, levels and structure, <code>taco_sql</code>, <code>taco_profile</code>, progress</td></tr>
+        <tr><td>R</td><td>Compiles its own copy of <code>core/</code> and Karu into the package, against libcurl 7.83 or newer and OpenSSL 3 found with <code>pkg-config</code>. <code>make sync-r-core</code> refreshes the copy.</td><td>Stops at load with <code>libtaco has C API &lt;n&gt;, this package needs 3</code></td><td>Opening, the getters, <code>taco_sql</code>, <code>taco_profile</code>, <code>taco_read_bytes</code>, progress, and <code>taco_shutdown</code> when the package unloads</td></tr>
+        <tr><td>Julia</td><td><code>TACO_LIB</code>, else <code>core/build/</code> in a checkout, else the release archive named in <code>Artifacts.toml</code></td><td>Throws <code>taco: the TACO core at &lt;path&gt; has C API &lt;n&gt;, expected 3</code></td><td>Opening, the collection, levels and structure, <code>taco_sql</code>, <code>taco_profile</code>, <code>taco_read_bytes</code>, progress</td></tr>
       </tbody></table>
       <p>All three pass <code>NULL</code> as <code>cache_dir</code> and release every returned string with <code>taco_free</code>. Python declares the functions again in a cffi <code>cdef</code> in <code>python/taco/reader/native.py</code>, and Julia mirrors <code>taco_read_options</code> as a struct in <code>julia/src/reader/native.jl</code>. Only the API number checks those copies against the header, so a change to a signature or struct means raising <code>TACO_API_VERSION</code> and changing both.</p>
 
@@ -414,7 +427,7 @@ void taco_set_progress(taco_progress_fn callback, void *user);</code></pre>
         <li><a href="#open">Opening a dataset</a></li>
         <li><a href="#sql">Generating SQL</a></li>
         <li><a href="#run">Running the SQL</a></li>
-        <li><a href="#fetch">Profiles and byte copies</a></li>
+        <li><a href="#fetch">Profiles and file bytes</a></li>
         <li><a href="#progress">Progress</a></li>
         <li><a href="#threads">Threads and shutdown</a></li>
         <li><a href="#bindings">Bindings</a></li>

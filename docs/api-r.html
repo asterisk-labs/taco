@@ -71,7 +71,7 @@
 <pre><code class="language-r">install.packages("taco", repos = "https://asterisk-labs.r-universe.dev")</code></pre>
       <p>The R package compiles its bundled libtaco and Karu sources into one shared library. <code>TACO_LIB</code> is not used. Source installs need a C++23 compiler, pkg-config, libcurl 7.83+ and OpenSSL 3+. Queries use duckdb 1.5.5+ and return tibbles.</p>
       <p>WebAssembly builds omit the core; calls there stop with <code>the native TACO core is not available on WebAssembly</code>.</p>
-      <p>The package exports <a href="#open_dataset"><code>open_dataset</code></a>, <a href="#read"><code>read</code></a>, <a href="#sql"><code>sql</code></a> and <a href="#inspect"><code>inspect</code></a>. It reads all three containers; the <a href="api-python.html#writing">Python package writes</a> them. See the <a href="api.html">API overview</a> for shared concepts. This page covers R calls and behavior.</p>
+      <p>The package exports <a href="#open_dataset"><code>open_dataset</code></a>, <a href="#read"><code>read</code></a>, <a href="#sql"><code>sql</code></a>, <a href="#inspect"><code>inspect</code></a> and <a href="#read_bytes"><code>read_bytes</code></a>. It reads all three containers; the <a href="api-python.html#writing">Python package writes</a> them. See the <a href="api.html">API overview</a> for shared concepts. This page covers R calls and behavior.</p>
 
       <h2 class="part" id="reading">Reading</h2>
 
@@ -260,17 +260,15 @@ dim(dem)
 range(dem)</code></pre>
 <pre class="output"><code>[1] 352 352   1
 [1] 4220 5872</code></pre>
-      <p>Any client that reads a byte range gets the file's bytes, here the curl package:</p>
-<pre><code class="language-r">location &lt;- row[["dem.rumi::location"]]
-m &lt;- regmatches(location, regexec("^/vsisubfile/([0-9]+)_([0-9]+),/vsicurl/(.+)$", location))[[1]]
-offset &lt;- as.numeric(m[2])
-size &lt;- as.numeric(m[3])
-handle &lt;- curl::new_handle(range = sprintf("%.0f-%.0f", offset, offset + size - 1))
-bytes &lt;- curl::curl_fetch_memory(m[4], handle = handle)$content
+      <h3 id="read_bytes">read_bytes</h3>
+<pre><code class="sig language-r">read_bytes(location)</code></pre>
+      <p>Returns the whole file as raw bytes, without GDAL. <code>location</code> accepts a character vector of <code>::location</code> values, local paths or URLs. One location returns a raw vector; any other length returns a list in input order. Karu groups the requests into bounded batches. A leading <code>~</code> is expanded.</p>
+<pre><code class="language-r">bytes &lt;- read_bytes(row[["dem.rumi::location"]])
 length(bytes)
 rawToChar(bytes[1:4])</code></pre>
 <pre class="output"><code>[1] 42283
 [1] "RUMI"</code></pre>
+      <p>A location that cannot be resolved or read raises an error with the core's message.</p>
 
       <h2 class="part" id="errors">Errors</h2>
       <p>R checks and core failures raise <code>simpleError</code>, usually with a <code>taco:</code> message. DuckDB query failures raise <code>rlang_error</code> with the DuckDB error type in the message. Catch either with <code>tryCatch(..., error = function(e) ...)</code> and read <code>conditionMessage(e)</code>. See <a href="api.html#errors">Errors</a> for causes.</p>

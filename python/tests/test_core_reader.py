@@ -203,6 +203,47 @@ def read_location(location: str) -> bytes:
         return stream.read(int(match[2]))
 
 
+def file_locations(table: pa.Table) -> list[str]:
+    """Every location in a wide table, sequence entries included."""
+    out: list[str] = []
+    for name in table.column_names:
+        if name.endswith("::location"):
+            for value in table.column(name).to_pylist():
+                out.extend(value if isinstance(value, list) else [value])
+    return out
+
+
+@pytest.mark.parametrize("source", ["nested.zip", "nested", "variable.zip", "catalog/.tacocat"])
+def test_read_bytes_reads_every_location(data: Path, source: str) -> None:
+    locations = file_locations(taco.read(data / source))
+    expected = [read_location(location) for location in locations]
+    assert taco.read_bytes(locations) == expected
+    assert taco.read_bytes(tuple(locations[:2])) == expected[:2]
+    assert taco.read_bytes(locations[0]) == expected[0]
+
+
+def test_read_bytes_takes_paths_and_reports_bad_locations(
+    data: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    payload_file = tmp_path / "payload.bin"
+    payload_file.write_bytes(b"payload")
+    assert taco.read_bytes(payload_file) == b"payload"
+    empty_file = tmp_path / "empty.bin"
+    empty_file.touch()
+    assert taco.read_bytes([empty_file, payload_file, empty_file]) == [b"", b"payload", b""]
+    monkeypatch.setenv("HOME", str(tmp_path))
+    assert taco.read_bytes("~/payload.bin") == b"payload"
+    assert taco.read_bytes([]) == []
+
+    archive = str((data / "single.zip").resolve())
+    with pytest.raises(ContainerError, match="could not resolve"):
+        taco.read_bytes(f"/vsisubfile/x_4,{archive}")
+    with pytest.raises(ContainerError, match="could not read"):
+        taco.read_bytes(f"/vsisubfile/{(data / 'single.zip').stat().st_size}_4,{archive}")
+    with pytest.raises(ContainerError, match="could not"):
+        taco.read_bytes([str(payload_file), str(tmp_path / "missing.bin")])
+
+
 def test_wide_rows_have_a_location_per_leaf(data: Path) -> None:
     table = taco.read(data / "nested.zip")
     assert table.num_rows == 3
@@ -661,6 +702,20 @@ def ranged_origin(root: Path) -> Iterator[tuple[str, list[tuple[str, str]]]]:
 
 def size_probes(requests: list[tuple[str, str]], path: str) -> int:
     return sum(1 for seen, kind in requests if seen == path and kind in ("HEAD", "bytes=0-0"))
+
+
+def test_read_bytes_over_http(data: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TACO_CACHE_DIR", str(tmp_path / "cache"))
+    local = file_locations(taco.read(data / "nested.zip")) + file_locations(taco.read(data / "nested"))
+    with ranged_origin(data) as (base, requests):
+        archive = file_locations(taco.read(f"{base}/nested.zip"))
+        folder = file_locations(taco.read(f"{base}/nested/"))
+        assert all(location.startswith("/vsisubfile/") for location in archive)
+        assert all(location.startswith(f"/vsicurl/{base}/nested/DATA/") for location in folder)
+        requests.clear()
+        assert taco.read_bytes(archive + folder) == [read_location(location) for location in local]
+        # A /vsisubfile/ location carries its size, so only FOLDER files are probed.
+        assert size_probes(requests, "/nested.zip") == 0
 
 
 def test_remote_open_sizes_each_object_once(data: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -39,7 +39,7 @@ libcurl 7.83+ and OpenSSL 3+. Refresh the vendored copy with `make sync-r-core` 
 touching `core/`; `tools/sync_r_core.py` does the copying. `make r` runs roxygen and
 testthat.
 
-Exports: `open_dataset`, `read`, `sql`, `inspect`, a `print` method for
+Exports: `open_dataset`, `read`, `sql`, `inspect`, `read_bytes`, a `print` method for
 `taco_dataset`, and progress through `cli`. `read` is generic over a character source
 and a `taco_dataset`, and returns a tibble.
 
@@ -65,6 +65,7 @@ build instead; `make julia` does exactly that after `make core`.
 using Taco
 dataset = Taco.open_dataset("dataset.zip")
 samples = Taco.read(dataset)
+first   = Taco.read_bytes(samples[1, "target.tif::location"])
 ```
 
 The Julia reader disables DuckDB extension installation and uses UTC for

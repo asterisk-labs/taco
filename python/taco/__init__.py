@@ -10,7 +10,7 @@ from .contract import Asset, Collection, Contract, Folder, Sample
 from .contract.extension import ExtensionContext
 from .contract.schema import Extension, Level, Metadata
 from .errors import TacoError
-from .reader import Dataset, open_dataset, read
+from .reader import Dataset, open_dataset, read, read_bytes
 from .reader.inspect import inspect
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -73,6 +73,7 @@ __all__ = [
     "inspect",
     "open_dataset",
     "read",
+    "read_bytes",
 ]
 
 _WRITER_PUBLIC = ["consolidate", "export", "extensions", "open_writer", "validate"]

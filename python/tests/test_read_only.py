@@ -40,6 +40,8 @@ SCRIPT = textwrap.dedent(
     assert dataset.read().num_rows == 4
     assert dataset.sql("SELECT count(*) AS n FROM children").column("n").to_pylist()[0] > 0
     assert dataset.contract.levels == ("sample", "children")
+    location = next(value for name, value in dataset.read().to_pylist()[0].items() if name.endswith("::location"))
+    assert taco.read_bytes([location]) == [taco.read_bytes(location)]
     assert dataset._repr_html_()
     namespace = {}
     exec("from taco import *", namespace)

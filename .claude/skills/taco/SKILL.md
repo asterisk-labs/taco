@@ -45,9 +45,10 @@ Trust the source and `docs/spec/SPEC.md` for current behavior.
   `[writer]` extra (cozip, jsonschema, NumPy, Pydantic, pyproj, Shapely); without
   it they raise an `ImportError` naming the extra. Keep reader modules free of
   those imports: `tests/test_read_only.py` blocks them and reads a dataset.
-- **Reading returns locations, not bytes.** A wide read carries one
+- **Reading gives file locations.** A wide read carries one
   `{file}::location` column per structure leaf. A compatible payload reader then opens
-  that path when the bytes are actually needed.
+  that path when the bytes are needed. Python, R and Julia also provide
+  `read_bytes(location)` to return the raw bytes directly.
 
 ## Canonical workflow
 

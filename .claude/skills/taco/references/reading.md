@@ -211,8 +211,10 @@ process exits. Cache refreshes and evictions do not affect that snapshot. If the
 remote check fails, opening fails. A local ZIP uses a process-owned temporary
 directory; local FOLDER and TACOCAT containers are read in place.
 
-Payload bytes are never cached. A `::location` path is fetched by whatever reads it,
-and `taco.export` downloads payloads through `taco_fetch` in bounded batches.
+Payload bytes are not cached. A `::location` path is fetched when a reader opens
+it. Python, R and Julia `read_bytes` return raw bytes from one location or a sequence;
+Karu groups the requests into bounded batches. `taco.export` downloads payloads
+through `taco_fetch` in bounded batches.
 
 Downloads report progress through the core callback, which the Python binding renders
 with tqdm in interactive terminals and suppresses otherwise.

@@ -71,7 +71,7 @@
 <pre><code class="language-sh">pip install taco-eo              # read
 pip install "taco-eo[writer]"    # read and write</code></pre>
       <p>Python calls libtaco through cffi, runs queries in DuckDB and returns <code>pyarrow.Table</code> objects. Its writer checks metadata with Pydantic, writes Parquet with pyarrow and packs archives with CoZIP. See the <a href="api.html">API overview</a> for the common data model; this page covers Python calls and behavior.</p>
-      <p>The public names are <a href="#open_dataset"><code>open_dataset</code></a>, <a href="#read"><code>read</code></a>, <a href="#dataset"><code>Dataset</code></a>, <a href="#inspect"><code>inspect</code></a>, <a href="#contract"><code>Contract</code></a>, <a href="#level"><code>Level</code></a>, <a href="#collection"><code>Collection</code></a>, <a href="#sample"><code>Sample</code>, <code>Asset</code>, <code>Folder</code>, <code>Metadata</code></a>, <a href="#encoding"><code>Encoding</code></a>, <a href="#open_writer"><code>open_writer</code></a>, <a href="#custom"><code>Extension</code>, <code>ExtensionContext</code></a>, <a href="#builtins"><code>extensions</code></a>, <a href="#validate"><code>validate</code></a>, <a href="#export"><code>export</code></a>, <a href="#consolidate"><code>consolidate</code></a>, <a href="#errors"><code>TacoError</code></a> and <code>__version__</code>.</p>
+      <p>The public names are <a href="#open_dataset"><code>open_dataset</code></a>, <a href="#read"><code>read</code></a>, <a href="#read_bytes"><code>read_bytes</code></a>, <a href="#dataset"><code>Dataset</code></a>, <a href="#inspect"><code>inspect</code></a>, <a href="#contract"><code>Contract</code></a>, <a href="#level"><code>Level</code></a>, <a href="#collection"><code>Collection</code></a>, <a href="#sample"><code>Sample</code>, <code>Asset</code>, <code>Folder</code>, <code>Metadata</code></a>, <a href="#encoding"><code>Encoding</code></a>, <a href="#open_writer"><code>open_writer</code></a>, <a href="#custom"><code>Extension</code>, <code>ExtensionContext</code></a>, <a href="#builtins"><code>extensions</code></a>, <a href="#validate"><code>validate</code></a>, <a href="#export"><code>export</code></a>, <a href="#consolidate"><code>consolidate</code></a>, <a href="#errors"><code>TacoError</code></a> and <code>__version__</code>.</p>
 
       <h2 class="part" id="install">Install</h2>
       <p>The base package reads every container. The extras add the writer and the runtimes of two extensions.</p>
@@ -165,6 +165,17 @@ peaks.slice(0, 1).to_pylist()</code></pre>
  'rumi:p2', 'rumi:p98']</code></pre>
       <p>Queries run as <code>SELECT * FROM (query)</code> under a <code>WITH</code> defining the relations, so each query must be one statement. DuckDB error line numbers include that wrapper; query failures raise DuckDB exceptions, not <code>TacoError</code> (<a href="#errors">Errors</a>).</p>
       <p>Each thread keeps a DuckDB connection with <code>TimeZone=UTC</code>; <code>read</code> shares it. A forked process, such as a Linux PyTorch <code>DataLoader</code> worker, opens its own connection.</p>
+
+      <h3 id="read_bytes">read_bytes</h3>
+<pre><code class="sig language-python">taco.read_bytes(location) -&gt; bytes
+taco.read_bytes(locations) -&gt; list[bytes]</code></pre>
+      <p>Reads a <code>::location</code> value, local path or URI into memory without GDAL (<a href="api.html#files">Open a file</a>). Pass a <code>str</code>, <code>os.PathLike</code> or sequence of either. A sequence returns a list in input order; an empty one returns <code>[]</code>. A leading <code>~</code> is expanded. Unreadable locations raise <code>ContainerError</code>.</p>
+<pre><code class="language-python">locations = peaks.column("dem.rumi::location").to_pylist()
+dem = taco.read_bytes(locations[0])
+dems = taco.read_bytes(locations[:100])
+len(dem), dem[:4], sum(map(len, dems))</code></pre>
+<pre class="output"><code>(42283, b'RUMI', 3504067)</code></pre>
+      <p>Karu reads multiple locations in bounded batches. Remote FOLDER files need a size request; bounded <code>/vsisubfile/</code> locations include their size. The results stay in memory, and no progress bar is shown.</p>
 
       <h3 id="inspect">inspect</h3>
 <pre><code class="sig language-python">taco.inspect(source, query) -&gt; object</code></pre>
@@ -757,7 +768,7 @@ ConsolidationError: partitions live in different directories; pass output= expli
         <tr><th>SampleError</th><td><code>ValueError</code>. Raised by <code>Sample</code>, <code>Asset</code>, <code>Folder</code> and <code>Metadata</code>, by <code>add</code>, and by <code>run</code> when an extension output does not fit.</td></tr>
         <tr><th>CollectionError</th><td><code>ValueError</code>. Raised by <code>Collection</code>, <code>replace</code>, <code>from_dict</code> and <code>from_json</code>.</td></tr>
         <tr><th>WriterError</th><td><code>RuntimeError</code>. Raised by the writer methods, as <a href="#lifecycle">Writer lifecycle</a> describes.</td></tr>
-        <tr><th>ContainerError</th><td><code>RuntimeError</code>. Raised by <code>open_dataset</code>, <code>read</code>, <code>inspect</code> and <code>export</code>, and by the first open when the core cannot be loaded.</td></tr>
+        <tr><th>ContainerError</th><td><code>RuntimeError</code>. Raised by <code>open_dataset</code>, <code>read</code>, <code>read_bytes</code>, <code>inspect</code> and <code>export</code>, and by the first open when the core cannot be loaded.</td></tr>
         <tr><th>ConsolidationError</th><td><code>RuntimeError</code>. Raised by <a href="#consolidate"><code>consolidate</code></a>.</td></tr>
         <tr><th>ValidationFailed</th><td><code>RuntimeError</code>. Raised by <code>ValidationReport.raise_for_errors()</code>.</td></tr>
       </table>

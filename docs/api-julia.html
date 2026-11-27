@@ -69,8 +69,10 @@
         <li>Reader only</li>
       </ul>
 <pre><code class="language-julia">using Pkg
+Pkg.Registry.add("General")
 Pkg.Registry.add(Pkg.RegistrySpec(url = "https://github.com/asterisk-labs/AsteriskRegistry"))
 Pkg.add("Taco")</code></pre>
+      <p>The dependencies, such as DuckDB.jl and DataFrames.jl, come from the General registry. A new Julia installs General on its first <code>Pkg.add</code>, but not once another registry has been added, so add it first.</p>
       <p>Taco.jl calls libtaco through <code>ccall</code>, runs queries with DuckDB.jl and returns <code>DataFrame</code>s. It reads all three containers; the <a href="api-python.html#writing">Python package writes</a> them. See the <a href="api.html">API overview</a> for the shared data model. This page covers Julia calls and behavior.</p>
       <p>Nothing is exported. Call <a href="#open_dataset"><code>Taco.open_dataset</code></a>, <a href="#read"><code>Taco.read</code></a>, <a href="#sql"><code>Taco.sql</code></a>, <a href="#inspect"><code>Taco.inspect</code></a> and <a href="#read_bytes"><code>Taco.read_bytes</code></a> with the module name. <code>using Taco</code> brings only <code>Taco</code> into scope, so a bare <code>read</code> is still <code>Base.read</code>.</p>
 

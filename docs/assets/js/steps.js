@@ -1,14 +1,10 @@
-// Step figures drawn inline, as on the landing page: the sentence of the step
-// on top, the drawing, then the step names. The reader picks a step with its
-// name, the arrows, a click on the drawing or the arrow keys; nothing moves on
-// its own.
+// Inline figures advance by step name, arrows, drawing click, or arrow keys.
+// They do not advance automatically.
 //   <figure class="steps" data-step="1">
 //     <div class="steps-say"><p data-k="1" data-name="index">...</p>...</div>
 //     <div class="steps-view"><svg>...</svg></div>
 //   </figure>
-// The figure's data-step selects what shows: data-k lists the steps an element
-// appears in, data-dim the steps it fades in, data-on the steps it is lit in.
-// The rules are in docs.css.
+// data-k controls visibility, data-dim fading, and data-on emphasis.
 
 (function () {
   'use strict';

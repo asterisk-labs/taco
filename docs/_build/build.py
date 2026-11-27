@@ -68,7 +68,7 @@ PAGE = """<!DOCTYPE html>
 <meta name="theme-color" content="#ffffff">
 <meta name="description" content="{description}">
 <title>{title}</title>
-<link rel="icon" href="{root}assets/svg/taco-mark-static.svg?v=2" type="image/svg+xml">
+<link rel="icon" href="{root}assets/svg/taco-mark-static.svg?v=3" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=League+Spartan:wght@300;400;500;600&display=swap" rel="stylesheet">
@@ -80,7 +80,7 @@ PAGE = """<!DOCTYPE html>
 <div class="page">
   <header class="masthead">
     <a class="lockup" href="{root}index.html" aria-label="TACO home">
-      <img class="marksvg" src="{root}assets/svg/taco-mark.svg?v=2" alt="">
+      <img class="marksvg" src="{root}assets/svg/taco-mark.svg?v=3" alt="">
       <span class="wm-sm">TACO</span>
     </a>
 

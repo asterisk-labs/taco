@@ -1,6 +1,4 @@
-// Lights runs of cells in the grid that .ambient already draws, as ranges of
-// bytes arriving: each run starts somewhere on a row and fills left to right,
-// in the four colours of the TACO palette. Same 64px pitch as the CSS background.
+// Paint byte-range arrivals over the 64px ambient grid in TACO palette colors.
 
 (function (taco) {
   'use strict';
@@ -38,7 +36,7 @@
     }
 
     function paint(now) {
-      // a backgrounded tab hands back a huge delta, so cap it
+      // Cap the elapsed time after a tab returns from the background.
       var dt = Math.min(now - last, 100);
       last = now;
 

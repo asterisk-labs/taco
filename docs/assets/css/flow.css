@@ -18,7 +18,7 @@
 }
 
 @media (min-width: 861px) {
-  .flow > svg { max-height: calc(100svh - 330px); }
+  .flow > svg { max-height: calc(100svh - 380px); }
 }
 
 /* the tiles: each its own tint and glyph, a little out of line */
@@ -63,6 +63,29 @@
 .flow[data-active] .fl-hub-ring { stroke-width: 2.6; stroke-dasharray: none; }
 .fl-hub-disc { fill: #fff; stroke: var(--ink); stroke-width: 1.6; }
 .fl-hub-name { fill: var(--ink); font: 600 20px var(--sans); }
+.fl-emoji {
+  font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+  font-size: 40px;
+  dominant-baseline: central;
+  pointer-events: none;
+}
+.fl-sat { font-size: 15px; }
+.fl-morph { transform-box: fill-box; transform-origin: center; }
+.fl-morph.is-taco { animation: fl-taco 8s infinite; }
+.fl-morph.is-earth { animation: fl-earth 8s infinite; }
+.fl-orbit { transform-origin: 330px 262px; animation: fl-spin 12s linear infinite; }
+.fl-sat { transform-box: fill-box; transform-origin: center; animation: fl-spin 12s linear infinite reverse; }
+@keyframes fl-taco {
+  0%, 36% { opacity: 1; transform: scale(1); }
+  40%, 90% { opacity: 0; transform: scale(0.4) rotate(-15deg); }
+  95%, 100% { opacity: 1; transform: scale(1); }
+}
+@keyframes fl-earth {
+  0%, 36% { opacity: 0; transform: scale(0.4) rotate(15deg); }
+  40%, 90% { opacity: 1; transform: scale(1); }
+  95%, 100% { opacity: 0; transform: scale(0.4) rotate(15deg); }
+}
+@keyframes fl-spin { to { transform: rotate(360deg); } }
 
 /* what comes out */
 .fl-port { transition: opacity 200ms ease; }
@@ -92,6 +115,16 @@
 }
 
 .flow-info:empty { border-top-color: transparent; }
+
+/* On a wide screen the panel hangs under the drawing without taking room, so
+   the drawing itself is centered on the copy. While it shows, the footer
+   steps aside. */
+@media (min-width: 861px) {
+  .flow { position: relative; }
+  .flow-info { position: absolute; top: 100%; left: 0; right: 0; min-height: 0 !important; }
+  .colophon { transition: opacity 160ms ease; }
+  .page:has(.flow[data-active]) .colophon { opacity: 0; pointer-events: none; }
+}
 .flow-info p { margin: 0; }
 
 .flow-title { margin-bottom: 8px !important; font-size: 15px; }
@@ -131,6 +164,8 @@
 
 @media (prefers-reduced-motion: reduce) {
   .fl-tile, .fl-tile-box, .fl-way, .fl-way-dot, .fl-hub-ring, .fl-port, .fl-port-line, .fl-table-box { transition: none; }
+  .fl-morph, .fl-orbit, .fl-sat { animation: none; }
+  .fl-morph.is-earth { opacity: 0; }
 }
 
 @media (max-width: 560px) {

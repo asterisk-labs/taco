@@ -13,7 +13,7 @@
     }
   </script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@6.9.0/dist/maplibre-gl.css">
-  <link rel="icon" href="../assets/svg/taco-mark-static.svg?v=2" type="image/svg+xml">
+  <link rel="icon" href="../assets/svg/taco-mark-static.svg?v=3" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=League+Spartan:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -32,7 +32,7 @@
 <body>
   <header class="masthead">
     <a class="lockup" href="../index.html" aria-label="TACO home">
-      <img class="marksvg" src="../assets/svg/taco-mark.svg?v=2" alt="">
+      <img class="marksvg" src="../assets/svg/taco-mark.svg?v=3" alt="">
       <span class="wm-sm">TACO</span>
     </a>
 
@@ -65,8 +65,8 @@
     <aside id="sampleDisplay" class="sample-display" aria-live="polite" hidden>
       <div class="sample-display-heading">
         <div>
-          <strong id="sampleDisplayPercent">—</strong>
-          <span id="sampleDisplayCount">—</span>
+          <strong id="sampleDisplayPercent"></strong>
+          <span id="sampleDisplayCount"></span>
         </div>
         <div class="sample-display-actions">
           <button id="decreasePoints" type="button" aria-label="Show fewer points">←</button>
@@ -114,14 +114,14 @@ WHERE "geoenrich:admin_countries" = 'Peru'</textarea>
 
     <aside id="metadataPanel" class="metadata-panel" aria-labelledby="pointTitle" aria-hidden="true">
       <header>
-        <div><p id="pointPosition">Point —</p><h2 id="pointTitle">Sample metadata</h2></div>
+        <div><p id="pointPosition">Point</p><h2 id="pointTitle">Sample metadata</h2></div>
         <button id="closeMetadata" class="icon-button" type="button" aria-label="Close metadata">×</button>
       </header>
-      <div class="coordinates"><span>Centroid</span><strong id="pointCoordinates">—</strong></div>
+      <div class="coordinates"><span>Centroid</span><strong id="pointCoordinates"></strong></div>
       <nav id="metadataPath" class="metadata-path" aria-label="Metadata hierarchy"></nav>
       <div class="metadata-context">
-        <strong id="metadataSource">—</strong>
-        <span id="metadataCount">—</span>
+        <strong id="metadataSource"></strong>
+        <span id="metadataCount"></span>
       </div>
       <div id="metadataBody" class="metadata-body"></div>
     </aside>

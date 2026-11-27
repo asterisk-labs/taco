@@ -15,9 +15,8 @@ the specification and checks every local link and anchor. `_site/` is ignored by
 
 ## Layout
 
-Each fact lives on one page. How TACO works and what every binding shares is on
-`api.html`; a language page has only what differs in that language; the format is in
-the specification. Link to a section instead of repeating it.
+`api.html` explains how TACO works across languages. Each language page covers its
+own API; the specification defines the format. Link to those pages for shared rules.
 
 ```
 index.html            landing page and its interactive figure
@@ -39,19 +38,19 @@ identifiers: never move them.
 
 ## Logo
 
-The TACO mark, `assets/svg/taco-mark.svg` and `taco-mark-static.svg`, is the taco from
-[Twemoji](https://github.com/jdecked/twemoji) 16.0.1, copyright Twitter, Inc and other
-contributors, licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
-Keep the credit in both files and in the landing page footer.
+The TACO mark, `assets/svg/taco-mark.svg`, is the mark of the first TACO site: the
+taco emoji turns into the Earth and back while a satellite orbits it.
+`taco-mark-static.svg` is the taco alone, for the favicon. Both draw the emoji with
+the system font, so they look like the reader's own emoji.
 
 ## Numbers
 
-The API pages measure
-[Major TOM Core-DEM](https://source.coop/major-tom/core-dem), a public TACOCAT of
-1,735,044 samples on Source Cooperative, with the Python reader on a laptop. The
-landing figure draws 40 datasets as tiles, in a new order on each load. Their facts come from the
-[TorchGeo dataset docs](https://docs.torchgeo.org/en/stable/api/datasets.html), and
-CloudSEN12's from its Hugging Face card. Only datasets with a license are listed. Its TACO side, rasters as Rumi, tables
-as Parquet and JSON as JSON, is an example, not a published dataset. The small examples write their
-own dataset, so they run anywhere. Keep every number on
-the site measured; when the reader changes, measure again.
+The API pages use measurements from
+[Major TOM Core-DEM](https://source.coop/major-tom/core-dem), a public TACOCAT with
+1,735,044 samples, read on a laptop with Python. The landing figure draws 40 licensed
+datasets in a new order on each load. Dataset facts come from the
+[TorchGeo docs](https://docs.torchgeo.org/en/stable/api/datasets.html) and, for
+CloudSEN12, its Hugging Face card. The figure's TACO side (Rumi rasters,
+Parquet tables and JSON documents) is illustrative and has not been published.
+The smaller examples create their own datasets and run locally. Remeasure site
+figures when the reader changes.

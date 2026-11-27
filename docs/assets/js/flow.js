@@ -1,17 +1,9 @@
-// The landing figure: forty public datasets, each stored its own way, pour
-// through TACO and come out in one shape. Rasters become Rumi files, which
-// decode on a CPU or a GPU; tables become Parquet and JSON stays JSON. Every
-// dataset is a tile; pointing at one or focusing it lights it,
-// draws its way through TACO and fills the table and the panel below.
-// Nothing moves on its own.
+// Landing figure: 40 datasets flow into a common sample layout. Hover or focus
+// selects a tile and updates its path, sample files, and details. No autoplay.
 //
-// The facts come from the TorchGeo dataset documentation, docs.torchgeo.org,
-// version 0.10.1: the row of each dataset in its summary tables, and the file
-// formats its own page states. CloudSEN12 is not in TorchGeo: its facts come
-// from the tacofoundation/cloudsen12 card on Hugging Face, and its sample
-// count from the CloudSEN12Plus viewer there. Only datasets with a license
-// are listed; NA marks another cell the docs leave empty. The TACO side is one
-// way to package each dataset, an example and not a published one.
+// Facts: TorchGeo dataset docs v0.10.1; CloudSEN12's Hugging Face card and
+// CloudSEN12Plus viewer. Only licensed datasets appear. NA means the source
+// leaves a value unspecified. TACO layouts shown here are illustrative.
 
 (function (taco) {
   'use strict';
@@ -25,16 +17,14 @@
     I: 'instance segmentation', R: 'regression', T: 'time series'
   };
   var TYPES = { rumi: '#492ae8', table: '#f7cc09', json: '#c4ffc2' };
-  // each tile takes the tint of its first format, so the mosaic shows how
-  // mixed the formats are
+  // Tint each tile by its first source format.
   var TINTS = {
     tif: '#d8efd6', bands: '#d8efd6', png: '#f2d4dc', jpg: '#d3e5f3', jp2: '#d3e5f3',
     h5: '#f3dccd', npy: '#e4e2f3', npz: '#e4e2f3', nc: '#e2eed8', tar: '#dbe6f3',
     json: '#f3e6b3', geojson: '#f3e6b3', csv: '#f3e6b3', xml: '#f3e6b3', shp: '#e7f0dc'
   };
-  // name, task codes, source, samples, classes, size in px, resolution in m,
-  // bands, license, the formats today, the glyphs that draw them, and the files
-  // of one sample in TACO
+  // Name, task, source, sample count, classes, pixel size, resolution, bands,
+  // license, source formats, glyphs, and example TACO files.
   var POOL = [
     ['CloudSEN12', 'S', 'Sentinel-2 L1C and L2A', '50.2K', '4', '509x509, 2,000x2,000', '10-60', 'MSI', 'CC0-1.0', 'GeoTIFF copies on ScienceDataBank', ['tif'], ['l1c.rumi', 'l2a.rumi', 'label.rumi']],
     ['EuroSAT', 'C', 'Sentinel-2', '27,000', '10', '64x64', '10', 'MSI', 'MIT', '13-channel GeoTIFF', ['tif'], ['image.rumi']],
@@ -110,7 +100,6 @@
     return 'json';
   }
 
-  // the forty tiles in a new order on every load
   function shuffled() {
     var pool = POOL.slice();
     for (var i = pool.length - 1; i > 0; i--) {
@@ -176,7 +165,6 @@
   function build(svg, sets) {
     var v = { tiles: [] };
 
-    // the funnel the tiles pour into
     var top = TILE.y + 4 * TILE.row + 2;
     el('path', {
       'class': 'fl-funnel',
@@ -184,11 +172,9 @@
         ' L' + (HUB.x + 26) + ' ' + (HUB.y - HUB.r + 6) + ' C364 ' + (top + 10) + ' 460 ' + top + ' 660 ' + top + ' Z'
     }, svg);
 
-    // the way of the dataset that is shown, through TACO
     v.way = el('path', { 'class': 'fl-way' }, svg);
     v.wayDot = el('circle', { 'class': 'fl-way-dot', r: 3.5 }, svg);
 
-    // the tiles, a little out of line, as they come
     sets.forEach(function (set, i) {
       var col = i % TILE.cols;
       var row = Math.floor(i / TILE.cols);
@@ -209,14 +195,17 @@
       v.tiles.push({ g: g, x: x + TILE.w / 2, y: y + TILE.h });
     });
 
-    // TACO, where every dataset goes in
     var hub = el('g', { 'class': 'fl-hub' }, svg);
     el('circle', { 'class': 'fl-hub-ring', cx: HUB.x, cy: HUB.y, r: HUB.r + 7 }, hub);
     el('circle', { 'class': 'fl-hub-disc', cx: HUB.x, cy: HUB.y, r: HUB.r }, hub);
-    el('image', { href: 'assets/svg/taco-mark-static.svg?v=2', x: HUB.x - 25, y: HUB.y - 27, width: 50, height: 50 }, hub);
+    // Animate the taco/Earth mark and its orbiting satellite.
+    [['fl-morph is-taco', '\uD83C\uDF2E'], ['fl-morph is-earth', '\uD83C\uDF0D']].forEach(function (m) {
+      text(el('g', { 'class': m[0] }, hub), HUB.x, HUB.y + 2, m[1], 'fl-emoji', 'middle');
+    });
+    var orbit = el('g', { 'class': 'fl-orbit' }, hub);
+    text(orbit, HUB.x, HUB.y - HUB.r - 7, '\uD83D\uDEF0\uFE0F', 'fl-emoji fl-sat', 'middle');
     text(hub, HUB.x + HUB.r + 18, HUB.y + 7, 'TACO', 'fl-hub-name');
 
-    // what comes out: rasters as Rumi, tables as Parquet, JSON as JSON
     v.ports = PORTS.map(function (p) {
       var g = el('g', { 'class': 'fl-port', 'data-type': p[0] }, svg);
       el('path', { 'class': 'fl-port-line', d: 'M' + HUB.x + ' ' + (HUB.y + HUB.r + 7) + ' C' + HUB.x + ' ' + (HUB.y + HUB.r + 26) + ' ' + p[2] + ' ' + (HUB.y + HUB.r + 12) + ' ' + p[2] + ' ' + (TABLE.y - 22) }, g);
@@ -225,7 +214,6 @@
       return g;
     });
 
-    // one row per sample, the same for every dataset
     var table = el('g', { 'class': 'fl-table' }, svg);
     el('rect', { 'class': 'fl-table-box', x: TABLE.x, y: TABLE.y, width: TABLE.w, height: TABLE.h }, table);
     v.name = text(table, TABLE.x + 12, TABLE.y + 21, '', 'fl-table-name');
@@ -273,7 +261,6 @@
     var view = build(svg, sets);
 
     function fill(set) {
-      // the table shows the files of one sample of the dataset, in every row
       view.name.textContent = set ? set.short : 'one row per sample';
       view.count.textContent = set ? set.samples + ' rows' : '';
       view.rows.forEach(function (files) {
@@ -310,8 +297,7 @@
       t.g.addEventListener('focus', function () { show(key); });
       t.g.addEventListener('blur', function () { show(null); });
     });
-    // The panel keeps the height of the tallest description, measured at the
-    // current width, so pointing at a dataset never moves the page.
+    // Reserve panel height so hover does not shift the page.
     function reserve() {
       var shown = info.innerHTML;
       var tallest = 0;

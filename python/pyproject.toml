@@ -60,9 +60,9 @@ writer = [
 ]
 test = ["taco-eo[writer]", "pytest>=8", "pytest-cov>=5"]
 dev = ["taco-eo[writer]", "pytest>=8", "pytest-cov>=5", "ruff>=0.5", "mypy>=1.8"]
-test-eo = ["taco-eo[writer]", "rumi-eo[write]>=0.19"]
+test-eo = ["taco-eo[writer]", "rumi-eo>=0.19", "geozl>=0.34"]
 geoenrich = ["taco-eo[writer]", "earthengine-api>=1"]
-rumi = ["taco-eo[writer]", "rumi-eo[write]>=0.19"]
+rumi = ["taco-eo[writer]", "rumi-eo>=0.19", "geozl>=0.34"]
 
 [project.urls]
 Homepage = "https://asterisk.coop/taco"

@@ -78,7 +78,7 @@ pip install "taco-eo[writer]"    # read and write</code></pre>
       <table class="spec">
         <tr><th>taco-eo</th><td>cffi, DuckDB 1.5.5 or newer, pyarrow 14 or newer and tqdm. Enough for every reading call on this page, and for <code>Contract</code> and <code>Collection</code> declared from mappings.</td></tr>
         <tr><th>taco-eo[writer]</th><td>Adds cozip, jsonschema, NumPy, Pydantic 2.8 or newer, pyproj and Shapely 2. Needed by <code>open_writer</code>, <code>validate</code>, <code>export</code>, <code>consolidate</code>, <code>taco.extensions</code> and any <code>Level</code> that binds a Pydantic model.</td></tr>
-        <tr><th>taco-eo[rumi]</th><td>The writer and <code>rumi-eo[write]</code> 0.19 or newer, for the <a href="#builtins">Rumi extension</a>.</td></tr>
+        <tr><th>taco-eo[rumi]</th><td>The writer, <code>rumi-eo</code> 0.19 or newer and <code>geozl</code> 0.34 or newer, for the <a href="#builtins">Rumi extension</a>.</td></tr>
         <tr><th>taco-eo[geoenrich]</th><td>The writer and <code>earthengine-api</code>, for GeoEnrich with <code>backend="earthengine"</code>.</td></tr>
       </table>
       <p>A wheel is tagged <code>py3-none-&lt;platform&gt;</code>: cffi loads the core at run time, so one wheel per platform serves every supported Python version. A source install compiles libtaco and needs a C++23 compiler, CMake, Ninja, pkg-config, libcurl 7.83 or newer and OpenSSL 3 or newer.</p>

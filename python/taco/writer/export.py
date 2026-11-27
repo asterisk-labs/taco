@@ -148,6 +148,8 @@ class _Source:
         table = connection.execute(
             f"SELECT DISTINCT {_sql_identifier(SAMPLE_INDEX)} FROM ({selection}) AS taco_selected"
         ).to_arrow_table()
+        if table is None:
+            raise ContainerError("SQL selection returned no table")
         selected: set[int] = set()
         for sample in table.column(SAMPLE_INDEX).to_pylist():
             if isinstance(sample, Decimal) and sample == sample.to_integral_value():

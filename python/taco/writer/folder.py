@@ -6,10 +6,10 @@ import os
 import shutil
 import sys
 import tempfile
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from os import PathLike
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -67,7 +67,8 @@ def _sync(path: Path) -> None:
 
 
 def _parquet_rows(path: Path) -> int:
-    return int(pq.read_metadata(path).num_rows)  # type: ignore[no-untyped-call]
+    read_metadata = cast(Callable[[Path], Any], pq.read_metadata)
+    return int(read_metadata(path).num_rows)
 
 
 def _try_lock(descriptor: int) -> bool:

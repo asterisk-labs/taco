@@ -386,7 +386,7 @@ def test_an_open_remote_dataset_is_a_snapshot(tmp_path: Path, cache_dir: Path, m
     sql = native.sql(opened._opened, idx=None, level="sample", pivoted=True, files=None, location=False)
     del opened
     gc.collect()
-    assert engine.open_reader().execute(sql).to_arrow_table().num_rows == 2
+    assert engine.open_reader().sql(sql).to_arrow_table().num_rows == 2
     count = len(snapshots(cache_dir))
     for _ in range(3):
         assert labels(taco.open_dataset(other)) == ["other"]

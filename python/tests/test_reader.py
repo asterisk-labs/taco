@@ -65,7 +65,7 @@ def test_native_sql_survives_string_operations(archive: Path) -> None:
     gc.collect()
 
     assert type(sql) is str
-    assert engine.open_reader().execute(sql).to_arrow_table().num_rows == 4
+    assert engine.open_reader().sql(sql).to_arrow_table().num_rows == 4
 
 
 def test_native_sql_of_a_remote_source_outlives_its_handle(
@@ -81,7 +81,7 @@ def test_native_sql_of_a_remote_source_outlives_its_handle(
     taco.open_dataset(copy.as_uri())
     for sql in statements:
         assert isinstance(sql, str)
-        assert engine.open_reader().execute(sql).to_arrow_table().num_rows == 4
+        assert engine.open_reader().sql(sql).to_arrow_table().num_rows == 4
 
 
 def test_dataset_api(archive: Path) -> None:
@@ -160,10 +160,10 @@ def test_reader_combines_partitions(archive: Path, tmp_path: Path) -> None:
         "part.zip",
     }
 
-    selected = engine.open_reader().execute(inspect_module.native_sql([archive, copy], idx=4)).to_arrow_table()
+    selected = engine.open_reader().sql(inspect_module.native_sql([archive, copy], idx=4)).to_arrow_table()
     assert selected.column("taco:sample_index").to_pylist() == [4]
     assert selected.column("source_file").to_pylist() == ["part.zip"]
-    window = engine.open_reader().execute(inspect_module.native_sql([archive, copy], idx=(3, 5))).to_arrow_table()
+    window = engine.open_reader().sql(inspect_module.native_sql([archive, copy], idx=(3, 5))).to_arrow_table()
     assert window.column("taco:sample_index").to_pylist() == [3, 4]
     assert window.column("source_file").to_pylist() == ["dataset.zip", "part.zip"]
 

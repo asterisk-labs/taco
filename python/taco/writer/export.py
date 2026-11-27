@@ -93,7 +93,7 @@ class _Source:
             sql = native.sql([self.opened], idx=None, level=name, pivoted=True, files=None, location=False)
             connection = engine.open_reader()
             if selected is None:
-                self.levels[name] = connection.execute(sql).to_arrow_table()
+                self.levels[name] = connection.sql(sql).to_arrow_table()
             else:
                 # DuckDB filters while it scans the cached Parquet, before rows
                 # become Python objects, and preserves the source order.
@@ -122,7 +122,7 @@ class _Source:
                     else:
                         join = "export_keys AS keys"
                         condition = f"CAST(split_part(rows.\"{RELATIVE_PATH}\", '/', 1) AS UBIGINT) = keys.sample"
-                    self.levels[name] = connection.execute(
+                    self.levels[name] = connection.sql(
                         f"SELECT rows.* EXCLUDE (ordinal) "
                         f"FROM (SELECT *, row_number() OVER () AS ordinal FROM ({sql})) AS rows "
                         f"SEMI JOIN {join} ON {condition} ORDER BY ordinal"
@@ -145,7 +145,7 @@ class _Source:
         columns = [row[0] for row in connection.execute(f"DESCRIBE {selection}").fetchall()]
         if SAMPLE_INDEX not in columns:
             raise ValueError(f"sql must return {SAMPLE_INDEX}; use SELECT * or include it explicitly")
-        table = connection.execute(
+        table = connection.sql(
             f"SELECT DISTINCT {_sql_identifier(SAMPLE_INDEX)} FROM ({selection}) AS taco_selected"
         ).to_arrow_table()
         if table is None:

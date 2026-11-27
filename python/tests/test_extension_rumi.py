@@ -501,7 +501,7 @@ def test_wide_reads_carry_rumi_headers_and_statistics_next_to_locations(
         writer.run()
 
     # Compare the public reader with direct execution of the core-generated SQL.
-    core = engine.open_reader().execute(native_sql(output)).to_arrow_table()
+    core = engine.open_reader().sql(native_sql(output)).to_arrow_table()
     for table in (taco.read(output), core):
         assert table.column_names[2:7] == [
             "scene/optical.rumi::location",
@@ -531,7 +531,7 @@ def test_wide_reads_carry_rumi_headers_and_statistics_next_to_locations(
     assert plain["rumi:maximum_b0"] is None
 
     assert taco.read(output, files="mask.bin").column_names == ["taco:sample_index", "id", "mask.bin::location"]
-    quiet = engine.open_reader().execute(native_sql(output, location=False)).to_arrow_table()
+    quiet = engine.open_reader().sql(native_sql(output, location=False)).to_arrow_table()
     assert quiet.schema.field("scene/optical.rumi::mean").type == pa.float64()
     assert quiet.schema.field("scene/img::maximum_b0").type == pa.list_(pa.float64())
     assert quiet.to_pylist()[0]["scene/optical.rumi::header"] is None

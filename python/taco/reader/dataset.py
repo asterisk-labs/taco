@@ -92,7 +92,7 @@ class Dataset:
         )
         context = ",\n".join(f"{_identifier(name)} AS ({sql})" for name, sql in relations)
         statement = f"WITH {context}\nSELECT * FROM (\n{query}\n) AS taco_query"
-        return engine.open_reader().execute(statement).to_arrow_table()
+        return engine.open_reader().sql(statement).to_arrow_table()
 
     def __repr__(self) -> str:
         location = f"source={self.sources[0]!r}" if len(self.sources) == 1 else f"sources={len(self.sources)}"

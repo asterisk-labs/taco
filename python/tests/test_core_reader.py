@@ -234,7 +234,7 @@ def test_generated_columns_do_not_collide_with_metadata(tmp_path: Path) -> None:
         tmp_path / "collision.zip",
     )
 
-    for table in (taco.read(output), engine.open_reader().execute(native_sql(output)).to_arrow_table()):
+    for table in (taco.read(output), engine.open_reader().sql(native_sql(output)).to_arrow_table()):
         assert table.column_names.count("image:location") == 1
         assert table.column("image:location").to_pylist() == ["metadata-value"]
         assert table.column("image::location")[0].as_py().startswith("/vsisubfile/")
@@ -301,7 +301,7 @@ def test_a_sequence_names_only_the_indices_below_its_maximum(tmp_path: Path) -> 
 
     def long_paths(source: Path, files: list[str]) -> list[str]:
         statement = native_sql(source, layout="long", files=files)
-        return sorted(engine.open_reader().execute(statement).to_arrow_table().column("path").to_pylist())
+        return sorted(engine.open_reader().sql(statement).to_arrow_table().column("path").to_pylist())
 
     # img*[1,3].tif names img0.tif to img2.tif, so img10.tif is a fixed file of its own.
     contract = taco.Contract(structure=["img*[1,3].tif", "img10.tif"])
@@ -376,7 +376,7 @@ def test_long_view_shadows_a_field_that_differs_only_in_case(tmp_path: Path) -> 
     )
     output = write("case", contract, [sample], tmp_path / "case.zip")
 
-    long = engine.open_reader().execute(native_sql(output, layout="long")).to_arrow_table()
+    long = engine.open_reader().sql(native_sql(output, layout="long")).to_arrow_table()
     assert [name for name in long.column_names if name.lower() == "q:score"] == ["q:score"]
     assert long.column("q:score").to_pylist() == [2.0]
     assert taco.read(output).column("q:Score").to_pylist() == [1.0]

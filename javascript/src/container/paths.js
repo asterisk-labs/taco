@@ -3,7 +3,8 @@ import { fail } from "../errors.js";
 const FORBIDDEN_COMPONENT = /[<>:"\\|?]/;
 
 /**
- * Validate and return a normalized relative POSIX path.
+ * Validate and return a normalized relative POSIX path. With allowGlob, the
+ * last component may declare a variable sequence.
  *
  * @param {unknown} value
  * @param {string} context
@@ -21,7 +22,7 @@ export function relativePath(value, context, options = {}) {
     fail("INVALID_PATH", `${context} must be a relative POSIX path`);
   }
   const parts = value.split("/");
-  for (const part of parts) {
+  for (const [index, part] of parts.entries()) {
     if (
       part.length === 0 ||
       part === "." ||
@@ -33,7 +34,7 @@ export function relativePath(value, context, options = {}) {
     ) {
       fail("INVALID_PATH", `${context} contains an invalid component ${JSON.stringify(part)}`);
     }
-    if (!options.allowGlob && /[*\[\]]/.test(part)) {
+    if (!(options.allowGlob && index === parts.length - 1) && /[*\[\]]/.test(part)) {
       fail("INVALID_PATH", `${context} contains reserved sequence characters`);
     }
   }

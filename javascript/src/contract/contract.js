@@ -1,6 +1,6 @@
 import { fail } from "../errors.js";
 import { rumiFileField } from "./rumi.js";
-import { deriveLevels, parseStructurePath } from "./structure.js";
+import { checkStructure, deriveLevels, parseStructurePath } from "./structure.js";
 
 /**
  * @typedef {object} TacoContract
@@ -13,6 +13,16 @@ import { deriveLevels, parseStructurePath } from "./structure.js";
 /** @param {unknown} value */
 function object(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+/**
+ * Whether a name has the form namespace:field (spec 5.4). Reserved
+ * namespaces are checked by the caller.
+ *
+ * @param {string} name
+ */
+export function isQualifiedField(name) {
+  return /^[a-z][a-z0-9_]*:[^:/\0]+$/.test(name) && !name.includes("__");
 }
 
 /**
@@ -34,6 +44,7 @@ export function parseContract(collection) {
   if (new Set(leaves.map((leaf) => leaf.declaration)).size !== leaves.length) {
     fail("INVALID_CONTRACT", "taco:structure contains duplicate declarations");
   }
+  checkStructure(leaves);
 
   const levels = deriveLevels(leaves);
   const metadata = collection["taco:metadata"];
@@ -52,8 +63,19 @@ export function parseContract(collection) {
   for (const level of levels) {
     const fields = metadataObject[level];
     if (!object(fields)) fail("INVALID_CONTRACT", `metadata for ${level} must be an object`);
+    // SQL matches column names without case.
+    /** @type {Map<string, string>} */
+    const seen = new Map();
     for (const [name, declaration] of Object.entries(/** @type {Record<string, any>} */ (fields))) {
       validateField(name, declaration, level, leaves);
+      const other = seen.get(name.toLowerCase());
+      if (other !== undefined) {
+        fail(
+          "INVALID_CONTRACT",
+          `metadata fields ${JSON.stringify(other)} and ${JSON.stringify(name)} at ${level} differ only in case`,
+        );
+      }
+      seen.set(name.toLowerCase(), name);
     }
   }
 
@@ -74,7 +96,7 @@ export function parseContract(collection) {
  * @param {TacoLeaf[]} leaves
  */
 function validateField(name, declaration, level, leaves) {
-  if (!/^[a-z][a-z0-9_]*:[^:/]+$/.test(name) || name.includes("__")) {
+  if (!isQualifiedField(name)) {
     fail("INVALID_CONTRACT", `invalid qualified field ${JSON.stringify(name)} at ${level}`);
   }
   const namespace = name.slice(0, name.indexOf(":"));

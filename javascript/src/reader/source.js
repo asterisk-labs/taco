@@ -61,7 +61,7 @@ class FolderSource extends Source {
 
   /** @param {string} level */
   async levelBuffer(level) {
-    const url = new URL(`${METADATA}/${levelFilename(level)}`, this.url).href;
+    const url = new URL(`${METADATA}/${encodeRelativePath(levelFilename(level))}`, this.url).href;
     return (await openHttpObject(this.client, url)).object;
   }
 
@@ -119,7 +119,7 @@ class TacocatSource extends Source {
 
   /** @param {string} level */
   async levelBuffer(level) {
-    const url = new URL(levelFilename(level), this.url).href;
+    const url = new URL(encodeRelativePath(levelFilename(level)), this.url).href;
     return (await openHttpObject(this.client, url)).object;
   }
 

@@ -1,7 +1,7 @@
 import { rumiFileField } from "../contract/rumi.js";
 import { matchLeaf } from "../contract/structure.js";
 import { TacoAsset } from "../container/asset.js";
-import { TacoParquet, PROTECTED_LOCATION_COLUMNS } from "../container/parquet.js";
+import { TacoParquet, READER_COLUMNS } from "../container/parquet.js";
 import { basename, contractPath, parentLevel } from "../container/paths.js";
 import { fail } from "../errors.js";
 import { matchesFilter } from "./filter.js";
@@ -166,11 +166,14 @@ export class Dataset {
 
   /** @param {string} level */
   #levelReader(level) {
-    let promise = this.#parquets.get(level);
-    if (!promise) {
-      promise = this.#source.levelBuffer(level).then((file) => new TacoParquet(file, level));
-      this.#parquets.set(level, promise);
-    }
+    const cached = this.#parquets.get(level);
+    if (cached) return cached;
+    const promise = this.#source.levelBuffer(level).then((file) => new TacoParquet(file, level));
+    // A failed load is not kept, so a later call retries it.
+    promise.catch(() => {
+      if (this.#parquets.get(level) === promise) this.#parquets.delete(level);
+    });
+    this.#parquets.set(level, promise);
     return promise;
   }
 
@@ -296,10 +299,8 @@ export class Dataset {
    * @returns {WideColumns}
    */
   #wideColumns(leaf) {
-    const slash = leaf.key.lastIndexOf("/");
-    const level = slash < 0 ? "children" : `children/${leaf.key.slice(0, slash)}`;
     const rumi = [];
-    for (const [field, declaration] of Object.entries(this.contract.metadata[level] ?? {})) {
+    for (const [field, declaration] of Object.entries(this.contract.metadata[leafLevel(leaf)] ?? {})) {
       const suffix = rumiFileField(field);
       if (suffix !== null && (!declaration.files || declaration.files.includes(leaf.declaration))) {
         rumi.push({ field, name: `${leaf.key}::${suffix}` });
@@ -350,8 +351,10 @@ export class Dataset {
     nodes.set("sample", new Map(sampleNodes.map((node) => [this.#identity(node.row), node])));
 
     const directFolders = directFolderNames(this.levels);
-    /** @type {Node[]} */
-    const files = [];
+    // Only levels with files need offsets to build payload locations.
+    const fileLevels = new Set(this.#source.parsed.leaves.map(leafLevel));
+    /** @type {Map<Node, Node[]>} */
+    const children = new Map();
     for (const level of this.levels.slice(1)) {
       const parent = parentLevel(level);
       const parentNodes = [...(nodes.get(parent)?.values() ?? [])];
@@ -365,7 +368,7 @@ export class Dataset {
             ID_CURRENT,
             ID_PARENT,
             ID_PATH,
-            ...(this.container === "folder" ? [] : [ID_OFFSET, ID_SIZE]),
+            ...(this.container === "folder" || !fileLevels.has(level) ? [] : [ID_OFFSET, ID_SIZE]),
             ...(this.container === "tacocat" ? [ID_SOURCE] : []),
             ...Object.keys(this.contract.metadata[level] ?? {}).filter((field) => rumiFileField(field) !== null),
           ]
@@ -380,13 +383,25 @@ export class Dataset {
         /** @type {Node} */
         const node = { row, level, parent: parentNode, sample: parentNode.sample };
         currentNodes.set(this.#identity(row), node);
-
-        const path = requirePath(row);
-        if (directFolders.get(level)?.has(basename(path))) continue;
-        const relative = contractPath(path);
-        if (leaves.some((leaf) => matchLeaf(leaf, relative) !== null)) files.push(node);
+        const siblings = children.get(parentNode);
+        if (siblings) siblings.push(node);
+        else children.set(parentNode, [node]);
       }
     }
+
+    // Walk each sample depth first, so files follow the sample order and,
+    // inside a sample, the stored order of its folders and files.
+    /** @type {Node[]} */
+    const files = [];
+    /** @param {Node} parent */
+    const visit = (parent) => {
+      for (const node of children.get(parent) ?? []) {
+        const path = requirePath(node.row);
+        if (directFolders.get(node.level)?.has(basename(path))) visit(node);
+        else if (leaves.some((leaf) => matchLeaf(leaf, contractPath(path)) !== null)) files.push(node);
+      }
+    };
+    for (const node of sampleNodes) visit(node);
     return files;
   }
 
@@ -439,7 +454,7 @@ function normalizeIdx(value) {
 /** @param {Row} output @param {Row} input @param {boolean} [keepNearest] */
 function copyUserMetadata(output, input, keepNearest = false) {
   for (const [name, value] of Object.entries(input)) {
-    if (name.startsWith("internal:") || PROTECTED_LOCATION_COLUMNS.has(name)) continue;
+    if (name.startsWith("internal:") || READER_COLUMNS.has(name)) continue;
     if (!keepNearest || !(name in output)) output[name] = value;
   }
 }
@@ -472,4 +487,10 @@ function directFolderNames(levels) {
     result.get(parentLevel(level))?.add(basename(level));
   }
   return result;
+}
+
+/** @param {TacoLeaf} leaf Return the metadata level whose rows hold the leaf's files. */
+function leafLevel(leaf) {
+  const slash = leaf.key.lastIndexOf("/");
+  return slash < 0 ? "children" : `children/${leaf.key.slice(0, slash)}`;
 }

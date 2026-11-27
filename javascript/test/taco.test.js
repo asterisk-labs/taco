@@ -1,9 +1,13 @@
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
-import { openDataset, read, SUPPORTED_TACO_VERSION, TacoError } from "../src/index.js";
+import { Dataset, openDataset, read, SUPPORTED_TACO_VERSION, TacoError } from "../src/index.js";
 import { TacoAsset } from "../src/container/asset.js";
+import { openTacoArchive } from "../src/container/cozip.js";
 import { arrayBuffer, HttpClient, openHttpObject } from "../src/container/http.js";
 import { parseCollection } from "../src/contract/collection.js";
+import { parseCollectionJson } from "../src/reader/collection.js";
+import { matchesFilter } from "../src/reader/filter.js";
+import { openSource } from "../src/reader/source.js";
 import { fixtureServer } from "./server.js";
 
 let fixture;
@@ -71,6 +75,16 @@ test("raw level reads delegate projection and filters to Parquet", async () => {
   assert.deepEqual(rows, [{ "internal:current_id": 2n, "split:split": "test" }]);
 });
 
+test("raw level row ranges select stored rows before the filter", async () => {
+  const dataset = await openDataset(`${fixture.baseUrl}/dataset.zip`);
+  const filter = { "split:split": "test" };
+  const ids = (rows) => rows.map((row) => row["internal:current_id"]);
+  assert.deepEqual(ids(await dataset.readLevel("sample", { rowStart: 2, rowEnd: 3, filter })), [2n]);
+  assert.deepEqual(ids(await dataset.readLevel("sample", { rowStart: 0, rowEnd: 2, filter })), []);
+  assert.deepEqual(await dataset.read({ level: "sample", idx: 0, filter }), []);
+  assert.deepEqual(ids(await dataset.read({ level: "sample", idx: [1, 3], filter })), [2n]);
+});
+
 test("raw level reads select sparse physical row indexes", async () => {
   const dataset = await openDataset(`${fixture.baseUrl}/dataset.zip`);
   const rows = await dataset.readLevel("sample", {
@@ -112,6 +126,61 @@ test("caching a metadata level returns its Parquet bytes", async () => {
   assert.ok(bytes instanceof ArrayBuffer);
   assert.deepEqual(new Uint8Array(bytes), fixture.entries.get("METADATA/sample.parquet"));
   assert.equal(await dataset.cacheLevel("sample"), bytes);
+});
+
+test("a failed level read rejects its caller and is retried", async () => {
+  const unhandled = [];
+  const record = (reason) => unhandled.push(reason);
+  process.on("unhandledRejection", record);
+  try {
+    const level = "/folder/METADATA/sample.parquet";
+    const busy = (error) => error instanceof TacoError && error.code === "HTTP_ERROR" && /HTTP 503/.test(error.message);
+
+    // The size probe of a FOLDER level fails once.
+    const probe = await openDataset(`${fixture.baseUrl}/folder`, {
+      fetch: failOnce((url, range) => url.endsWith(level) && range === "bytes=0-0"),
+    });
+    await assert.rejects(() => probe.read({ location: false }), busy);
+    assert.equal((await probe.read({ location: false })).length, 3);
+
+    // The footer fails once.
+    const footer = await openDataset(`${fixture.baseUrl}/folder`, {
+      fetch: failOnce((url, range) => url.endsWith(level) && range !== "bytes=0-0"),
+    });
+    await assert.rejects(() => footer.levelRowCount("sample"), busy);
+    assert.equal(await footer.levelRowCount("sample"), 3);
+
+    // The whole download fails once.
+    const download = await openDataset(`${fixture.baseUrl}/folder`, {
+      fetch: failOnce((url, range) => url.endsWith(level) && range !== "bytes=0-0"),
+    });
+    await assert.rejects(() => download.cacheLevel("sample"), busy);
+    const bytes = await download.cacheLevel("sample");
+    assert.deepEqual(new Uint8Array(bytes), fixture.entries.get("METADATA/sample.parquet"));
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.deepEqual(unhandled, []);
+  } finally {
+    process.off("unhandledRejection", record);
+  }
+});
+
+test("caching a level checks the level name stored in its footer", async () => {
+  const unhandled = [];
+  const record = (reason) => unhandled.push(reason);
+  process.on("unhandledRejection", record);
+  try {
+    const swapped = async (url, init) => fetch(String(url).replace("/children.parquet", "/sample.parquet"), init);
+    const dataset = await openDataset(`${fixture.baseUrl}/folder`, { fetch: swapped });
+    await assert.rejects(
+      () => dataset.cacheLevel("children"),
+      (error) => error instanceof TacoError && error.code === "INVALID_PARQUET_LEVEL",
+    );
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.deepEqual(unhandled, []);
+  } finally {
+    process.off("unhandledRejection", record);
+  }
 });
 
 test("reads a metadata row count without decoding its rows", async () => {
@@ -164,6 +233,69 @@ test("wide columns keep the structure path of nested files", async () => {
   assert.ok(!Object.keys(row).some((name) => name.includes("__")));
 });
 
+test("long rows follow the samples and the structure inside each sample", async () => {
+  const dataset = await openDataset(`${fixture.baseUrl}/nested.zip`);
+  const rows = await dataset.read({ layout: "long", location: false, idx: [1, 3] });
+  assert.deepEqual(rows.map((row) => `${row["taco:sample_index"]}:${row.path}`), [
+    "1:before/B02.bin",
+    "1:before/B03.bin",
+    "1:after/B02.bin",
+    "1:change.bin",
+    "2:before/B02.bin",
+    "2:before/B03.bin",
+    "2:after/B02.bin",
+    "2:change.bin",
+  ]);
+});
+
+test("a variable sequence only takes indexes below its maximum", async () => {
+  // img*[1,3].bin ends at img2.bin, so img10.bin is a fixed file.
+  const url = `${fixture.baseUrl}/dataset.zip`;
+  const client = new HttpClient();
+  const archive = await openTacoArchive(url, client);
+  const collection = JSON.parse(new TextDecoder().decode(await archive.read("COLLECTION.json")));
+  collection["taco:structure"] = ["img*[1,3].bin", "img10.bin"];
+  const dataset = new Dataset(await openSource(url, client, "zip", parseCollection(collection)), client);
+  const readLevel = dataset.readLevel.bind(dataset);
+  dataset.readLevel = async (level, options) => (await readLevel(level, options)).map((row) => (
+    level === "children"
+      ? {
+          ...row,
+          "internal:relative_path": row["internal:relative_path"]
+            .replace("/image.bin", "/img0.bin")
+            .replace("/mask.bin", "/img10.bin"),
+        }
+      : row
+  ));
+
+  const [row] = await dataset.read({ idx: 0 });
+  assert.deepEqual(row["img::location"], [`/vsisubfile/225_64,/vsicurl/${url}`]);
+  assert.equal(row["img10.bin::location"], `/vsisubfile/334_32,/vsicurl/${url}`);
+});
+
+test("wide reads tolerate folder-only levels without payload columns", async () => {
+  // Older archives may omit offsets on a level containing only folders.
+  const url = `${fixture.baseUrl}/nested.zip`;
+  const client = new HttpClient();
+  const archive = await openTacoArchive(url, client);
+  const collection = JSON.parse(new TextDecoder().decode(await archive.read("COLLECTION.json")));
+  collection["taco:structure"] = collection["taco:structure"].filter((path) => path !== "change.bin");
+  const dataset = new Dataset(await openSource(url, client, "zip", parseCollection(collection)), client);
+  // Simulate hyparquet's error when those columns are requested.
+  const readLevel = dataset.readLevel.bind(dataset);
+  dataset.readLevel = async (level, options = {}) => {
+    const payload = ["internal:offset", "internal:size"];
+    const missing = payload.find((name) => options.columns?.includes(name));
+    if (level === "children" && missing) throw new Error(`parquet column not found: ${missing}`);
+    return readLevel(level, options);
+  };
+
+  const [row] = await dataset.read({ idx: 0 });
+  assert.match(row["before/B02.bin::location"], /^\/vsisubfile\/738_240,/);
+  assert.match(row["after/B02.bin::location"], /^\/vsisubfile\/1319_240,/);
+  assert.ok(!("change.bin::location" in row));
+});
+
 test("generated columns do not overwrite qualified metadata", async () => {
   const dataset = await openDataset(`${fixture.baseUrl}/collision`);
   const readLevel = dataset.readLevel.bind(dataset);
@@ -184,6 +316,34 @@ test("generated columns do not overwrite qualified metadata", async () => {
   const [row] = await dataset.read({ idx: 0, files: ["image_bin"] });
   assert.equal(row["image_bin:location"], "metadata-value");
   assert.match(row["image_bin::location"], /^\/vsicurl\//);
+});
+
+test("readers ignore a stored taco:sample_index", async () => {
+  // Store it in place of raster:resolution, which has the same length.
+  const archive = await openTacoArchive(`${fixture.baseUrl}/nested.zip`, new HttpClient());
+  const files = new Map([["/nested/COLLECTION.json", await archive.read("COLLECTION.json")]]);
+  for (const name of ["sample", "children", "children__before", "children__after"]) {
+    const bytes = Buffer.from(await archive.read(`METADATA/${name}.parquet`));
+    if (name === "children__before") renameAll(bytes, "raster:resolution", "taco:sample_index");
+    files.set(`/nested/METADATA/${name}.parquet`, bytes);
+  }
+  const dataset = await openDataset("https://example.test/nested/", { fetch: staticFetch(files).fetch });
+
+  const rows = await dataset.readLevel("children/before");
+  assert.equal(rows.length, 6);
+  assert.ok(rows.every((row) => !("taco:sample_index" in row)));
+  await assert.rejects(
+    () => dataset.readLevel("children/before", { filter: { "taco:sample_index": 0n } }),
+    (error) => error instanceof TacoError && error.code === "PROTECTED_COLUMN",
+  );
+  const long = await dataset.read({ layout: "long", location: false, files: ["before/B02.bin"] });
+  assert.deepEqual(long.map((row) => row["taco:sample_index"]), [0, 1, 2]);
+
+  // A wide row keeps the generated index even when a sample row carries one.
+  const readLevel = dataset.readLevel.bind(dataset);
+  dataset.readLevel = async (level, options) => (await readLevel(level, options))
+    .map((row) => (level === "sample" ? { ...row, "taco:sample_index": 100n } : row));
+  assert.deepEqual((await dataset.read({ location: false })).map((row) => row["taco:sample_index"]), [0, 1, 2]);
 });
 
 test("wide reads carry Rumi headers and statistics next to locations", async () => {
@@ -227,6 +387,121 @@ test("supports idx, files, semantic filters, and location opt-out", async () => 
 
   const long = await dataset.read({ idx: [0, 2], layout: "long", files: ["image.bin"] });
   assert.deepEqual(long.map((row) => row.path), ["image.bin", "image.bin"]);
+});
+
+test("read and readLevel treat null values alike", async () => {
+  const dataset = await openDataset(`${fixture.baseUrl}/rumi.zip`);
+  // children/scene stores rumi:mean for image.rumi and null for the series files.
+  const read = async (filter) => (await dataset.read({
+    layout: "long",
+    location: false,
+    files: ["scene/image.rumi", "scene/series*[1,2].rumi"],
+    filter,
+  })).map((row) => `${row["taco:sample_index"]}/${row.path}`).sort();
+  const readLevel = async (filter) => (await dataset.readLevel("children/scene", {
+    columns: ["internal:relative_path"],
+    filter,
+  })).map((row) => row["internal:relative_path"]).sort();
+  const images = ["0/scene/image.rumi", "1/scene/image.rumi"];
+  const series = ["0/scene/series0.rumi", "0/scene/series1.rumi", "1/scene/series0.rumi", "1/scene/series1.rumi"];
+  const notFirst = [...series, "1/scene/image.rumi"].sort();
+  for (const [filter, expected] of [
+    [{ "rumi:mean": { $lt: 100 } }, ["0/scene/image.rumi"]],
+    [{ "rumi:mean": { $lte: 15.5 } }, ["0/scene/image.rumi"]],
+    [{ "rumi:mean": { $gte: 0 } }, images],
+    [{ "rumi:mean": null }, series],
+    [{ "rumi:mean": { $eq: null } }, series],
+    [{ "rumi:mean": { $ne: null } }, images],
+    [{ "rumi:mean": { $in: [null, 115.5] } }, notFirst],
+    [{ "rumi:mean": { $ne: 15.5 } }, notFirst],
+    [{ "rumi:mean": { $nin: [15.5] } }, notFirst],
+    [{ "rumi:mean": { $not: { $lt: 100 } } }, notFirst],
+    [{ $nor: [{ "rumi:mean": { $lt: 100 } }] }, notFirst],
+  ]) {
+    assert.deepEqual(await read(filter), expected, JSON.stringify(filter));
+    assert.deepEqual(await readLevel(filter), expected, JSON.stringify(filter));
+  }
+
+  // mask.bin rows of the long view have no rumi:mean, and null matches them.
+  const missing = await dataset.read({ layout: "long", location: false, filter: { "rumi:mean": null } });
+  assert.deepEqual(missing.filter((row) => row.path === "mask.bin").length, 2);
+  const present = await dataset.read({ layout: "long", location: false, filter: { "rumi:mean": { $gte: 0 } } });
+  assert.deepEqual(present.map((row) => row.path), ["scene/image.rumi", "scene/image.rumi"]);
+});
+
+test("read and readLevel compare Dates by time and binary values by content", async () => {
+  const dataset = await openDataset(`${fixture.baseUrl}/nested.zip`);
+  const day = new Date("2024-01-02T00:00:00Z");
+  const read = async (filter) => (await dataset.read({ location: false, filter })).map((row) => row.id);
+  const readLevel = async (filter) => (await dataset.readLevel("sample", { columns: ["id"], filter }))
+    .map((row) => row.id);
+  for (const ids of [read, readLevel]) {
+    assert.deepEqual(await ids({ "geo:time_start": day }), ["nested-1"]);
+    assert.deepEqual(await ids({ "geo:time_start": { $eq: new Date(day) } }), ["nested-1"]);
+    assert.deepEqual(await ids({ "geo:time_start": { $in: [new Date(day)] } }), ["nested-1"]);
+    assert.deepEqual(await ids({ "geo:time_start": { $ne: day } }), ["nested-0", "nested-2"]);
+    assert.deepEqual(await ids({ "geo:time_start": { $not: day } }), ["nested-0", "nested-2"]);
+    assert.deepEqual(await ids({ "geo:time_start": { $gt: day } }), ["nested-2"]);
+  }
+  const [{ "geo:centroid": centroid }] = await dataset.readLevel("sample", {
+    columns: ["geo:centroid"],
+    rowStart: 1,
+    rowEnd: 2,
+  });
+  assert.deepEqual(await read({ "geo:centroid": centroid.slice() }), ["nested-1"]);
+  assert.deepEqual(await readLevel({ "geo:centroid": centroid.slice() }), ["nested-1"]);
+});
+
+test("read filters compare arrays by item and find columns named after files", async () => {
+  const dataset = await openDataset(`${fixture.baseUrl}/rumi.zip`);
+  const ids = async (filter) => (await dataset.read({ filter })).map((row) => row.id);
+  assert.deepEqual(await ids({ "scene/series::maximum_b1": [51, 41] }), ["rumi-0"]);
+  assert.deepEqual(await ids({ "scene/series::maximum_b1": { $in: [[151, 141]] } }), ["rumi-1"]);
+  assert.deepEqual(await ids({ "scene/series::maximum_b1": { $in: [141, 7] } }), ["rumi-1"]);
+  assert.deepEqual(await ids({ "scene/series::maximum_b1": { $nin: [51] } }), ["rumi-1"]);
+  assert.deepEqual(await ids({ "scene/series::maximum_b1": { $ne: [51, 41] } }), ["rumi-1"]);
+  assert.deepEqual(await ids({ "scene/image.rumi::mean": { $gt: 100 } }), ["rumi-1"]);
+  assert.deepEqual(await ids({ "scene/image.rumi::mean": 15.5 }), ["rumi-0"]);
+});
+
+test("readLevel filters stored columns whose names contain a dot", async () => {
+  // hyparquet alone would look for field "it" of a column "split:sp".
+  const files = new Map();
+  for (const [name, bytes] of fixture.entries) {
+    if (name.startsWith("DATA/")) continue;
+    const renamed = Buffer.from(bytes);
+    renameAll(renamed, "split:split", "split:sp.it");
+    files.set(`/dotted/${name}`, renamed);
+  }
+  const dataset = await openDataset("https://example.test/dotted/", { fetch: staticFetch(files).fetch });
+  const ids = async (options) => (await dataset.readLevel("sample", options)).map((row) => row["internal:current_id"]);
+
+  assert.deepEqual(
+    await dataset.readLevel("sample", { columns: ["id"], filter: { "split:sp.it": "test" } }),
+    [{ id: "sample-2" }],
+  );
+  assert.deepEqual(await ids({ rowStart: 1, rowEnd: 3, filter: { "split:sp.it": { $ne: "test" } } }), [1n]);
+  assert.deepEqual(await ids({ filter: { $or: [{ "split:sp.it": "test" }, { id: "sample-0" }] } }), [0n, 2n]);
+  assert.deepEqual(
+    (await dataset.read({ location: false, filter: { "split:sp.it": "test" } })).map((row) => row.id),
+    ["sample-2"],
+  );
+});
+
+test("filters compare structs by field and resolve dotted paths", () => {
+  const row = { "spatial:centroid": { lon: 1, lat: 2 } };
+  assert.equal(matchesFilter(row, { "spatial:centroid": { $eq: { lat: 2, lon: 1 } } }), true);
+  assert.equal(matchesFilter(row, { "spatial:centroid": { $eq: { lon: 1 } } }), false);
+  assert.equal(matchesFilter(row, { "spatial:centroid.lat": { $not: { $gt: 1 } } }), false);
+  assert.equal(matchesFilter(row, { "spatial:centroid.lat": { $not: { $gt: 2 } } }), true);
+  assert.equal(matchesFilter(row, { "spatial:centroid.height": { $gt: 2 } }), false);
+  assert.equal(matchesFilter(row, { "spatial:centroid.height": { $not: { $gt: 2 } } }), true);
+  assert.equal(matchesFilter(row, { "spatial:centroid.height": null }), true);
+  assert.equal(matchesFilter(row, { "spatial:centroid": null }), false);
+  assert.throws(
+    () => matchesFilter(row, { "spatial:centroid": { $not: { $near: 1 } } }),
+    (error) => error instanceof TacoError && error.code === "INVALID_FILTER",
+  );
 });
 
 test("resolves a VSI location and fetches only the payload range", async () => {
@@ -491,6 +766,47 @@ test("opens a FOLDER without using ZIP offsets", async () => {
   );
 });
 
+test("percent-encodes level names in FOLDER and TACOCAT URLs", async () => {
+  // Rename the nested fixture's before/ folder to b#%41e. Unencoded, "#"
+  // starts a fragment and a server reads "%41" as "A".
+  const archive = await openTacoArchive(`${fixture.baseUrl}/nested.zip`, new HttpClient());
+  const collection = JSON.parse(
+    new TextDecoder().decode(await archive.read("COLLECTION.json")).replaceAll("before", "b#%41e"),
+  );
+  const renamed = Buffer.from(await archive.read("METADATA/children__before.parquet"));
+  renamed.write("children/b#%41e", renamed.indexOf("children/before"), "latin1");
+  /** @type {Record<string, Uint8Array>} */
+  const levels = {
+    "sample.parquet": await archive.read("METADATA/sample.parquet"),
+    "children.parquet": await archive.read("METADATA/children.parquet"),
+    "children__b#%41e.parquet": renamed,
+    "children__after.parquet": await archive.read("METADATA/children__after.parquet"),
+  };
+  const catalog = {
+    ...collection,
+    "taco:sources": { samples: 3, partitions: [{ file: "part.zip", samples: 3 }] },
+  };
+  const files = new Map([
+    ["/my data/COLLECTION.json", new TextEncoder().encode(JSON.stringify(collection))],
+    ["/catalog/.tacocat/COLLECTION.json", new TextEncoder().encode(JSON.stringify(catalog))],
+    ...Object.entries(levels).flatMap(([name, bytes]) => [
+      [`/my data/METADATA/${name}`, bytes],
+      [`/catalog/.tacocat/${name}`, bytes],
+    ]),
+  ]);
+  const { fetch, requests } = staticFetch(files);
+
+  // The base URL is used as given, so its %20 is not encoded again.
+  const folder = await openDataset("https://example.test/my%20data/", { fetch });
+  assert.equal(await folder.levelRowCount("children/b#%41e"), 6);
+  assert.ok(requests.includes("https://example.test/my%20data/METADATA/children__b%23%2541e.parquet"));
+
+  const tacocat = await openDataset("https://example.test/catalog/.tacocat/", { fetch });
+  const rows = await tacocat.readLevel("children/b#%41e", { columns: ["internal:parent_id"] });
+  assert.equal(rows.length, 6);
+  assert.ok(requests.includes("https://example.test/catalog/.tacocat/children__b%23%2541e.parquet"));
+});
+
 test("finds a TACOCAT from its dataset root", async () => {
   const start = fixture.requests.length;
   const dataset = await openDataset(`${fixture.baseUrl}/catalog/`);
@@ -600,3 +916,184 @@ test("validates per-file Rumi statistics", () => {
   assert.throws(() => parseCollection(field("quality:score", ["data.rumi"])), /cannot be restricted/);
   assert.throws(() => parseCollection(field("rumi:mean", ["missing.rumi"])), /unknown file/);
 });
+
+test("rejects the collections that the Python reader rejects", () => {
+  const collection = {
+    "taco:version": SUPPORTED_TACO_VERSION,
+    id: "rules",
+    description: "Collection rules",
+    licenses: ["MIT"],
+    providers: [{ name: "Asterisk Labs" }],
+    "taco:structure": ["data.bin"],
+    "taco:metadata": { sample: {}, children: {} },
+  };
+  const field = { type: "string", nullable: true, description: "" };
+  for (const [change, code, message] of [
+    [{ "taco:bogus": 1 }, "INVALID_COLLECTION", /unknown reserved keys: taco:bogus/],
+    [{ "internal:x": 1 }, "INVALID_COLLECTION", /unknown reserved keys: internal:x/],
+    [{ notes: "x" }, "INVALID_COLLECTION", /unknown unqualified field "notes"/],
+    [{ "Source:mission": "S2" }, "INVALID_COLLECTION", /invalid collection metadata field/],
+    [{ id: "a/b" }, "INVALID_COLLECTION", /id must not contain/],
+    [{ description: " \t" }, "INVALID_COLLECTION", /description must be a non-empty string/],
+    [{ licenses: ["MIT", ""] }, "INVALID_COLLECTION", /licenses must be a non-empty list of non-empty strings/],
+    [{ title: 7 }, "INVALID_COLLECTION", /title must be a string/],
+    [{ keywords: "eo" }, "INVALID_COLLECTION", /keywords must be a list/],
+    [{ "taco:extensions": ["a", "a"] }, "INVALID_COLLECTION", /must not repeat/],
+    [{ providers: ["Asterisk Labs"] }, "INVALID_COLLECTION", /providers\[0\] must be an object/],
+    [{ providers: [{ name: "x", roles: "producer" }] }, "INVALID_COLLECTION", /providers\[0\]\.roles/],
+    [{ providers: [{ name: "x", url: "ftp://example.com" }] }, "INVALID_COLLECTION", /url must start with/],
+    [{ curators: [{ email: "team@example.com" }] }, "INVALID_COLLECTION", /name or an organization/],
+    [{ extent: { spatial: [0, 5, 1, 1] } }, "INVALID_COLLECTION", /outside EPSG:4326/],
+    [{ extent: { spatial: [0, 0, 1, 1], temporal: "2024" } }, "INVALID_COLLECTION", /extent\.temporal/],
+    [
+      { "taco:metadata": { sample: { "info:name": field, "info:Name": field }, children: {} } },
+      "INVALID_CONTRACT",
+      /"info:name" and "info:Name" at sample differ only in case/,
+    ],
+    [
+      { "taco:metadata": { sample: { "info:a\u0000b": field }, children: {} } },
+      "INVALID_CONTRACT",
+      /invalid qualified field/,
+    ],
+  ]) {
+    assert.throws(
+      () => parseCollection({ ...collection, ...change }),
+      (error) => error instanceof TacoError && error.code === code && message.test(error.message),
+      JSON.stringify(change),
+    );
+  }
+  // As in Python, null stands for an optional field that is not there.
+  const empty = { tasks: null, title: null, curators: null, keywords: null, extent: null, "taco:extensions": null };
+  assert.equal(parseCollection({ ...collection, ...empty }).collection.tasks, null);
+  parseCollection({ ...collection, "source:mission": "S2", extent: { spatial: [170, -5, -170, 5], temporal: null } });
+});
+
+test("rejects JSON that the native reader rejects and JSON.parse accepts", () => {
+  const text = JSON.stringify({
+    "taco:version": SUPPORTED_TACO_VERSION,
+    id: "json",
+    description: "JSON limits",
+    licenses: ["MIT"],
+    providers: [{ name: "Asterisk Labs" }],
+    "taco:structure": ["data.bin"],
+    "taco:metadata": { sample: {}, children: {} },
+  });
+  const parse = (body) => parseCollectionJson(new TextEncoder().encode(body), "COLLECTION.json");
+  const withValue = (value) => `${text.slice(0, -1)},"x:y":${value}}`;
+  // The document is at depth 0, so the innermost 1 is at depth 256.
+  parse(withValue(`${"[".repeat(255)}1${"]".repeat(255)}`));
+  parse(withValue('"\\ud83d\\ude00"'));
+  for (const [body, message] of [
+    [withValue(`${"[".repeat(256)}1${"]".repeat(256)}`), /nests deeper than 256 levels/],
+    [withValue("1e400"), /not finite/],
+    [withValue('"\\ud800"'), /lone surrogate/],
+    [`\ufeff${text}`, /could not parse/],
+  ]) {
+    assert.throws(
+      () => parse(body),
+      (error) => error instanceof TacoError && error.code === "INVALID_COLLECTION" && message.test(error.message),
+    );
+  }
+});
+
+test("rejects structures whose entries readers cannot tell apart", () => {
+  const collection = (structure) => {
+    const levels = ["sample", "children"];
+    for (const path of structure) {
+      const folders = path.split("/").slice(0, -1);
+      folders.forEach((_, depth) => levels.push(`children/${folders.slice(0, depth + 1).join("/")}`));
+    }
+    return {
+      "taco:version": SUPPORTED_TACO_VERSION,
+      id: "structure",
+      description: "Structure rules",
+      licenses: ["MIT"],
+      providers: [{ name: "Asterisk Labs" }],
+      "taco:structure": structure,
+      "taco:metadata": Object.fromEntries(levels.map((level) => [level, {}])),
+    };
+  };
+  for (const [structure, message] of [
+    [["a*[1,2]/b.tif"], /reserved sequence characters/],
+    [["a", "a/b.tif"], /children under the sample root must have distinct identifiers/],
+    [["B02.tif", "b02.tif"], /"B02.tif" and "b02.tif" under the sample root differ only in case/],
+    [["img*[1,3].tif", "IMG2.TIF"], /"IMG2.TIF" overlaps "img\*\[1,3\]\.tif"/],
+    [["img*[1,3]", "img1/b.tif"], /"img1" overlaps/],
+    [["a/img*[1,20].tif", "a/img1*[1,3].tif"], /overlaps "a\/img1\*\[1,3\]\.tif" under a$/],
+    [["a_/b/x.tif", "a/_b/y.tif"], /both map to METADATA\/children__a___b\.parquet$/],
+    [["A_/b/x.tif", "a/_b/y.tif"], /on a case-insensitive file system$/],
+    [["img*[ 1,3].tif"], /malformed variable leaf/],
+    [["img*[1, 3].tif"], /malformed variable leaf/],
+    [["img*[01,3].tif"], /malformed variable leaf/],
+    [["img*[+1,3].tif"], /malformed variable leaf/],
+    [["img*[1,9007199254740992].tif"], /invalid bounds/],
+  ]) {
+    assert.throws(
+      () => parseCollection(collection(structure)),
+      (error) => error instanceof TacoError && message.test(error.message),
+      structure.join(" "),
+    );
+  }
+  // A sequence produces img0.tif to img2.tif, and its prefix need not be a valid name.
+  for (const structure of [
+    ["img*[1,3].tif", "img10.tif", "img02.tif"],
+    ["img*[1,10].tif", "img1*[1,3].tif"],
+    ["img.*[1,3].tif", "img *[1,9007199254740991].tif"],
+  ]) {
+    parseCollection(collection(structure));
+  }
+});
+
+/**
+ * Answer the first request that matches with 503, then pass every request on.
+ *
+ * @param {(url: string, range: string | null) => boolean} matches
+ */
+function failOnce(matches) {
+  let failed = false;
+  return async (url, init) => {
+    if (!failed && matches(String(url), new Headers(init?.headers).get("range"))) {
+      failed = true;
+      return new Response("busy", { status: 503, statusText: "Service Unavailable" });
+    }
+    return fetch(url, init);
+  };
+}
+
+/**
+ * Replace every occurrence of a name with another of the same length, so a
+ * Parquet footer keeps its layout.
+ *
+ * @param {Buffer} bytes
+ * @param {string} from
+ * @param {string} to
+ */
+function renameAll(bytes, from, to) {
+  assert.equal(from.length, to.length);
+  for (let at = bytes.indexOf(from); at >= 0; at = bytes.indexOf(from, at)) bytes.write(to, at, "latin1");
+}
+
+/**
+ * Serve files by decoded path, as a static file server does, and record the
+ * requested URLs.
+ *
+ * @param {Map<string, Uint8Array>} files
+ */
+function staticFetch(files) {
+  /** @type {string[]} */
+  const requests = [];
+  const fetch = async (url, init) => {
+    requests.push(String(url));
+    const bytes = files.get(decodeURIComponent(new URL(url).pathname));
+    if (!bytes) return new Response("not found", { status: 404, statusText: "Not Found" });
+    const range = new Headers(init?.headers).get("range")?.match(/^bytes=(\d+)-(\d+)$/);
+    if (!range) return new Response(bytes, { status: 200 });
+    const start = Number(range[1]);
+    const end = Math.min(Number(range[2]), bytes.length - 1);
+    return new Response(bytes.subarray(start, end + 1), {
+      status: 206,
+      headers: { "content-range": `bytes ${start}-${end}/${bytes.length}` },
+    });
+  };
+  return { fetch, requests };
+}

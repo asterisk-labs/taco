@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#ffffff">
 <meta name="description" content="The TACO JavaScript reader, function by function.">
 <title>TACO · JavaScript</title>
-<link rel="icon" href="assets/svg/taco-mark-static.svg?v=2" type="image/svg+xml">
+<link rel="icon" href="assets/svg/taco-mark-static.svg?v=3" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=League+Spartan:wght@300;400;500;600&display=swap" rel="stylesheet">
@@ -17,7 +17,7 @@
 <div class="page">
   <header class="masthead">
     <a class="lockup" href="index.html" aria-label="TACO home">
-      <img class="marksvg" src="assets/svg/taco-mark.svg?v=2" alt="">
+      <img class="marksvg" src="assets/svg/taco-mark.svg?v=3" alt="">
       <span class="wm-sm">TACO</span>
     </a>
 
@@ -69,7 +69,8 @@
         <li>Reader only, TACO 3.0.0</li>
       </ul>
 <pre><code class="language-sh">npm install @asterisk-labs/taco</code></pre>
-      <p>The package reads FOLDER, ZIP and TACOCAT datasets over HTTP. It is pure JavaScript and loads neither libtaco nor DuckDB. It parses the cozip index of a ZIP itself, without <code>@asterisk-labs/cozip</code>, and decodes the metadata Parquet with <a href="https://github.com/hyparam/hyparquet" rel="noopener noreferrer">hyparquet</a> and hyparquet-compressors, its only dependencies. It exports <code>openDataset</code>, <code>read</code>, <code>Dataset</code>, <code>TacoError</code> and <code>SUPPORTED_TACO_VERSION</code>, which is <code>"3.0.0"</code>. Types ship in <code>types/index.d.ts</code>. Samples, levels, locations and the other concepts every reader shares are on the <a href="api.html">API overview</a>.</p>
+      <p>The JavaScript package reads FOLDER, ZIP and TACOCAT datasets over HTTP. It parses CoZIP indexes directly and reads metadata with <a href="https://github.com/hyparam/hyparquet" rel="noopener noreferrer">hyparquet</a> and hyparquet-compressors. It uses neither libtaco nor DuckDB.</p>
+      <p>It exports <code>openDataset</code>, <code>read</code>, <code>Dataset</code>, <code>TacoError</code> and <code>SUPPORTED_TACO_VERSION</code> (<code>"3.0.0"</code>). Types ship in <code>types/index.d.ts</code>. See the <a href="api.html">API overview</a> for shared concepts such as samples, levels and locations.</p>
       <p>Compared with the bindings that load libtaco:</p>
       <ul class="list">
         <li>There is no <code>sql()</code> and no <code>inspect()</code>. Rows are selected with filter objects and raw level reads, and the contract is on the opened <code>Dataset</code>.</li>
@@ -80,15 +81,16 @@
       <p>This page follows the source in the repository. The 0.14.2 release on npm lacks <code>TacoAsset.byteLength</code> and <code>TacoAsset.read</code>, their <code>signal</code> and <code>maxFullBytes</code> options, and the ETag check described under <a href="#caching">Caching</a>.</p>
 
       <h2 class="part" id="sources">Sources</h2>
-      <p>A source is an absolute <code>http://</code> or <code>https://</code> URL in ASCII. Any other scheme fails with <code>INVALID_URL</code>, and a relative path throws <code>TypeError</code>. This holds in Node too, so a local dataset has to be served over HTTP. Use the HTTPS form of a remote store, such as <code>https://data.source.coop/...</code>, a Hugging Face <code>resolve</code> URL or a presigned URL. The prefixes and credentials of the native readers are under <a href="api.html#sources">Sources</a> on the overview.</p>
+      <p>Sources must be absolute ASCII <code>http://</code> or <code>https://</code> URLs. Other schemes fail with <code>INVALID_URL</code>; relative paths throw <code>TypeError</code>. Local datasets must be served over HTTP, including in Node. Remote sources can use <code>https://data.source.coop/...</code>, a Hugging Face <code>resolve</code> URL or a presigned URL. For native reader sources and credentials, see <a href="api.html#sources">Sources and cache</a>.</p>
       <p>With <code>container: "auto"</code>, the default, the reader decides from the URL and the first responses:</p>
       <ol class="list">
         <li>A path that ends in <code>.zip</code>, in any case, is opened as a ZIP.</li>
         <li>A path that ends neither in <code>/</code> nor in <code>.tacocat</code> is tried as a ZIP first. If the server answers 404, or the bytes are not a cozip archive (<code>ARCHIVE_TOO_SMALL</code>, <code>TRUNCATED_INDEX</code>, <code>INVALID_INDEX</code>), it is treated as a directory. Any other error is raised.</li>
-        <li>For a directory the reader fetches <code>COLLECTION.json</code>. The dataset is a TACOCAT if the collection has <code>taco:sources</code>, and a FOLDER otherwise. If the file is missing, the reader tries <code>.tacocat/COLLECTION.json</code>, so the dataset directory and its <code>.tacocat/</code> folder both open, as <a href="spec/index.html#75-tacocat">section 7.5</a> requires.</li>
+        <li>For a directory the reader fetches <code>COLLECTION.json</code>. The dataset is a TACOCAT if the collection has <code>taco:sources</code>, and a FOLDER otherwise. If the file is missing, the reader tries <code>.tacocat/COLLECTION.json</code>, so the dataset directory and its <code>.tacocat/</code> folder both open, as <a href="spec/index.html#75-tacocat">spec 7.5</a> requires.</li>
       </ol>
-      <p>Passing <code>"zip"</code>, <code>"folder"</code> or <code>"tacocat"</code> skips the guessing. A hint that does not match the collection fails with <code>CONTAINER_MISMATCH</code>. The containers themselves are described under <a href="api.html#containers">Containers</a>.</p>
-      <p>A ZIP must be a cozip archive with binary version 1 and profile 2. The reader checks the integrity hash over the index and the last 32 KiB before it trusts an offset, and requires the index to list exactly <code>COLLECTION.json</code> and one <code>METADATA/&lt;level&gt;.parquet</code> per level. Every collection must declare <code>"taco:version": "3.0.0"</code>, and every level file must store its level name under the Parquet key <code>taco:level</code>. In a TACOCAT, partition paths resolve against the directory that holds <code>.tacocat/</code>.</p>
+      <p>Passing <code>"zip"</code>, <code>"folder"</code> or <code>"tacocat"</code> skips the guessing. A <code>"folder"</code> or <code>"tacocat"</code> hint that does not match the collection fails with <code>CONTAINER_MISMATCH</code>. The containers themselves are described under <a href="api.html#containers">Containers</a>.</p>
+      <p>A ZIP must use CoZIP binary version 1 and profile 2. Before trusting offsets, the reader checks the integrity hash over the index and last 32 KiB. The index must list <code>COLLECTION.json</code> and one <code>METADATA/&lt;level&gt;.parquet</code> per level. The collection must declare <code>"taco:version": "3.0.0"</code>, and each Parquet file must store its level name as <code>taco:level</code>.</p>
+      <p>TACOCAT partition paths resolve against the directory containing <code>.tacocat/</code>.</p>
 
       <h2 class="part" id="opening">Opening a dataset</h2>
 
@@ -139,7 +141,8 @@ major-tom-core-dem 3.0.0
         <tr><th>filter</th><td>A filter object, applied to the finished rows. See <a href="#filters">Filters</a>.</td></tr>
         <tr><th>level</th><td>A level name. The call then returns the raw rows of that level, as <a href="#readlevel"><code>readLevel</code></a> does, with <code>idx</code> as a row range and <code>filter</code> passed to the Parquet reader. <code>layout</code>, <code>files</code> and <code>location</code> are ignored.</td></tr>
       </table>
-      <p>Rows come in sample order. A wide row follows the column order under <a href="api.html#read">Read</a>: <code>source_file</code> for a TACOCAT, <code>taco:sample_index</code>, <code>id</code>, the sample metadata in <code>sample.parquet</code> order, then for each selected file its <code>::location</code> column and the Rumi columns that follow it. Internal columns are left out. A variable sequence becomes one array column named after its prefix, ordered by index, and an empty array when a sample has none of its files.</p>
+      <p>Rows follow <code>taco:sample_index</code> order; in the long layout, the files of each sample follow its structure, a folder's files where the folder first appears. A wide row starts with <code>source_file</code> for TACOCAT, then <code>taco:sample_index</code>, <code>id</code> and sample metadata in Parquet order. Each selected file adds its <code>::location</code> column and any Rumi columns. Internal columns are omitted. See <a href="api.html#read">Read</a> for the shared layout.</p>
+      <p>A sequence uses one array column named after its prefix. Values follow sequence index order; a sample without those files gets an empty array.</p>
 <pre><code class="language-js">const [row] = await dataset.read({ idx: 0 });
 console.log(Object.keys(row).length, Object.keys(row).slice(-8));
 console.log(row["dem.rumi::location"]);</code></pre>
@@ -161,23 +164,24 @@ for (const file of files) console.log(file["taco:sample_index"], file.path, file
 1 dem.rumi /vsisubfile/29087_30332,/vsicurl/https://data.source.coop/major-tom/core-dem/core-dem_MT3000km_0001D_0003L.zip</code></pre>
 
       <h3 id="read-cost">Cost</h3>
-      <p>In a ZIP or FOLDER, <code>idx</code> becomes a Parquet row range. In a TACOCAT it is matched against <code>internal:current_id</code> after the whole sample level has been read, so even one sample downloads and decodes all of them. On the Core-DEM TACOCAT, <code>read({ idx: 0, location: false })</code> made 67 requests for 37,619,353 bytes, took 52 s here and peaked at 2.97 GB of memory. To read a few samples of a large TACOCAT, find them with <a href="#readlevel"><code>readLevel</code></a>, whose row ranges and filters stay cheap, then open the partition ZIP named by their <code>internal:source_file</code>, which sits next to <code>.tacocat/</code>, and read them there.</p>
+      <p>For ZIP and FOLDER datasets, <code>idx</code> becomes a Parquet row range. TACOCAT applies it only after reading the full sample level. On Core-DEM, <code>read({ idx: 0, location: false })</code> made 67 requests, transferred 37,619,353 bytes, took 52 s and peaked at 2.97 GB of memory.</p>
+      <p>For a few samples in a large TACOCAT, use <a href="#readlevel"><code>readLevel</code></a> to select rows, then open the adjacent partition ZIP named by <code>internal:source_file</code>.</p>
       <p><code>read</code> matches each file level to its samples with an <code>$in</code> filter on <code>internal:parent_id</code>, which slows down as the number of samples grows. With both levels of the partition already in memory, <code>read({ idx: [0, 1000] })</code> took 120 ms here and <code>read()</code> of all 50,178 samples took 12.3 s, while <code>readLevel</code> returned the whole <code>sample</code> level in 187 ms and the whole <code>children</code> level in 56 ms.</p>
 
       <h3 id="read-function">read</h3>
 <pre><code class="sig language-js">read(source, { container, fetch, requestInit, layout, idx, files, location, filter, level } = {}) -&gt; Promise&lt;object[]&gt;</code></pre>
-      <p>Opens <code>source</code> with the options of <a href="#opendataset"><code>openDataset</code></a> and calls <a href="#dataset-read"><code>dataset.read</code></a> with the rest. <code>files</code> is an option here, not a second argument as in <code>read(source, files)</code> of <a href="spec/index.html#readsource-files">section 8.2</a>. Each call opens the dataset again and keeps nothing, so open a <code>Dataset</code> to read more than once.</p>
+      <p>Opens <code>source</code> with the options of <a href="#opendataset"><code>openDataset</code></a> and calls <a href="#dataset-read"><code>dataset.read</code></a> with the rest. <code>files</code> is an option here, not a second argument as in <code>read(source, files)</code> of <a href="spec/index.html#readsource-files">spec 8.2</a>. Each call opens the dataset again and keeps nothing, so open a <code>Dataset</code> to read more than once.</p>
 
       <h2 class="part" id="levels">Metadata levels</h2>
 
       <h3 id="readlevel">readLevel</h3>
 <pre><code class="sig language-js">dataset.readLevel(level, { columns, filter, rowStart, rowEnd, rowIndexes } = {}) -&gt; Promise&lt;object[]&gt;</code></pre>
-      <p>Returns the stored rows of one level, with their <code>internal:*</code> columns and without any location. Stored columns named <code>cozip:location</code> or <code>taco:location</code> are dropped, because readers compute locations. It takes the place of the raw level relations of <a href="api.html#sql">SQL</a>.</p>
+      <p>Returns the stored rows of one level, with their <code>internal:*</code> columns and without any location. Stored columns named <code>cozip:location</code>, <code>taco:location</code> or <code>taco:sample_index</code> are dropped, because readers compute them. It takes the place of the raw level relations of <a href="api.html#sql">SQL</a>.</p>
       <table class="spec">
         <tr><th>level</th><td>One of <code>dataset.levels</code>. Any other name fails with <code>UNKNOWN_LEVEL</code>.</td></tr>
         <tr><th>columns</th><td>An array of column names to decode, in that order. An unknown name rejects with hyparquet's <code>Error: parquet column not found</code>, which has no code.</td></tr>
         <tr><th>filter</th><td>A filter object, passed to hyparquet. See <a href="#filters">Filters</a>.</td></tr>
-        <tr><th>rowStart, rowEnd</th><td>A half-open row range. A negative value, or a start after the end, throws <code>RangeError</code>.</td></tr>
+        <tr><th>rowStart, rowEnd</th><td>A half-open range of stored rows, applied before <code>filter</code>. Negative values and a start past the end throw <code>RangeError</code>.</td></tr>
         <tr><th>rowIndexes</th><td>An array of row numbers, returned in the given order. It cannot be combined with <code>rowStart</code>, <code>rowEnd</code> or <code>filter</code> (<code>TypeError</code>), and a number past the last row throws <code>RangeError</code>.</td></tr>
       </table>
 <pre><code class="language-js">const [child] = await dataset.readLevel("children", {
@@ -199,7 +203,8 @@ console.log(child);</code></pre>
 
       <h3 id="cachelevel">cacheLevel</h3>
 <pre><code class="sig language-js">dataset.cacheLevel(level, { onProgress } = {}) -&gt; Promise&lt;ArrayBuffer&gt;</code></pre>
-      <p>Downloads the whole Parquet file of a level in one request and keeps it in memory, so later reads of that level make no requests. The promise resolves to the Parquet bytes, which the reader keeps using, so do not modify them. <code>onProgress</code> receives <code>{ loaded, total }</code> at most every 100 ms and once at the end. A second call returns the same buffer.</p>
+      <p>Downloads a level's Parquet file in one request and keeps it in memory. Later reads make no requests, and repeated calls return the same buffer. The reader continues to use those bytes, so do not modify them. <code>onProgress</code> receives <code>{ loaded, total }</code> at most every 100 ms and at completion.</p>
+      <p>If called before any other read of the level, <code>cacheLevel</code> also parses the footer from that request. A file with a different <code>taco:level</code> rejects with <code>INVALID_PARQUET_LEVEL</code>.</p>
 <pre><code class="language-js">const parquet = await dataset.cacheLevel("sample");
 console.log(parquet.byteLength);</code></pre>
 <pre class="output"><code>1309304</code></pre>
@@ -210,8 +215,10 @@ console.log(parquet.byteLength);</code></pre>
         <li><code>{ field: value }</code> keeps rows whose value equals <code>value</code>. Several fields in one object must all match.</li>
         <li><code>{ field: { $gt: value } }</code> compares, with <code>$gt</code>, <code>$gte</code>, <code>$lt</code>, <code>$lte</code>, <code>$eq</code> and <code>$ne</code>. <code>$in</code> and <code>$nin</code> take an array, and <code>$not</code> takes a nested condition.</li>
         <li><code>{ $and: [...] }</code>, <code>$or</code> and <code>$nor</code> take an array of filters and must be the only key of their object.</li>
+        <li>Dates compare by time; arrays, byte arrays and structs compare by content. A Date or byte array can be a whole condition, as in <code>{ "stac:datetime": new Date("2024-01-01T00:00:00Z") }</code>.</li>
+        <li>Range operators never match null or missing values. <code>{ field: null }</code> and <code>$eq: null</code> match both. Negated conditions (<code>$ne</code>, <code>$nin</code>, <code>$not</code>, <code>$nor</code>) retain them. <code>$in</code> and <code>$nin</code> also inspect items in an array value.</li>
       </ul>
-      <p>An unknown operator fails with <code>INVALID_FILTER</code>. In <code>readLevel</code>, a filter on <code>cozip:location</code> or <code>taco:location</code> fails with <code>PROTECTED_COLUMN</code>.</p>
+      <p>An unknown operator fails with <code>INVALID_FILTER</code>. In <code>readLevel</code>, a filter on <code>cozip:location</code>, <code>taco:location</code> or <code>taco:sample_index</code> fails with <code>PROTECTED_COLUMN</code>.</p>
       <p>The two methods apply a filter in different places. <code>readLevel</code> hands it to hyparquet, which skips row groups whose statistics rule it out and fetches only the pages it needs. <code>read</code> applies it to the finished rows, so it saves no reading, but it can test generated columns such as <code>dem.rumi::mean</code>.</p>
 <pre><code class="language-js">const high = await dataset.readLevel("sample", {
   columns: ["internal:current_id", "id", "geoenrich:elevation"],
@@ -228,7 +235,7 @@ console.log(high.length, top);</code></pre>
   'geoenrich:elevation': 5634.9560546875
 }</code></pre>
       <p>Filter columns need not be in <code>columns</code>. On the whole TACOCAT the same filter returns the same 492 samples after reading 2,024,940 of the 37,294,786 bytes of <code>sample.parquet</code>, as traced under <a href="#requests">Requests</a>.</p>
-      <p>hyparquet compares values with JavaScript's own operators, so in <code>readLevel</code> compare a 64-bit integer column with a BigInt. Here <code>{ "internal:current_id": 28679 }</code> returned no rows and <code>{ "internal:current_id": 28679n }</code> returned one. <code>read</code> treats a BigInt and a Number of the same value as equal.</p>
+      <p><code>read</code> and <code>readLevel</code> share hyparquet's filter rules except for 64-bit integers and for stored columns whose names contain a dot, which hyparquet would read as a path: <code>readLevel</code> applies such a filter to the decoded rows with the rules of <code>read</code>, and skips no row groups for it. For <code>readLevel</code>, use a BigInt: <code>{ "internal:current_id": 28679 }</code> found no rows, while <code>{ "internal:current_id": 28679n }</code> found one. <code>read</code> treats equal BigInt and Number values as equal.</p>
 
       <h3 id="sql">SQL</h3>
       <p>The package has no <code>sql()</code> and loads no SQL engine, so the relations described under <a href="api.html#sql">SQL</a> are not available. <a href="#readlevel"><code>readLevel</code></a> and filters cover raw access and row selection. The playground runs SQL in the browser with DuckDB-Wasm, as described under <a href="#playground">Playground</a>.</p>
@@ -247,7 +254,7 @@ console.log(high.length, top);</code></pre>
 
       <h3 id="resolveasset">resolveAsset</h3>
 <pre><code class="sig language-js">dataset.resolveAsset(location) -&gt; TacoAsset</code></pre>
-      <p>Turns a location into an object that <code>fetch</code> can read, without a request. It accepts <code>/vsisubfile/{offset}_{size},/vsicurl/{url}</code>, <code>/vsicurl/{url}</code> or a plain HTTP(S) URL. Another scheme fails with <code>INVALID_URL</code>, and a bad offset or size with <code>INVALID_LOCATION</code>. How the other bindings open a file is under <a href="api.html#files">Files</a>.</p>
+      <p>Turns a location into an object that reads the file through <code>fetch</code>. It makes no request. It accepts <code>/vsisubfile/{offset}_{size},/vsicurl/{url}</code>, <code>/vsicurl/{url}</code> or a plain HTTP(S) URL. Another scheme fails with <code>INVALID_URL</code>, and a bad offset or size with <code>INVALID_LOCATION</code>. How the other bindings open a file is under <a href="api.html#files">Open a file</a>.</p>
 
       <h3 id="tacoasset">TacoAsset</h3>
       <table class="spec">
@@ -341,12 +348,12 @@ console.log(log.length, log.slice(0, 3));</code></pre>
   '206 .tacocat/sample.parquet bytes=36770498-37294785',
   '206 .tacocat/sample.parquet bytes=2632691-2635492'
 ]</code></pre>
-      <p>Opening the TACOCAT from its dataset directory takes two requests: <code>COLLECTION.json</code> at the top, which is missing, then <code>.tacocat/COLLECTION.json</code>, fetched whole without <code>Range</code>. Passing the <code>.tacocat/</code> URL saves the first. A level is touched only when a call needs it, and then costs one byte for its size, the 512 KiB footer and the pages. The filter took 40 requests for 2,024,940 bytes, 5.4% of <code>sample.parquet</code>. A FOLDER is read the same way, with one GET for <code>COLLECTION.json</code> and ranges for each level.</p>
+      <p>Opening a TACOCAT from its dataset directory first requests the missing top-level <code>COLLECTION.json</code>, then fetches <code>.tacocat/COLLECTION.json</code>. Passing the <code>.tacocat/</code> URL saves that first request. Each level is read on demand: a one-byte size probe, a 512 KiB footer, then data pages. This filter made 40 requests for 2,024,940 bytes, or 5.4% of <code>sample.parquet</code>. A FOLDER follows the same pattern, starting with one collection GET.</p>
 
       <h2 class="part" id="caching">Caching</h2>
       <ul class="list">
-        <li>Everything is kept in memory, in the <code>Dataset</code>. Nothing is written to disk, and the cache variables under <a href="api.html#sources">Sources</a> do not apply. Each <code>openDataset</code>, and each call of the <code>read</code> function, starts again.</li>
-        <li>The footer of each level is fetched once per <code>Dataset</code>.</li>
+        <li>Everything is kept in memory, in the <code>Dataset</code>. Nothing is written to disk, and the cache variables under <a href="api.html#sources">Sources and cache</a> do not apply. Each <code>openDataset</code>, and each call of the <code>read</code> function, starts again.</li>
+        <li>Each level's footer is fetched once per <code>Dataset</code>. Failed requests are retried on the next call.</li>
         <li>Pages are not kept. Reading sample 1 right after sample 0 fetched the same two page ranges again.</li>
         <li><a href="#cachelevel"><code>cacheLevel</code></a> keeps a whole level, and later reads of it make no requests.</li>
         <li>When a server answers a range request with 200 and the whole object, the reader keeps that body and serves later reads of the object from it.</li>
@@ -355,7 +362,7 @@ console.log(log.length, log.slice(0, 3));</code></pre>
       <p>An open <code>Dataset</code> is a snapshot. The reader remembers the size and ETag of each object from its first response. A later response with another size or ETag, or a <code>412</code>, fails with <code>SOURCE_CHANGED</code>. The reader does not send <code>If-Match</code>.</p>
 
       <h2 class="part" id="errors">Errors</h2>
-      <p>Wrong argument types throw <code>TypeError</code> and numbers out of range throw <code>RangeError</code>, with messages that start with <code>taco:</code>. Everything else throws <code>TacoError</code>, whose <code>name</code> is <code>"TacoError"</code>, whose <code>code</code> names the problem, and whose message starts with <code>taco CODE:</code>. Errors from hyparquet, such as an unknown column, are plain <code>Error</code> without a code. The errors of the native readers are under <a href="api.html#errors">Errors</a> on the overview.</p>
+      <p>Invalid argument types throw <code>TypeError</code>; out-of-range numbers throw <code>RangeError</code>. Their messages start with <code>taco:</code>. Other package failures throw <code>TacoError</code> with a <code>code</code> and a message beginning <code>taco CODE:</code>. hyparquet errors, such as unknown columns, are plain <code>Error</code> values without codes. See <a href="api.html#errors">Errors</a> for the native readers.</p>
 <pre><code class="language-js">import { openDataset, TacoError } from "@asterisk-labs/taco";
 
 const sources = [
@@ -380,7 +387,7 @@ true TacoError HTTP_ERROR taco HTTP_ERROR: HTTP 404  for https://data.source.coo
         <tr><td><code>INVALID_RANGE</code></td><td>A 206 without a valid <code>Content-Range</code>, one for another range, or a body of the wrong length.</td></tr>
         <tr><td><code>SOURCE_CHANGED</code></td><td>An object whose size or ETag changed between requests, or a 412.</td></tr>
         <tr><td><code>FULL_RESPONSE_TOO_LARGE</code></td><td>A server ignored <code>Range</code> and sent more than <code>maxFullBytes</code>.</td></tr>
-        <tr><td><code>ARCHIVE_TOO_SMALL</code>, <code>TRUNCATED_INDEX</code>, <code>INVALID_INDEX</code>, <code>UNSUPPORTED_COZIP_VERSION</code>, <code>UNKNOWN_PROFILE</code>, <code>HASH_MISMATCH</code>, <code>INVALID_OFFSET</code>, <code>MISSING_ENTRY</code></td><td>The ZIP is not a valid cozip archive of profile 2. See <a href="spec/index.html#33-cloud-optimized-zip">section 3.3</a>.</td></tr>
+        <tr><td><code>ARCHIVE_TOO_SMALL</code>, <code>TRUNCATED_INDEX</code>, <code>INVALID_INDEX</code>, <code>UNSUPPORTED_COZIP_VERSION</code>, <code>UNKNOWN_PROFILE</code>, <code>HASH_MISMATCH</code>, <code>INVALID_OFFSET</code>, <code>MISSING_ENTRY</code></td><td>The ZIP is not a valid cozip archive of profile 2. See <a href="spec/index.html#33-cloud-optimized-zip">spec 3.3</a>.</td></tr>
         <tr><td><code>INVALID_PRIORITY_INDEX</code></td><td>The index does not list exactly <code>COLLECTION.json</code> and the level files.</td></tr>
         <tr><td><code>INVALID_COLLECTION</code>, <code>UNSUPPORTED_TACO_VERSION</code>, <code>INVALID_CONTRACT</code>, <code>INVALID_PATH</code></td><td><code>COLLECTION.json</code> breaks the specification, or declares a TACO version other than 3.0.0.</td></tr>
         <tr><td><code>CONTAINER_MISMATCH</code></td><td>The <code>container</code> hint does not match the collection.</td></tr>
@@ -411,7 +418,7 @@ console.log(row.id, bytes.byteLength);</code></pre>
       <p>Source Cooperative answers with <code>Access-Control-Allow-Origin: *</code> and <code>Access-Control-Expose-Headers: *</code>, so its datasets open from any page.</p>
 
       <h2 class="part" id="playground">Playground</h2>
-      <p>The <a href="playground/index.html">playground</a> is a page built on this package. It imports <code>src/index.js</code> from the site, where <code>make site</code> copies it, and loads hyparquet 1.30.0 and hyparquet-compressors 1.1.1 from jsDelivr through an import map. Before calling the package it rewrites <code>source.coop</code> links to <code>data.source.coop</code> and Hugging Face <code>tree</code> and <code>blob</code> links to <code>resolve</code> links; the package itself takes a URL as given. For each dataset it:</p>
+      <p>The <a href="playground/index.html">playground</a> uses this package. The site build copies <code>src/index.js</code>; an import map loads hyparquet 1.30.0 and hyparquet-compressors 1.1.1 from jsDelivr. The page converts <code>source.coop</code> links to <code>data.source.coop</code> and Hugging Face <code>tree</code> or <code>blob</code> links to <code>resolve</code>. The package receives the resulting URL unchanged. For each dataset, the playground:</p>
       <ol class="list">
         <li>calls <code>openDataset(url)</code>, then <code>levelRowCount("sample")</code>, and downloads the level with <code>cacheLevel("sample", { onProgress })</code> to drive its progress bar.</li>
         <li>picks random rows and decodes only <code>internal:current_id</code>, the centroid and, in a TACOCAT, <code>internal:source_file</code>, with <code>readLevel("sample", { columns, rowIndexes })</code>, to draw the points.</li>
@@ -420,7 +427,8 @@ console.log(row.id, bytes.byteLength);</code></pre>
         <li>downloads a file with <code>resolveAsset(location).blob()</code>.</li>
         <li>previews a Rumi file with <code>@asterisk-labs/rumi</code> and its GeoZL WebAssembly decoder. It calls <code>byteLength</code> with <code>maxFullBytes</code> at 64 MiB, reads a file of up to 32 MiB (8 MiB on narrow screens) in one <code>read(0, size)</code>, and hands a larger file to Rumi as a source whose reads call <code>asset.read(offset, length)</code>, so only the ranges Rumi asks for are fetched.</li>
       </ol>
-      <p>The SQL tab is not part of the package. The playground loads DuckDB-Wasm 1.32.0 from jsDelivr, registers the cached <code>sample.parquet</code> bytes, and defines two views: <code>sample</code>, the raw level, and <code>dataset</code>, with <code>source_file</code>, <code>taco:sample_index</code> taken from the row number, <code>id</code> and the sample metadata, but no file columns. A query must return <code>taco:sample_index</code>, or <code>internal:current_id</code> when it reads <code>sample</code>, and the map then shows the matching samples.</p>
+      <p>The SQL tab belongs to the playground, not the package. It loads DuckDB-Wasm 1.32.0 and registers cached <code>sample.parquet</code> bytes. The <code>sample</code> view exposes the raw level; <code>dataset</code> adds <code>source_file</code>, a row-number <code>taco:sample_index</code>, <code>id</code> and sample metadata, without file columns.</p>
+      <p>To show matches on the map, a query must return <code>taco:sample_index</code>, or <code>internal:current_id</code> when querying <code>sample</code>.</p>
 
       <h2 class="part" id="development">Development</h2>
 <pre><code class="language-sh">cd javascript
@@ -429,7 +437,7 @@ npm run types         # tsc, writes types/ from the JSDoc
 npm test              # node --test against a local fixture server
 npm run test:remote   # opens the published fixtures on Hugging Face
 npm run test:rumi     # decodes Rumi files through TACO ranges</code></pre>
-      <p><code>npm test</code> also checks the syntax of the playground scripts. <code>make javascript</code> runs <code>npm ci</code>, the type build, the tests and <code>npm pack --dry-run</code>. The package shares one version with the core and the other packages, kept in <code>javascript/package.json</code> and <code>javascript/package-lock.json</code> as <code>RELEASING.md</code> describes.</p>
+      <p><code>npm test</code> also checks the syntax of the playground scripts. <code>make javascript</code> runs <code>npm ci</code>, the type build, the tests and <code>npm pack --dry-run</code>. The package shares one version with the core and the other packages, kept in <code>javascript/package.json</code> and <code>javascript/package-lock.json</code> as <code>docs/RELEASING.md</code> describes.</p>
 
       <nav class="pager" aria-label="Pages">
         <a class="prev" href="api-c.html"><span>Previous</span>C</a>

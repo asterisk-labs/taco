@@ -11,7 +11,8 @@ import { fail } from "../errors.js";
 export function parseCollectionJson(bytes, source) {
   let value;
   try {
-    value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+    // Keep a byte order mark, so JSON.parse rejects it as the native reader does.
+    value = JSON.parse(new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes));
   } catch (error) {
     fail("INVALID_COLLECTION", `could not parse ${source}: ${error instanceof Error ? error.message : error}`);
   }

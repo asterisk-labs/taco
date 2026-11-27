@@ -1,9 +1,10 @@
-import { parquetMetadataAsync, parquetQuery, parquetScan, parquetSchema } from "hyparquet";
+import { parquetMetadataAsync, parquetReadObjects, parquetScan, parquetSchema } from "hyparquet";
 import { compressors } from "hyparquet-compressors";
 import { fail } from "../errors.js";
-import { filterColumns } from "../reader/filter.js";
+import { filterColumns, filterPaths, matchesFilter, parquetFilter } from "../reader/filter.js";
 
-export const PROTECTED_LOCATION_COLUMNS = new Set(["cozip:location", "taco:location"]);
+// Readers generate these columns (spec 5.4), so stored values are dropped.
+export const READER_COLUMNS = new Set(["cozip:location", "taco:location", "taco:sample_index"]);
 
 export class TacoParquet {
   /**
@@ -13,7 +14,7 @@ export class TacoParquet {
   constructor(file, level) {
     this.file = file;
     this.level = level;
-    this.metadataPromise = this.readMetadata();
+    this.metadataPromise = null;
     this.cachePromise = null;
   }
 
@@ -28,7 +29,7 @@ export class TacoParquet {
       const download = this.file.readAll
         ? this.file.readAll(onProgress)
         : this.file.slice(0, this.file.byteLength);
-      this.cachePromise = download.then((buffer) => {
+      const promise = download.then((buffer) => {
         /** @type {{byteLength: number, slice(start: number, end?: number): Promise<ArrayBuffer>}} */
         const cachedFile = {
           byteLength: buffer.byteLength,
@@ -37,19 +38,37 @@ export class TacoParquet {
         this.file = cachedFile;
         return buffer;
       });
+      // Retry failed downloads on the next call.
+      promise.catch(() => {
+        if (this.cachePromise === promise) this.cachePromise = null;
+      });
+      this.cachePromise = promise;
     }
     const buffer = await this.cachePromise;
+    await this.metadata();
     onProgress?.({ loaded: this.file.byteLength, total: this.file.byteLength });
     return buffer;
   }
 
   /** Return the number of rows without decoding the Parquet body. */
   async rowCount() {
-    const rows = (await this.metadataPromise).num_rows;
+    const rows = (await this.metadata()).num_rows;
     if (rows < 0n || rows > BigInt(Number.MAX_SAFE_INTEGER)) {
       fail("UNSAFE_INTEGER", `${this.level} row count exceeds JavaScript's safe integer range`);
     }
     return Number(rows);
+  }
+
+  /** Read and check the footer on demand; retry after failure. */
+  metadata() {
+    if (!this.metadataPromise) {
+      const promise = this.readMetadata();
+      promise.catch(() => {
+        if (this.metadataPromise === promise) this.metadataPromise = null;
+      });
+      this.metadataPromise = promise;
+    }
+    return this.metadataPromise;
   }
 
   async readMetadata() {
@@ -83,9 +102,7 @@ export class TacoParquet {
     ) {
       throw new TypeError("taco: columns must be an array of non-empty strings");
     }
-    const protectedFilter = filterColumns(options.filter).filter((name) =>
-      PROTECTED_LOCATION_COLUMNS.has(name),
-    );
+    const protectedFilter = filterColumns(options.filter).filter((name) => READER_COLUMNS.has(name));
     if (protectedFilter.length) {
       fail(
         "PROTECTED_COLUMN",
@@ -94,29 +111,48 @@ export class TacoParquet {
     }
 
     const requested = options.columns ? [...new Set(options.columns)] : undefined;
-    let columns = requested?.filter((name) => !PROTECTED_LOCATION_COLUMNS.has(name));
+    let columns = requested?.filter((name) => !READER_COLUMNS.has(name));
     let sentinel = false;
     if (columns && columns.length === 0) {
       columns = ["internal:current_id"];
       sentinel = true;
     }
-    const metadata = await this.metadataPromise;
+    const metadata = await this.metadata();
     /** @type {Record<string, any>[]} */
-    const rows = options.rowIndexes
-      ? await readRowIndexes(this.file, metadata, columns, options.rowIndexes)
-      : await parquetQuery({
-          file: this.file,
-          metadata,
-          compressors,
-          columns,
-          filter: options.filter,
-          rowStart: options.rowStart,
-          rowEnd: options.rowEnd,
-          useOffsetIndex: true,
-          utf8: false,
-        });
+    let rows;
+    if (options.rowIndexes) {
+      rows = await readRowIndexes(this.file, metadata, columns, options.rowIndexes);
+    } else {
+      // hyparquet splits filter paths at dots, so it cannot find a stored
+      // column whose name contains one. Such a filter runs after the read.
+      const filter = options.filter;
+      const names = parquetSchema(metadata).children.map((child) => child.element.name);
+      const paths = filterPaths(filter);
+      const local = paths.some((path) => path.includes(".") && names.includes(path));
+      const extra = new Set(local && columns
+        ? paths.map((path) => (names.includes(path) ? path : path.split(".")[0]))
+        : []);
+      for (const name of columns ?? []) extra.delete(name);
+      // parquetReadObjects filters the stored rows in [rowStart, rowEnd).
+      // parquetQuery would cut that range out of the filtered rows instead.
+      rows = await parquetReadObjects({
+        file: this.file,
+        metadata,
+        compressors,
+        columns: columns && [...columns, ...extra],
+        filter: filter && !local ? parquetFilter(filter) : undefined,
+        rowStart: options.rowStart,
+        rowEnd: options.rowEnd,
+        useOffsetIndex: true,
+        utf8: false,
+      });
+      if (local) {
+        rows = rows.filter((row) => matchesFilter(row, filter));
+        for (const row of rows) for (const name of extra) delete row[name];
+      }
+    }
     for (const row of rows) {
-      for (const name of PROTECTED_LOCATION_COLUMNS) delete row[name];
+      for (const name of READER_COLUMNS) delete row[name];
       if (sentinel) delete row["internal:current_id"];
     }
     return rows;

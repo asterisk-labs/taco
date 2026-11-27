@@ -1205,7 +1205,9 @@ async function metadataPagesForPoint(point) {
       : [];
     rows.forEach((row) => {
       const path = contractPath(row["internal:relative_path"]);
-      const location = metadataLocation(row);
+      // A folder row has no location.
+      const folder = state.dataset.levels.includes(`children/${path}`);
+      const location = folder ? null : metadataLocation(row);
       if (path && location) locations.set(locationKey(row["internal:source_file"], path), location);
     });
     selectedRows.set(level, rows);

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from pathlib import PurePosixPath
 
 import pyarrow as pa
@@ -34,6 +35,9 @@ LEVEL_SEPARATOR = "__"
 # Windows forbids these in file names; TACO reserves ':' (namespaces) and
 # '__' (level separator) on top of that. '/' is the path separator.
 _FORBIDDEN_IN_COMPONENT = frozenset('<>:"\\|?*[]')
+# Partition labels also replace apostrophes and non-ASCII characters.
+_UNSAFE_IN_STEM = re.compile(r'[<>:"\\|?*\[\]/]|[^\x20-\x7e]')
+_UNSAFE_IN_LABEL = re.compile(r'[<>:"\\|?*\[\]/\']|[^\x20-\x7e]')
 _SIZE_PATTERN = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*([KMGT]?I?B?)\s*$", re.I)
 _SIZE_UNITS = {
     "": 1,
@@ -84,8 +88,10 @@ def normalize_relative_path(value: str, *, context: str, allow_glob: bool = Fals
     path = PurePosixPath(value)
     if path.is_absolute() or str(path) != value or value.endswith("/"):
         raise ContractError(f"{context} must be a normalized relative POSIX path: {value!r}")
-    for index, part in enumerate(path.parts):
-        validate_component(part, context=context, allow_glob=allow_glob and index == len(path.parts) - 1)
+    # PurePosixPath('.') has no parts, so split the text itself.
+    parts = value.split("/")
+    for index, part in enumerate(parts):
+        validate_component(part, context=context, allow_glob=allow_glob and index == len(parts) - 1)
     return value
 
 
@@ -200,11 +206,24 @@ def rumi_file_field(name: str) -> str | None:
     return None
 
 
+def _without_accents(text: str) -> str:
+    return "".join(char for char in unicodedata.normalize("NFKD", text) if not unicodedata.combining(char))
+
+
 def sanitize_filename(value: str) -> str:
-    """Make a partition value safe to use in a file name."""
-    sanitized = re.sub(r'[/\\:*?"<>|\']', "_", str(value))
+    """Turn a partition value into a safe filename label."""
+    sanitized = _UNSAFE_IN_LABEL.sub("_", _without_accents(str(value)))
     sanitized = re.sub(r"[_\s]+", "_", sanitized).strip("_")
     return sanitized or "group"
+
+
+def partition_filename(stem: str, label: str) -> str:
+    """Make a single-component partition filename (SPEC 7.5)."""
+    # Preserve the stem except where it would make the name invalid.
+    stem = re.sub(r"_{2,}", "_", _UNSAFE_IN_STEM.sub("_", _without_accents(stem))).rstrip("_")
+    name = f"{stem}_{label}.zip" if stem else f"{label}.zip"
+    validate_component(name, context="partition file name")
+    return name
 
 
 def parse_size(value: int | str) -> int:

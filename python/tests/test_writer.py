@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import errno
 import io
 import json
+import os
+import stat
+import sys
 import time
 import zipfile
 from dataclasses import dataclass
@@ -173,7 +177,8 @@ def test_failed_append_keeps_existing_dataset(
     def fail(*args, **kwargs) -> None:
         raise OSError("disk full")
 
-    monkeypatch.setattr(folder_module, "publish_many", fail)
+    # The collection is published last, after DATA/ and METADATA/ took the new files.
+    monkeypatch.setattr(folder_module, "publish_file", fail)
     with taco.open_writer(collection, output, append=True) as writer:
         writer.add(make_sample(1))
         with pytest.raises(OSError, match="disk full"):
@@ -181,6 +186,7 @@ def test_failed_append_keeps_existing_dataset(
 
     after = {path.relative_to(output): path.read_bytes() for path in output.rglob("*") if path.is_file()}
     assert after == before
+    assert sorted(path.name for path in output.iterdir()) == ["COLLECTION.json", "DATA", "METADATA"]
 
 
 def test_writer_mode_is_selected_from_path(tmp_path: Path, collection: taco.Collection) -> None:
@@ -558,6 +564,54 @@ def test_overwrite_zip(tmp_path: Path, collection: taco.Collection, make_sample)
         writer.add(make_sample(0))
         writer.run()
     assert output.read_bytes().startswith(b"PK")
+
+
+def test_outputs_are_published_without_hard_links(
+    tmp_path: Path, collection: taco.Collection, make_sample, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def no_hard_links(self: Path, target: Path) -> None:
+        raise OSError(errno.EPERM, "Operation not permitted", str(self))
+
+    monkeypatch.setattr(Path, "hardlink_to", no_hard_links)
+    for output, partition_size in ((tmp_path / "single" / "data.zip", None), (tmp_path / "parts" / "data.zip", 1)):
+        with taco.open_writer(collection, output, partition_size=partition_size) as writer:
+            writer.extend(make_sample(index) for index in range(2))
+            result = writer.run()
+        assert taco.validate(result.path).ok
+        assert open_view(result.path).sample_count == 2
+    assert [path.name for path in (tmp_path / "single").iterdir()] == ["data.zip"]
+    assert sorted(path.name for path in (tmp_path / "parts").iterdir()) == [
+        ".tacocat",
+        "data_part0001.zip",
+        "data_part0002.zip",
+    ]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX permissions")
+def test_outputs_follow_the_umask_without_changing_it(
+    tmp_path: Path, collection: taco.Collection, make_sample, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def changed(mask: int) -> int:
+        raise AssertionError("the writer changed the process umask")
+
+    previous = os.umask(0o027)
+    try:
+        with monkeypatch.context() as patch:
+            patch.setattr(os, "umask", changed)
+            for output in (tmp_path / "data.zip", tmp_path / "folder"):
+                with taco.open_writer(collection, output) as writer:
+                    writer.add(make_sample(0))
+                    writer.run()
+    finally:
+        os.umask(previous)
+
+    def mode(path: Path) -> int:
+        return stat.S_IMODE(path.stat().st_mode)
+
+    folder = tmp_path / "folder"
+    assert mode(tmp_path / "data.zip") == 0o640
+    assert [mode(path) for path in (folder, folder / "DATA", folder / "DATA" / "0")] == [0o750] * 3
+    assert {mode(path) for path in folder.rglob("*") if path.is_file()} == {0o640}
 
 
 def test_folder_hardlinks(tmp_path: Path, collection: taco.Collection, make_sample) -> None:

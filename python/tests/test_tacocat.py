@@ -170,6 +170,38 @@ def test_source_paths_must_be_normalized_zip_paths(
     assert any(issue.code == "sources" for issue in report.errors)
 
 
+def test_consolidate_keeps_partitions_below_the_catalog(
+    tmp_path: Path, collection: taco.Collection, make_sample
+) -> None:
+    parts = [
+        build(tmp_path / "parts" / "a.zip", collection, [make_sample(0)]),
+        build(tmp_path / "parts" / "b.zip", collection, [make_sample(1)]),
+    ]
+    with pytest.raises(ConsolidationError, match=r"is not below .*catalog, the directory that holds the TACOCAT"):
+        taco.consolidate(parts, tmp_path / "catalog")
+    assert not (tmp_path / "catalog").exists()
+
+    output = taco.consolidate(parts, tmp_path)
+    partitions = open_view(output).collection_json["taco:sources"]["partitions"]
+    assert [partition["file"] for partition in partitions] == ["parts/a.zip", "parts/b.zip"]
+    assert taco.validate(output).ok
+    assert taco.open_dataset(tmp_path).read().num_rows == 2
+
+
+@pytest.mark.parametrize(
+    ("name", "message"),
+    [("São.zip", "printable ASCII"), ("b[1].zip", "forbidden characters"), ("b.taco", r"must end in \.zip")],
+)
+def test_consolidate_rejects_source_paths_that_readers_refuse(
+    name: str, message: str, tmp_path: Path, collection: taco.Collection, make_sample
+) -> None:
+    first = build(tmp_path / "a.zip", collection, [make_sample(0)])
+    second = build(tmp_path / "b.zip", collection, [make_sample(1)]).rename(tmp_path / name)
+    with pytest.raises(ConsolidationError, match=message):
+        taco.consolidate([first, second])
+    assert not (tmp_path / ".tacocat").exists()
+
+
 class Place(BaseModel):
     region: str
     city: str
@@ -207,7 +239,7 @@ def test_consolidate_takes_columns_by_name(
         return table.select(reorder(table.column_names)) if level == "sample" else table
 
     monkeypatch.setattr(DatasetView, "level", reordered)
-    output = taco.consolidate(parts, tmp_path / "places")
+    output = taco.consolidate(parts, tmp_path, name="places")
     monkeypatch.undo()
 
     table = open_view(output).level("sample")

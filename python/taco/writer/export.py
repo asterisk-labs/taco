@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterator
+from decimal import Decimal
 from os import PathLike, fspath
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import pyarrow as pa
 
@@ -146,10 +148,19 @@ class _Source:
         table = connection.execute(
             f"SELECT DISTINCT {_sql_identifier(SAMPLE_INDEX)} FROM ({selection}) AS taco_selected"
         ).to_arrow_table()
-        ids = table.column(SAMPLE_INDEX).to_pylist()
-        if any(isinstance(sample, bool) or not isinstance(sample, int) or sample < 0 for sample in ids):
-            raise ValueError(f"sql must return non-negative integer {SAMPLE_INDEX} values")
-        return set(ids)
+        selected: set[int] = set()
+        for sample in table.column(SAMPLE_INDEX).to_pylist():
+            if isinstance(sample, Decimal) and sample == sample.to_integral_value():
+                sample = int(sample)  # DuckDB returns HUGEINT as a Decimal
+            if sample is None:
+                continue
+            if isinstance(sample, bool) or not isinstance(sample, int):
+                raise ValueError(f"sql must return integer {SAMPLE_INDEX} values")
+            # Values that do not belong to the source are ignored. Indices past
+            # the last sample that fit in uint64 fall out of the level joins.
+            if 0 <= sample < 2**64:
+                selected.add(sample)
+        return selected
 
     def _selection_level(self, level: str) -> str:
         statement = native.sql([self.opened], idx=None, level=level, pivoted=True, files=None, location=False)
@@ -242,6 +253,10 @@ class _Source:
 def _join(location: Location, *parts: str) -> str:
     if isinstance(location, Path):
         return fspath(location.joinpath(*parts))
+    if location.startswith(("file://", "http://", "https://")):
+        # Their paths are percent-decoded. Encode names as encodeURIComponent
+        # does, keeping '/', like the core's encode_uri_path.
+        parts = tuple(quote(part, safe="/!*'()") for part in parts)
     return "/".join((location.rstrip("/"), *parts))
 
 

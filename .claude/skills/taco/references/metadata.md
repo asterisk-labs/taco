@@ -1,7 +1,7 @@
 # Metadata
 
 See `python/taco/contract/schema.py`, `contract/types.py`,
-`python/taco/extensions/sample/stac/` and SPEC 5.4 to 5.6.
+`python/taco/extensions/_builtin/stac/` and SPEC 5.4 to 5.6.
 
 Tabular metadata describes samples and the nodes inside them, one Parquet per level.
 Collection metadata describes the dataset once and lives in `COLLECTION.json`. The two
@@ -26,8 +26,9 @@ imply fails: `metadata has unknown levels ['children/nope']; valid levels are
 ['sample', 'children']`.
 
 A namespace matches `[a-z][a-z0-9_]*`; `taco`, `internal` and `cozip` are reserved.
-`stac`, `spatial`, `temporal`, `rumi`, `majortom`, `geoenrich` and `split` belong to the built-in
-extensions: a model or extension that declares no namespace cannot bind them
+`stac`, `spatial`, `temporal`, `rumi`, `majortom`, `geoenrich`, `split`,
+`instrument`, `labels` and `ml` belong to built-in extensions. A model or
+extension that declares no namespace cannot bind them
 (`metadata namespace 'majortom' is reserved for the majortom extension`).
 A field name must be non-empty and contain no `:`, `/`, `__` or NUL. The qualified
 name `namespace:field` must be unique in its level, ignoring case: `quality:score` and
@@ -60,8 +61,9 @@ A group is bound to what it can describe through `__taco_scopes__`:
 | `taco.extensions.sample.<name>` | `sample` | Fields in any metadata level |
 | `taco.extensions.collection.<name>` | `collection` | Fields in `COLLECTION.json` |
 
-The library ships no split, label, band or scaling models. Define a Pydantic model
-in your own namespace, as the canonical workflow does with `ML`.
+The library ships `Split` for sample partitions and `Instrument`, `Labels` and
+`ML` for collection metadata. Define a Pydantic model in your own namespace for
+other fields.
 
 Collection models cannot be bound to levels, and sample models cannot be passed to
 `Collection`. An unscoped `BaseModel` works in either place. Rumi also requires a
@@ -139,7 +141,7 @@ Either match that nullability exactly, or make the **whole group** nullable with
 `Model | None`. Anything in between raises `SPATIAL metadata at level 'sample' must use
 canonical nullability or make the complete optional group nullable`.
 
-The row rules live in `extensions/sample/stac/models.py`. `taco.validate()` applies
+The row rules live in `extensions/_builtin/stac/models.py`. `taco.validate()` applies
 them to every stored row.
 
 - **Time**: `datetime`, or `start_datetime` and `end_datetime` together; the range is

@@ -30,7 +30,8 @@ valid for partitioned ZIP datasets` (or `workers requires a partitioned ZIP data
 when the output is a `.zip` without partitioning), `a FOLDER dataset is a directory,
 not an archive name`, and `taco:sources is reserved for TACOCAT` when the collection carries it.
 
-`row_group_size` belongs to the writer, not `parquet_options`: passing it there raises
+Batches are gathered until they fill `row_group_size` rows, so the defaults give row
+groups of 65,536 rows. `row_group_size` belongs to the writer, not `parquet_options`: passing it there raises
 `pass row_group_size as a writer argument, not in parquet_options`.
 
 ## Lifecycle
@@ -56,17 +57,35 @@ with taco.open_writer(collection, "ds.zip") as writer:
 `BuildResult` carries `path`, `samples`, `data_files`, `metadata_files`, `size`, and
 `parts` for a partitioned build.
 
-## How a build becomes atomic
+## Publication and recovery
 
-A ZIP is planned, then written to a `mkstemp` temporary beside the target and renamed
-into place only after `cozip_write` returns, so a reader never sees half an archive.
-The published file follows the umask rather than the `0600` of `mkstemp`.
+A ZIP is planned, then written inside a private temporary directory beside the target
+and renamed into place only after `cozip_write` returns, so a reader never sees half an
+archive. Created there as a new file, it follows the umask; the writer never calls
+`os.umask`, which would race with other threads.
 
-A new FOLDER is built in a sibling `.<name>.build-*` directory and moved in one step.
-An append writes new `DATA/<idx>/` directories first, then replaces `METADATA/` and
-`COLLECTION.json` together through `publish_many`, which keeps a backup and rolls both
-back if either fails. New sample directories are removed on failure, so a failed
-append leaves the published dataset untouched.
+`overwrite=False` publication links the output into place so an existing one is never
+replaced. Where the file system has no hard links (exFAT, SMB, some FUSE mounts) it
+renames with `RENAME_NOREPLACE` or `RENAME_EXCL` (`container/publish.py`, through
+ctypes), and as a last resort checks the target and renames.
+
+A new FOLDER is built as `<name>/` inside a private sibling `.<name>.build-*`
+directory, so it follows the umask, and moved in one step.
+An append stages new samples, rewritten Parquet levels, and `COLLECTION.json` in
+`<dataset>/.taco-append/`. An OS lock (`flock`, or `msvcrt` on Windows) prevents
+another writer from appending. After syncing the files, the writer moves the
+samples into `DATA/` and replaces `METADATA/`; that replacement is the commit
+point. It then publishes `COLLECTION.json`.
+
+If the writer stops before the metadata switch, the next writer restores the old
+metadata and removes unlisted samples. If it stops after the switch, the next
+writer finishes publishing the collection. Readers ignore `.taco-append/`, while
+`validate` reports leftover samples in `DATA/` until recovery. Where the OS can swap two
+directories in one step (`renameat2` with `RENAME_EXCHANGE`, `renamex_np` with
+`RENAME_SWAP`), the switch is that swap and `METADATA/` never goes missing; `_exchanged`
+tells the states apart by sample row counts. Elsewhere two renames leave it briefly
+absent. After the switch,
+`COLLECTION.json` may briefly describe the previous state.
 
 Parquet is rewritten, never edited: an append calls `write_existing` for every level
 before the first new row, because ids already assigned cannot be renumbered.
@@ -88,6 +107,7 @@ An append re-opens the dataset and refuses anything that would change meaning:
 | `the existing dataset was built with a different contract` | Serialized contracts differ |
 | `append uses different extension metadata: ['majortom:dist_km']` | A semantic extension parameter changed |
 | `append would duplicate sample ids: ['s0']` | Existing ids clash with the new ones |
+| `another writer is appending to <path>` | Another process holds the append lock |
 
 New samples continue the numeric indices already present. `append` and `overwrite` are
 mutually exclusive, and `overwrite=True` on a non-empty directory that is not a TACO
@@ -96,14 +116,16 @@ folder is refused: `refusing to overwrite <path>: it is not a TACO folder datase
 ## Partitioned ZIP and TACOCAT
 
 `partition_size` fills partitions by payload bytes in sample order. `partition_by`
-groups on one **sample-level** field, using the sanitized value as the label. When both
-are set, each group is split by size independently. The field must exist in the sample
-level and may not be `id`:
+groups by one **sample-level** field. Its label drops accents and replaces unsafe
+filename characters with `_`: `São Paulo` becomes `Sao_Paulo`, and `tile[1]`
+becomes `tile_1`. Labels that collide, ignoring case, receive `-2`, `-3`, and so
+on. The archive stem changes only when needed for a valid name (`ds_` becomes
+`ds_north.zip`). When both options are set, each group is split by size. The
+field must exist at the sample level and cannot be `id`:
 
 ```
 partition_by cannot be 'id'; it is unique, so every sample would be its own partition
 partition_by field 'split:splt' is not sample metadata; available: ['stac:geometry', ..., 'split:split']
-partition values 'a/b' and 'a_b' collide on file name 'a_b'
 ```
 
 Partitioning on a field an extension produces works: the writer runs the sample-level
@@ -135,10 +157,12 @@ taco.consolidate(archives, output=None, *, name=".tacocat", overwrite=False,
                  row_group_size=65_536, parquet_options=None) -> Path
 ```
 
-Merges the metadata of several ZIP partitions into one catalog that references them.
-`output` defaults to the shared parent of the archives; `partitions live in different
-directories; pass output= explicitly` when there is no single parent. Each source is
-re-checked:
+Merges ZIP partitions into a catalog that references them. `output` defaults to
+their shared parent. If they live in different directories, pass `output`
+explicitly. Every archive must be below `output`; readers reject source paths
+containing `..`:
+`partition <a.zip> is not below <dir>, the directory that holds the TACOCAT; pass an
+output= that contains every partition`. Each source is re-checked:
 
 ```
 TACOCAT consolidates archive partitions, got folder: <path>
@@ -168,7 +192,8 @@ Writes the complete samples selected by a query, through the normal writer.
   result must retain `taco:sample_index`: `sql must return taco:sample_index; use
   SELECT * or include it explicitly`.
 - Selection is by sample. A row matching at `"children/after"` exports that sample's
-  whole structure. Duplicates select once; indices outside the source are ignored.
+  whole structure. Duplicates select once; NULL, negative and out-of-range indices are ignored, and
+  HUGEINT or DECIMAL indices count when they are integral.
 - The contract, `id`, licenses, providers, tasks and collection metadata carry over.
   Keyword arguments replace collection fields; `contract` and `sources` may not be
   replaced. `extent` is recomputed and `taco:sources` dropped.

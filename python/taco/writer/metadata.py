@@ -81,7 +81,8 @@ def summary_types(contract: Contract) -> dict[str, type[CollectionSummary]]:
     return {summary.field: summary for _, _, summary in _summary_levels(contract)}
 
 
-def _collection_summaries(contract: Contract) -> list[_SummaryAccumulator]:
+def collection_summaries(contract: Contract) -> list[_SummaryAccumulator]:
+    """Create collection summary reducers with their source levels."""
     return [
         _SummaryAccumulator(summary.field, level, namespace, summary())
         for level, namespace, summary in _summary_levels(contract)
@@ -150,6 +151,9 @@ class MetadataTableWriter:
         # own buffer, id counter and Parquet writer.
         self._buffers: dict[str, list[dict[str, Any]]] = {level: [] for level in contract.levels}
         self._asset_buffers: dict[str, list[Path | None]] = {level: [] for level in contract.levels}
+        # Finished batches wait here until they fill a row group.
+        self._pending: dict[str, list[pa.Table]] = {level: [] for level in contract.levels}
+        self._pending_rows = dict.fromkeys(contract.levels, 0)
         self._writers: dict[str, pq.ParquetWriter] = {}
         self._next_id = dict.fromkeys(contract.levels, 0)
         self._verified_extensions: set[str] = set()
@@ -161,7 +165,7 @@ class MetadataTableWriter:
                 for group in contract._groups[level]
             )
         }
-        self._summaries = _collection_summaries(contract)
+        self._summaries = collection_summaries(contract)
         self.paths = {level: directory / level_to_filename(level) for level in contract.levels}
         directory.mkdir(parents=True, exist_ok=True)
 
@@ -175,7 +179,7 @@ class MetadataTableWriter:
             if summary.level == level:
                 summary.update_table(table)
         if table.num_rows:
-            self._parquet_writer(level, table).write_table(table, row_group_size=self.row_group_size)
+            self._write(level, table)
         self._next_id[level] = table.num_rows
 
     def add_sample(
@@ -262,13 +266,33 @@ class MetadataTableWriter:
             if summary.level == level:
                 summary.update_rows(rows)
         table = pa.Table.from_pylist(rows, schema=self._schemas[level])
-        self._parquet_writer(level, table).write_table(table, row_group_size=self.row_group_size)
+        self._write(level, table)
         self._buffers[level] = []
         self._asset_buffers[level] = []
+
+    def _write(self, level: str, table: pa.Table) -> None:
+        # pyarrow starts a row group on every write, so batches are gathered
+        # until they fill one.
+        self._pending[level].append(table)
+        self._pending_rows[level] += table.num_rows
+        if self._pending_rows[level] >= self.row_group_size:
+            self._write_pending(level, last=False)
+
+    def _write_pending(self, level: str, *, last: bool) -> None:
+        rows = self._pending_rows[level]
+        count = rows if last else rows - rows % self.row_group_size
+        if not count:
+            return
+        table = pa.concat_tables(self._pending[level])
+        self._parquet_writer(level, table).write_table(table.slice(0, count), row_group_size=self.row_group_size)
+        rest = table.slice(count)
+        self._pending[level] = [rest] if rest.num_rows else []
+        self._pending_rows[level] = rest.num_rows
 
     def close(self) -> dict[str, Path]:
         for level in self.contract.levels:
             self._flush(level)
+            self._write_pending(level, last=True)
             writer = self._parquet_writer(level)
             if self._next_id[level] == 0:
                 # The file must still exist for an empty level, with enough

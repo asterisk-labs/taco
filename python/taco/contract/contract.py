@@ -10,15 +10,18 @@ import pyarrow as pa
 
 from ..errors import ContractError, SampleError
 from .extension import ExtensionContext
-from .naming import rumi_file_field
+from .extension_registry import OWNERS, bindings
+from .naming import METADATA_DIR, level_to_filename, rumi_file_field
 from .sample import Asset, Folder, Sample, _PreparedAsset, _PreparedNode, _PreparedSample
-from .schema import PROFILE_FIELDS, Field, Group, Level, Metadata, validate_qualified_field
+from .schema import PROFILE_FIELDS, Field, Group, Level, Metadata, check_level_rules, validate_qualified_field
 from .structure import Leaf, Node, build_tree, parse_leaf
 from .types import coerce_value, parse_type, type_name
 
 SAMPLE_LEVEL = "sample"
 CHILDREN_LEVEL = "children"
 SAMPLE_ID = "id"
+# The longest file name most file systems allow, in bytes.
+_MAX_FILENAME = 255
 
 
 def _raw_field(name: str, spec: Any, *, level: str) -> Field:
@@ -74,6 +77,11 @@ def _same_value(left: Any, right: Any) -> bool:
         return left is right
     if isinstance(left, float) and isinstance(right, float):
         return left == right or (left != left and right != right)
+    # Compare nested values item by item, so a NaN inside them matches too.
+    if isinstance(left, (list, tuple)) and isinstance(right, (list, tuple)):
+        return len(left) == len(right) and all(_same_value(a, b) for a, b in zip(left, right, strict=True))
+    if isinstance(left, Mapping) and isinstance(right, Mapping):
+        return left.keys() == right.keys() and all(_same_value(left[key], right[key]) for key in left)
     return bool(left == right)
 
 
@@ -121,7 +129,17 @@ class Contract:
         structure: Iterable[str],
         metadata: Sequence[Level] | Mapping[str, Mapping[str, Any]] | None = None,
     ) -> None:
-        if structure is None or isinstance(structure, (str, bytes)):
+        self._initialize(structure, metadata)
+        # taco.Level checks the classes it binds, but a mapping names only their namespaces.
+        if isinstance(metadata, Mapping):
+            self._check_builtin_rules(self.metadata)
+
+    def _initialize(
+        self,
+        structure: Iterable[str],
+        metadata: Sequence[Level] | Mapping[str, Mapping[str, Any]] | None,
+    ) -> None:
+        if isinstance(structure, (str, bytes)) or not isinstance(structure, Iterable):
             raise ContractError("structure must be a non-empty list of paths")
         declarations = tuple(structure)
         if not declarations:
@@ -154,6 +172,19 @@ class Contract:
         object.__setattr__(self, "_children", children)
         object.__setattr__(self, "_types", types_)
         object.__setattr__(self, "_groups", groups)
+
+    @staticmethod
+    def _check_builtin_rules(metadata: Mapping[str, Mapping[str, Field]]) -> None:
+        namespaces = {name.partition(":")[0] for fields in metadata.values() for name in fields}
+        if namespaces.isdisjoint(OWNERS):
+            return
+        targets = bindings()
+        for level, fields in metadata.items():
+            for namespace in sorted(namespaces.intersection(targets)):
+                names = [name for name in fields if name.partition(":")[0] == namespace]
+                if names:
+                    nullable = (name for name in names if fields[name].nullable)
+                    check_level_rules(level, targets[namespace], nullable)
 
     @staticmethod
     def _check_field_case(metadata: Mapping[str, Mapping[str, Field]]) -> None:
@@ -231,7 +262,22 @@ class Contract:
         folders = [folder for folder in children if folder]
         order = {folder: index for index, folder in enumerate(folders)}
         folders.sort(key=lambda item: (len(item), order[item]))
-        return (SAMPLE_LEVEL, CHILDREN_LEVEL, *(CHILDREN_LEVEL + "/" + "/".join(folder) for folder in folders))
+        levels = (SAMPLE_LEVEL, CHILDREN_LEVEL, *(CHILDREN_LEVEL + "/" + "/".join(folder) for folder in folders))
+        # 'a_/b' and 'a/_b' share a file name, and some file systems ignore case.
+        seen: dict[str, str] = {}
+        for level in levels:
+            filename = level_to_filename(level)
+            other = seen.setdefault(filename.lower(), level)
+            if other != level:
+                note = "" if level_to_filename(other) == filename else " on a case-insensitive file system"
+                raise ContractError(f"levels {other!r} and {level!r} both map to {METADATA_DIR}/{filename}{note}")
+            # Names are ASCII, so characters are bytes.
+            if len(filename) > _MAX_FILENAME:
+                raise ContractError(
+                    f"level {level!r} maps to {METADATA_DIR}/{filename}, "
+                    f"a file name longer than {_MAX_FILENAME} bytes; nest fewer or shorter folders"
+                )
+        return levels
 
     @staticmethod
     def _from_mapping(
@@ -239,7 +285,7 @@ class Contract:
     ) -> dict[str, dict[str, Field]]:
         if not isinstance(metadata, Mapping):
             raise ContractError("metadata must be a list of taco.Level or a mapping")
-        extra = sorted(set(metadata) - set(levels))
+        extra = sorted(set(metadata) - set(levels), key=str)
         if extra:
             raise ContractError(f"metadata has unknown levels {extra}; valid levels are {list(levels)}")
         result = {}
@@ -629,6 +675,9 @@ class Contract:
     def from_dict(cls, data: Mapping[str, Any]) -> Contract:
         if "taco:structure" not in data or "taco:metadata" not in data:
             raise ContractError("COLLECTION.json must declare taco:structure and taco:metadata")
+        # A JSON object would otherwise be read as an iterable of keys.
+        if not isinstance(data["taco:structure"], list):
+            raise ContractError("taco:structure must be a list of strings")
         metadata = data["taco:metadata"]
         if not isinstance(metadata, Mapping):
             raise ContractError("taco:metadata must be an object")
@@ -643,10 +692,9 @@ class Contract:
                     or set(declaration) - required - {"files"}
                 ):
                     raise ContractError(f"serialized field {level}.{name} must declare type, nullable, and description")
-        contract = cls(
-            structure=data["taco:structure"],
-            metadata=metadata,
-        )
+        # validate reports a stored contract that breaks a built-in's rules, so reading does not.
+        contract = object.__new__(cls)
+        contract._initialize(data["taco:structure"], metadata)
         missing = sorted(set(contract.levels) - set(metadata))
         if missing:
             raise ContractError(f"taco:metadata is missing levels {missing}")

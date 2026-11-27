@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
 from decimal import Decimal
 
 import pyarrow as pa
 import pytest
 
-from taco.contract.types import coerce_value, parse_type, type_name
+from taco.contract.types import check_type, coerce_value, parse_type, type_name
 from taco.errors import TypeSpecError
 
 
@@ -138,6 +138,93 @@ def test_parse_type_rejects_garbage(spec) -> None:
 )
 def test_type_name_round_trips(dtype: pa.DataType) -> None:
     assert parse_type(type_name(dtype)) == dtype
+    check_type(dtype)
+
+
+@pytest.mark.parametrize(
+    ("spec", "message"),
+    [
+        ("struct<>", "struct needs at least one field"),
+        ("struct< >", "struct needs at least one field"),
+        ("decimal128(5, 10)", "scale must be between 0 and its precision"),
+        ("decimal128(10, -2)", "scale must be between 0 and its precision"),
+        ("decimal256(40, 41)", "scale must be between 0 and its precision"),
+        ("fixed_size_binary[0]", "needs a positive size"),
+        ("fixed_size_binary[-1]", "needs a positive size"),
+        ("fixed_size_binary[-5]", "needs a positive size"),
+        ("list<struct<>>", "struct needs at least one field"),
+    ],
+)
+def test_parse_type_rejects_types_parquet_cannot_store(spec: str, message: str) -> None:
+    with pytest.raises(TypeSpecError, match=message):
+        parse_type(spec)
+
+
+@pytest.mark.parametrize(
+    "spec",
+    [
+        "timestamp[]",
+        "fixed_size_list<int64, 100000000000000000000>",
+        "fixed_size_list<int64, 2147483648>",
+        "fixed_size_list<int64, \u0661>",
+        "decimal128(100000000000000000000, 0)",
+        "decimal128(10, 100000000000000000000)",
+        "decimal128(1_0, 2)",
+        "decimal128(+10, 2)",
+        "fixed_size_binary[100000000000000000000]",
+        "fixed_size_binary[1_6]",
+        "list<" * 2000 + "int64" + ">" * 2000,
+    ],
+)
+def test_parse_type_raises_type_errors_for_bad_arguments(spec: str) -> None:
+    with pytest.raises(TypeSpecError):
+        parse_type(spec)
+
+
+def test_decimal_scale_may_reach_the_precision() -> None:
+    assert parse_type("decimal128(38, 38)") == pa.decimal128(38, 38)
+    assert parse_type("decimal128(5, 0)") == pa.decimal128(5, 0)
+    assert parse_type("fixed_size_binary[1]") == pa.binary(1)
+
+
+@pytest.mark.parametrize("name", ["a<b>", "a(1)", "a[0]", "a>b"])
+def test_struct_field_names_carry_no_type_syntax(name: str) -> None:
+    with pytest.raises(TypeSpecError, match="struct field name"):
+        parse_type(f"struct<{name}: int64>")
+
+
+def test_struct_field_names_may_hold_spaces_inside() -> None:
+    assert parse_type("struct<my field: int64,  b : int8>").names == ["my field", "b"]
+
+
+@pytest.mark.parametrize(
+    ("dtype", "message"),
+    [
+        (pa.struct([pa.field("a:b", pa.int64())]), "struct field name 'a:b'"),
+        (pa.struct([pa.field(" a", pa.int64())]), "struct field name ' a'"),
+        (pa.struct([pa.field("a ", pa.int64())]), "struct field name 'a '"),
+        (pa.struct([pa.field("", pa.int64())]), "struct field name ''"),
+        (pa.list_(pa.struct([pa.field("a,b", pa.int64())])), "struct field name 'a,b'"),
+        (pa.map_(pa.string(), pa.struct([pa.field("x>y", pa.int64())])), "struct field name 'x>y'"),
+        (pa.struct([]), "struct needs at least one field"),
+        (pa.string_view(), "unsupported type 'string_view'"),
+        (pa.dictionary(pa.int32(), pa.string()), "unsupported type"),
+        (pa.null(), "unsupported type 'null'"),
+        (pa.decimal32(5, 2), r"decimal32\(5, 2\) has no canonical type string"),
+        (pa.decimal128(5, 10), "scale must be between 0 and its precision"),
+        (pa.binary(0), "needs a positive size"),
+        (pa.timestamp("us", tz="+0530"), "unsupported timezone"),
+    ],
+)
+def test_check_type_rejects_types_without_a_canonical_string(dtype: pa.DataType, message: str) -> None:
+    with pytest.raises(TypeSpecError, match=message):
+        check_type(dtype)
+
+
+def test_check_type_ignores_names_the_string_does_not_store() -> None:
+    check_type(pa.list_(pa.field("element", pa.int64())))
+    check_type(pa.map_(pa.field("k", pa.string(), nullable=False), pa.field("v", pa.int64())))
+    check_type(pa.struct([pa.field("my field", pa.list_(pa.struct([pa.field("a?", pa.int8())])))]))
 
 
 def test_coerce_value_rejects_lossy_conversions() -> None:
@@ -177,7 +264,8 @@ def test_coerce_value_normalizes() -> None:
         (0.1, pa.float32()),
         (-0.0, pa.float32()),
         (1e-46, pa.float32()),
-        (1e39, pa.float32()),
+        (3.4028234663852886e38, pa.float32()),
+        (float("inf"), pa.float32()),
         ("ñandú", pa.string()),
         ("\ud800", pa.string()),
         (2**64 - 1, pa.uint64()),
@@ -217,3 +305,58 @@ def test_coerce_value_rejects_timezone_mismatch() -> None:
         coerce_value(aware, pa.timestamp("us"))
     with pytest.raises(TypeError, match="timestamp without a timezone"):
         coerce_value(aware.replace(tzinfo=None), pa.timestamp("us", tz="UTC"))
+
+
+@pytest.mark.parametrize(
+    ("value", "dtype"),
+    [
+        (1e39, pa.float32()),
+        (-1e39, pa.float32()),
+        (10**39, pa.float32()),
+        (70000.0, pa.float16()),
+        (65520.0, pa.float16()),
+        ([0.5, 1e39], pa.list_(pa.float32())),
+        ({"x": 1e39}, pa.struct([("x", pa.float32())])),
+        (datetime(2020, 1, 1, 0, 0, 0, 500_000), pa.timestamp("s")),
+        (datetime(2020, 1, 1, 0, 0, 0, 123_456), pa.timestamp("ms")),
+        (datetime(2020, 1, 1, 0, 0, 0, 1, tzinfo=timezone.utc), pa.timestamp("s", tz="UTC")),
+        (time(1, 2, 3, 456_789), pa.time32("s")),
+        (time(1, 2, 3, 456_789), pa.time32("ms")),
+        (timedelta(microseconds=1500), pa.duration("ms")),
+        (timedelta(milliseconds=1500), pa.duration("s")),
+        (timedelta(microseconds=-1500), pa.duration("ms")),
+    ],
+)
+def test_coerce_value_rejects_values_it_would_change(value: object, dtype: pa.DataType) -> None:
+    with pytest.raises(ValueError, match="cannot store"):
+        coerce_value(value, dtype)
+
+
+@pytest.mark.parametrize(
+    ("value", "dtype"),
+    [(1.5, pa.duration("s")), (True, pa.duration("s")), ("01:00", pa.time64("us")), (1.5, pa.time32("s"))],
+)
+def test_coerce_value_takes_times_and_durations_as_objects_or_unit_counts(value: object, dtype: pa.DataType) -> None:
+    with pytest.raises(TypeError, match="or an integer value"):
+        coerce_value(value, dtype)
+
+
+@pytest.mark.parametrize(
+    ("value", "dtype", "expected"),
+    [
+        (65504.0, pa.float16(), 65504.0),
+        (3.4028234663852886e38, pa.float32(), 3.4028234663852886e38),
+        (float("-inf"), pa.float32(), float("-inf")),
+        (datetime(2020, 1, 1, 0, 0, 1), pa.timestamp("s"), datetime(2020, 1, 1, 0, 0, 1)),
+        (datetime(2020, 1, 1, 0, 0, 0, 123_000), pa.timestamp("ms"), datetime(2020, 1, 1, 0, 0, 0, 123_000)),
+        (datetime(2020, 1, 1, 0, 0, 0, 1), pa.timestamp("ns"), datetime(2020, 1, 1, 0, 0, 0, 1)),
+        (time(1, 2, 3, 456_000), pa.time32("ms"), time(1, 2, 3, 456_000)),
+        (3600, pa.time32("s"), time(1)),
+        (time(1, 2, 3, 456_789), pa.time64("us"), time(1, 2, 3, 456_789)),
+        (timedelta(milliseconds=-2), pa.duration("ms"), timedelta(milliseconds=-2)),
+        (timedelta(microseconds=1500), pa.duration("us"), timedelta(microseconds=1500)),
+        (5, pa.duration("s"), timedelta(seconds=5)),
+    ],
+)
+def test_coerce_value_keeps_values_the_unit_holds(value: object, dtype: pa.DataType, expected: object) -> None:
+    assert coerce_value(value, dtype) == expected

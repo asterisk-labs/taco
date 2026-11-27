@@ -170,7 +170,6 @@ class _ArchiveBuild:
         show_progress: bool = True,
     ) -> BuildResult:
         contract = self.collection.contract
-        temporary_output: Path | None = None
         with tempfile.TemporaryDirectory(prefix="build-", dir=self.stage) as name:
             stage = Path(name)
 
@@ -221,32 +220,24 @@ class _ArchiveBuild:
             ]
 
             output.parent.mkdir(parents=True, exist_ok=True)
-            descriptor, temporary_name = tempfile.mkstemp(prefix=f".{output.name}.", suffix=".tmp", dir=output.parent)
-            os.close(descriptor)
-            temporary_output = Path(temporary_name)
-            try:
+            # cozip creates the archive in a private directory beside the
+            # output, so it gets the permissions of a new file under the umask.
+            with tempfile.TemporaryDirectory(prefix=f".{output.name}.", dir=output.parent) as packing:
+                temporary_output = Path(packing) / output.name
                 with self._progress(1, f"packing {output.name}", enabled=show_progress, unit="archive") as progress:
                     cozip_write(temporary_output, layout, priority_files)
                     progress.update()
-                # mkstemp creates 0600; a published archive follows the umask.
-                umask = os.umask(0)
-                os.umask(umask)
-                temporary_output.chmod(0o666 & ~umask)
 
                 # The completed temporary archive is renamed into place only
                 # after cozip_write returns, so readers never see half a ZIP.
                 publish_file(temporary_output, output, overwrite=self.overwrite)
-                temporary_output = None
-                return BuildResult(
-                    path=output,
-                    samples=sample_count,
-                    data_files=len(files),
-                    metadata_files=len(contract.levels),
-                    size=output.stat().st_size,
-                )
-            finally:
-                if temporary_output is not None:
-                    temporary_output.unlink(missing_ok=True)
+            return BuildResult(
+                path=output,
+                samples=sample_count,
+                data_files=len(files),
+                metadata_files=len(contract.levels),
+                size=output.stat().st_size,
+            )
 
     def _progress(self, total: int, description: str, *, enabled: bool, unit: str = "sample") -> Progress:
         return Progress(self.progress and enabled, total, description, unit)

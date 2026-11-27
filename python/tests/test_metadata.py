@@ -659,3 +659,46 @@ def test_derived_group_may_not_read_across_its_batch(tmp_path) -> None:
             writer.add(taco.Sample(id=f"u24-{value}", assets=b"x", metadata=taco.Metadata(base=Base(value=value))))
         with pytest.raises(taco.TacoError, match="depends on the other rows"):
             writer.run()
+
+
+@dataclass(frozen=True)
+class BandMeans(taco.Extension):
+    """Each row depends only on its own file; a fully masked band has no mean."""
+
+    @property
+    def requires(self) -> tuple[str, ...]:
+        return ()
+
+    @property
+    def fields(self) -> pa.Schema:
+        return pa.schema(
+            [
+                pa.field("means", pa.list_(pa.float64())),
+                pa.field(
+                    "stats", pa.struct([pa.field("mean", pa.float64()), pa.field("bands", pa.list_(pa.float64()))])
+                ),
+            ]
+        )
+
+    def run(self, context: taco.ExtensionContext) -> Mapping[str, Sequence[object]]:
+        return {
+            "means": [[0.5, float("nan")] for _ in range(len(context))],
+            "stats": [{"mean": float("nan"), "bands": (float("nan"),)} for _ in range(len(context))],
+        }
+
+
+def test_nan_inside_nested_values_is_not_a_batch_dependency(tmp_path) -> None:
+    contract = taco.Contract(structure=["data.bin"], metadata=[taco.Level("sample", band=BandMeans())])
+    collection = taco.Collection(
+        contract=contract,
+        id="means",
+        description="Band means",
+        licenses=["MIT"],
+        providers=["me"],
+    )
+    with taco.open_writer(collection, tmp_path / "means", batch_size=4) as writer:
+        writer.extend(taco.Sample(id=f"u26-{index}", assets=b"x") for index in range(3))
+        writer.run()
+    means = pq.read_table(tmp_path / "means" / "METADATA" / "sample.parquet").column("band:means").to_pylist()
+    assert [value[0] for value in means] == [0.5] * 3
+    assert all(value[1] != value[1] for value in means)

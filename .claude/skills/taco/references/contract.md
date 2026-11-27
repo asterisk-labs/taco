@@ -29,7 +29,10 @@ component is printable ASCII so one contract is valid in FOLDER and ZIP.
 A **fixed file** appears exactly once per sample and is written literally:
 `s2_l1c.tif`, `before/B02.tif`.
 
-A **variable sequence** is `prefix*[min,max].ext` with `1 <= min <= max`. A sample
+A **variable sequence** is `prefix*[min,max].ext` with `1 <= min <= max <= 2^53 - 1`,
+the bounds plain decimal integers with no sign, spaces or leading zeros (the core,
+Python and JavaScript share this rule). The prefix is checked only through the names
+it produces, so `img.*[1,3].tif` and `img *[1,3].tif` are valid, `img*[ 1,3].tif` is not. A sample
 holding `k` files names them `prefix0.ext` to `prefix{k-1}.ext`, contiguous, with
 `min <= k <= max`.
 
@@ -94,6 +97,14 @@ structure declaration, where a variable sequence may use them.
 ```
 ContractError: structure path component 'a__b.tif' must not contain '__'
 ContractError: structure path must use '/' as separator: 'a\\b.tif'
+```
+
+The filename mapping cannot be reversed, since a folder name may start or end with
+`_`. Two levels whose filenames are equal ignoring case are refused, by
+`taco.Contract` and by the core when it opens the collection:
+
+```
+ContractError: levels 'children/a_/b' and 'children/a/_b' both map to METADATA/children__a___b.parquet
 ```
 
 ## Levels come from folders

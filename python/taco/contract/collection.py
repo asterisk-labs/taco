@@ -7,6 +7,7 @@ import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from numbers import Real
 from typing import Any
 
 from ..errors import CollectionError, ContractError
@@ -90,11 +91,94 @@ def _parse_iso(value: object, *, name: str) -> datetime:
         raise CollectionError(f"{name} must be an ISO 8601 datetime")
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc)
+    try:
+        return parsed.astimezone(timezone.utc)
+    except OverflowError as exc:
+        raise CollectionError(f"{name} is outside the supported datetime range") from exc
 
 
 def format_iso(value: datetime) -> str:
     return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+# Match the native reader's nesting limit.
+_MAX_DEPTH = 256
+
+
+def _reject_constant(name: str) -> Any:
+    raise ValueError(f"{name} is not a JSON number")
+
+
+def _finite_float(text: str) -> float:
+    # Other readers hold JSON numbers as doubles, where 1e400 becomes infinity.
+    value = float(text)
+    if not math.isfinite(value):
+        raise ValueError(f"{text} does not fit a finite double")
+    return value
+
+
+def _finite_int(text: str) -> int:
+    _finite_float(text)
+    return int(text)
+
+
+def _unique_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"an object repeats the key {key!r}")
+        result[key] = value
+    return result
+
+
+def _nests_deeper(value: Any, limit: int) -> bool:
+    level = [value]
+    for _ in range(limit + 1):
+        level = [
+            child
+            for node in level
+            if isinstance(node, (dict, list))
+            for child in (node.values() if isinstance(node, dict) else node)
+        ]
+        if not level:
+            return False
+    return True
+
+
+def parse_collection_json(text: str | bytes) -> Any:
+    """Parse COLLECTION.json with the native reader's JSON limits."""
+    try:
+        if isinstance(text, (bytes, bytearray)):
+            text = bytes(text).decode("utf-8")
+        data = json.loads(
+            text,
+            object_pairs_hook=_unique_keys,
+            parse_constant=_reject_constant,
+            parse_float=_finite_float,
+            parse_int=_finite_int,
+        )
+    except (ValueError, RecursionError) as exc:
+        raise CollectionError(f"COLLECTION.json is not valid JSON: {exc}") from exc
+    if _nests_deeper(data, _MAX_DEPTH):
+        raise CollectionError(f"COLLECTION.json is not valid JSON: it nests deeper than {_MAX_DEPTH} levels")
+    return data
+
+
+def _longitude_cover(intervals: Sequence[tuple[float, float]]) -> tuple[float, float]:
+    """Cover sorted longitude intervals using STAC's rule, without NumPy."""
+    first, reach = intervals[0]
+    best_gap, west, east = -math.inf, first, reach
+    for start, end in intervals[1:]:
+        if start - reach > best_gap:
+            best_gap, west, east = start - reach, start, reach
+        reach = max(reach, end)
+    # Prefer a non-crossing interval on ties.
+    wrap = first + 360 - reach
+    if wrap >= best_gap:
+        best_gap, west, east = wrap, first, reach
+    if best_gap <= 0:
+        return -180.0, 180.0
+    return west, east
 
 
 @dataclass(frozen=True)
@@ -109,7 +193,7 @@ class Provider:
             raise CollectionError("provider name is required")
         if self.roles is not None:
             object.__setattr__(self, "roles", _string_list(self.roles, name="provider roles", required=False))
-        if self.url is not None and not self.url.startswith(("http://", "https://")):
+        if self.url is not None and (not isinstance(self.url, str) or not self.url.startswith(("http://", "https://"))):
             raise CollectionError("provider url must start with http:// or https://")
         if self.links is not None:
             if isinstance(self.links, (str, bytes)) or not isinstance(self.links, Sequence):
@@ -117,6 +201,10 @@ class Provider:
             links = tuple(dict(link) for link in self.links if isinstance(link, Mapping))
             if len(links) != len(self.links):
                 raise CollectionError("provider links must be a list of objects")
+            try:
+                json.dumps(links, allow_nan=False)
+            except (TypeError, ValueError) as exc:
+                raise CollectionError("provider links must be JSON serializable") from exc
             object.__setattr__(self, "links", links)
 
     @classmethod
@@ -152,6 +240,9 @@ class Curator:
     role: str | None = None
 
     def __post_init__(self) -> None:
+        for name, value in vars(self).items():
+            if value is not None and not isinstance(value, str):
+                raise CollectionError(f"curator {name} must be a string")
         if not self.name and not self.organization:
             raise CollectionError("a curator needs a name or an organization")
         if self.email is not None and "@" not in self.email:
@@ -183,17 +274,20 @@ class Extent:
     def __post_init__(self) -> None:
         if isinstance(self.spatial, str) or not isinstance(self.spatial, Sequence) or len(self.spatial) != 4:
             raise CollectionError("extent.spatial must be [west, south, east, north]")
+        # float() accepts strings and booleans; JSON spatial values must be numbers.
+        if not all(isinstance(value, Real) and not isinstance(value, bool) for value in self.spatial):
+            raise CollectionError("extent.spatial must contain numbers")
         try:
             west, south, east, north = (float(value) for value in self.spatial)
-        except (TypeError, ValueError) as exc:
-            raise CollectionError("extent.spatial must contain numbers") from exc
+        except OverflowError as exc:
+            raise CollectionError("extent.spatial values must be finite") from exc
         if not all(math.isfinite(value) for value in (west, south, east, north)):
             raise CollectionError("extent.spatial values must be finite")
         if not (-180 <= west <= 180 and -180 <= east <= 180 and -90 <= south <= north <= 90):
             raise CollectionError("extent.spatial is outside EPSG:4326 bounds")
         object.__setattr__(self, "spatial", (west, south, east, north))
         if self.temporal is not None:
-            if isinstance(self.temporal, str) or len(self.temporal) != 2:
+            if isinstance(self.temporal, str) or not isinstance(self.temporal, Sequence) or len(self.temporal) != 2:
                 raise CollectionError("extent.temporal must be [start, end]")
             start = _parse_iso(self.temporal[0], name="extent.temporal[0]")
             end = _parse_iso(self.temporal[1], name="extent.temporal[1]")
@@ -222,32 +316,12 @@ class Extent:
             return None
         south = min(item.spatial[1] for item in extents)
         north = max(item.spatial[3] for item in extents)
+        # Split crossing extents as the writer splits bounding boxes.
         intervals: list[tuple[float, float]] = []
         for item in extents:
             west, _, east, _ = item.spatial
-            start, end = west + 180, east + 180
-            if west <= east:
-                intervals.append((start, end))
-            else:
-                intervals.extend(((0, end), (start, 360)))
-        merged: list[list[float]] = []
-        for start, end in sorted(intervals):
-            if merged and start <= merged[-1][1]:
-                merged[-1][1] = max(merged[-1][1], end)
-            else:
-                merged.append([start, end])
-        gaps = [(merged[index][1], merged[index + 1][0]) for index in range(len(merged) - 1)]
-        gaps.append((merged[-1][1], merged[0][0] + 360))
-        gap_start, gap_end = max(gaps, key=lambda gap: gap[1] - gap[0])
-        if gap_start == gap_end:
-            west, east = -180.0, 180.0
-        else:
-            start = gap_end % 360
-            end = gap_start % 360
-            if math.isclose(start, end, abs_tol=1e-12):
-                start = end
-            west = start - 180
-            east = 180.0 if end == 0 and start > 0 else end - 180
+            intervals.extend([(west, east)] if west <= east else [(west, 180.0), (-180.0, east)])
+        west, east = _longitude_cover(sorted(intervals))
         temporal_values = [item.temporal for item in extents if item.temporal is not None]
         temporal = None
         if temporal_values:
@@ -415,6 +489,8 @@ class Collection:
 
         if not isinstance(self.contract, Contract):
             raise CollectionError("contract must be a Contract")
+        if self.title is not None and not isinstance(self.title, str):
+            raise CollectionError("title must be a string")
         for value in groups.values():
             check = getattr(value, "__taco_check_contract__", None)
             if check is not None:
@@ -449,6 +525,8 @@ class Collection:
         if self.extent is not None:
             object.__setattr__(self, "extent", Extent.from_any(self.extent))
         if self.sources is not None:
+            if not isinstance(self.sources, Mapping):
+                raise CollectionError("taco:sources must be an object")
             try:
                 json.dumps(self.sources, allow_nan=False)
             except (TypeError, ValueError) as exc:
@@ -524,6 +602,11 @@ class Collection:
     def from_dict(cls, data: Mapping[str, Any]) -> Collection:
         if not isinstance(data, Mapping):
             raise CollectionError("COLLECTION.json must be an object")
+        # Also reject non-finite values and lone surrogates in direct mappings.
+        try:
+            json.dumps(dict(data), ensure_ascii=False, allow_nan=False).encode("utf-8")
+        except (TypeError, ValueError) as exc:
+            raise CollectionError(f"COLLECTION.json is not valid JSON: {exc}") from exc
         required = (
             "taco:version",
             "id",
@@ -577,11 +660,7 @@ class Collection:
 
     @classmethod
     def from_json(cls, text: str | bytes) -> Collection:
-        try:
-            data = json.loads(text)
-        except json.JSONDecodeError as exc:
-            raise CollectionError(f"COLLECTION.json is not valid JSON: {exc}") from exc
-        return cls.from_dict(data)
+        return cls.from_dict(parse_collection_json(text))
 
 
 __all__ = ["KNOWN_TASKS", "TACO_VERSION", "Collection", "Curator", "Extent", "Provider"]

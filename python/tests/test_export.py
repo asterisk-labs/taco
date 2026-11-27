@@ -6,7 +6,7 @@ import re
 import threading
 import zipfile
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -293,12 +293,32 @@ def test_export_sql_must_preserve_sample_index(archive: Path, tmp_path: Path) ->
         taco.export(archive, tmp_path / "bad.zip")  # type: ignore[call-arg]
     with pytest.raises(ValueError, match="taco:sample_index"):
         taco.export(archive, tmp_path / "bad.zip", sql="SELECT id FROM sample")
-    with pytest.raises(ValueError, match="non-negative integer"):
-        taco.export(
-            archive,
-            tmp_path / "bad.zip",
-            sql='SELECT -1 AS "taco:sample_index" FROM sample LIMIT 1',
-        )
+    for value in ("'1'", "1.5", "1.0::DOUBLE", "true"):
+        with pytest.raises(ValueError, match="integer taco:sample_index"):
+            taco.export(archive, tmp_path / "bad.zip", sql=f'SELECT {value} AS "taco:sample_index"')
+
+
+def test_export_ignores_indices_that_do_not_belong_to_the_source(
+    archive: Path, tmp_path: Path, collection: taco.Collection, make_sample
+) -> None:
+    with taco.open_writer(collection, tmp_path / "parts" / "dataset.zip", partition_size=1) as writer:
+        writer.extend(make_sample(index) for index in range(4))
+        catalog = writer.run().path
+    queries = {
+        # A UBIGINT plus an integer is a HUGEINT, which arrives as a Decimal.
+        'SELECT "taco:sample_index" + 100 AS "taco:sample_index" FROM sample UNION ALL SELECT 2': ["s2"],
+        'SELECT -1 AS "taco:sample_index" UNION ALL SELECT NULL UNION ALL SELECT 2': ["s2"],
+        'SELECT 18446744073709551616 AS "taco:sample_index" UNION ALL SELECT 3 UNION ALL SELECT 1': ["s1", "s3"],
+        'SELECT 2.0 AS "taco:sample_index"': ["s2"],
+    }
+    for source in (archive, catalog):
+        for sql, expected in queries.items():
+            output = tmp_path / "selected.zip"
+            result = taco.export(source, output, sql=sql, overwrite=True)
+            assert result.samples == len(expected)
+            assert open_view(output).level("sample").column("id").to_pylist() == expected
+        with pytest.raises(WriterError, match="without samples"):
+            taco.export(source, tmp_path / "none.zip", sql='SELECT NULL AS "taco:sample_index"')
 
 
 def test_export_intersects_and_deduplicates_sql_results(archive: Path, tmp_path: Path) -> None:
@@ -425,6 +445,36 @@ def test_export_from_remote_archive_and_folder(archive: Path, folder_dataset: Pa
     with zipfile.ZipFile(output / "copy.zip") as archive_file:
         archive_file.extractall(unpacked)
     assert data_files(unpacked) == data_files(folder_dataset)
+
+
+@pytest.mark.parametrize("scheme", ["file", "http"])
+def test_export_encodes_names_it_appends_to_a_uri(tmp_path: Path, scheme: str) -> None:
+    # file:// and HTTP paths are percent-decoded, so '%41' must arrive as '%2541'.
+    names = ["pct%41.bin", "with space.bin", "hash#1.bin"]
+    collection = taco.Collection(
+        contract=taco.Contract(structure=names), id="names", description="Names", licenses=["MIT"], providers=["me"]
+    )
+    root = tmp_path / "dir x"
+
+    def write(output: Path, index: int) -> None:
+        assets = [taco.Asset(f"{index}:{name}".encode(), path=name) for name in names]
+        with taco.open_writer(collection, output) as writer:
+            writer.add(taco.Sample(id=f"s{index}", assets=assets))
+            writer.run()
+
+    write(root / "folder", 0)
+    write(root / "a %41#.zip", 0)
+    write(root / "b.zip", 1)
+    taco.consolidate([root / "a %41#.zip", root / "b.zip"])
+    with ExitStack() as stack:
+        base = root.as_uri() if scheme == "file" else f"{stack.enter_context(server(tmp_path))}/dir%20x"
+        for source, samples in (("folder", 1), (".tacocat", 2)):
+            output = tmp_path / f"{source.lstrip('.')}.zip"
+            taco.export(f"{base}/{source}", output, sql=ALL_SAMPLES)
+            with zipfile.ZipFile(output) as archive_file:
+                for index in range(samples):
+                    for name in names:
+                        assert archive_file.read(f"DATA/{index}/{name}") == f"{index}:{name}".encode()
 
 
 @pytest.mark.skipif(

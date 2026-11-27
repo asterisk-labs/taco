@@ -47,7 +47,7 @@ _BY_IDENTIFIER = {builtin.identifier: builtin for builtin in BUILTINS.values()}
 
 
 def unbundled(identifiers: Iterable[str]) -> list[str]:
-    """Return the identifiers under the TACO extension namespace that this TACO does not bundle."""
+    """Return TACO extension identifiers absent from this installation."""
     return [
         identifier
         for identifier in identifiers
@@ -82,6 +82,19 @@ def load(builtin: Builtin) -> ModuleType:
 def models() -> dict[str, type]:
     """Return built-in models by namespace."""
     return {namespace: model for builtin in BUILTINS.values() for namespace, model in load(builtin).MODELS.items()}
+
+
+def bindings() -> dict[str, type]:
+    """Return the built-in model or extension class that binds each namespace."""
+    found: dict[str, type] = {}
+    for builtin in BUILTINS.values():
+        module = load(builtin)
+        for name in module.__all__:
+            value = getattr(module, name)
+            namespace = getattr(value, "__taco_namespace__", None) if isinstance(value, type) else None
+            if namespace in builtin.namespaces:
+                found[namespace] = value
+    return found
 
 
 def checks(builtin: Builtin) -> Callable[[Any], list[tuple[str, str]]] | None:

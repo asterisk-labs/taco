@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 import json
+import math
+from collections.abc import Callable
+from pathlib import Path
+from random import Random
+from typing import Any
 
 import pytest
 from pydantic import BaseModel, RootModel
 
 import taco
 from taco.contract import Curator, Extent, Provider
-from taco.errors import CollectionError
+from taco.errors import CollectionError, TacoError
 
 from . import models
 
@@ -188,6 +193,9 @@ def test_collection_fields_are_checked(collection: taco.Collection, field: str, 
         {"spatial": [0, 10, 1, -10]},
         {"spatial": [0, 0, 200, 1]},
         {"spatial": [0, 0, 1, 1], "temporal": ["2025-01-01", "2024-01-01"]},
+        # In UTC these fall outside the years Python can hold.
+        {"spatial": [0, 0, 1, 1], "temporal": ["0001-01-01T00:00:00+01:00", "2024-01-01"]},
+        {"spatial": [0, 0, 1, 1], "temporal": ["2024-01-01", "9999-12-31T23:59:59-01:00"]},
     ],
 )
 def test_invalid_extent(value: object) -> None:
@@ -208,6 +216,39 @@ def test_point_extent_union() -> None:
     extent = Extent((-63.42020466006154, -12, -63.42020466006154, -12))
 
     assert Extent.union([extent]) == extent
+
+
+@pytest.mark.parametrize(
+    "spatial",
+    [(0.1, 0.0, 0.2, 1.0), (-73.3, -12.0, -73.1, -11.9), (10.7, 45.1, 11.3, 45.9), (170.3, -1.0, -170.1, 1.0)],
+)
+def test_union_of_one_extent_is_that_extent(spatial: tuple[float, float, float, float]) -> None:
+    extent = Extent(spatial, ("2024-01-01T00:00:00Z", "2024-01-02T00:00:00Z"))
+    assert Extent.union([extent]) == extent
+
+
+def test_extent_union_tie_does_not_cross_the_antimeridian() -> None:
+    # Either cover leaves out a 20 degree gap.
+    merged = Extent.union([Extent((-170, 0, -10, 1)), Extent((10, 0, 170, 1))])
+    assert merged == Extent((-170, 0, 170, 1))
+
+
+def test_extent_union_matches_the_writer_summary() -> None:
+    from taco.extensions._builtin.stac.models import _SpatialExtent
+
+    random = Random(7)
+    for _ in range(500):
+        # Coarse coordinates make equal gaps, and so ties, common.
+        boxes = []
+        for _ in range(random.randint(1, 5)):
+            south = random.randint(-18, 17) * 5
+            boxes.append((random.randint(-36, 36) * 5, south, random.randint(-36, 36) * 5, south + 5))
+        summary = _SpatialExtent()
+        empty = [None] * len(boxes)
+        summary.update(
+            {"geometry": empty, "bbox": boxes, "proj_code": empty, "proj_shape": empty, "proj_transform": empty}
+        )
+        assert Extent.union([Extent(box) for box in boxes]) == Extent.from_any(summary.finish()), boxes
 
 
 def test_bad_provider_and_curator_fields() -> None:
@@ -240,6 +281,114 @@ def test_collection_json_must_be_json() -> None:
         taco.Collection.from_json("{")
     with pytest.raises(CollectionError, match="must be an object"):
         taco.Collection.from_json("[]")
+
+
+def _with_raw(collection: taco.Collection, edit: Callable[[dict[str, Any]], object], raw: str) -> str:
+    """COLLECTION.json text where the value "<raw>" is replaced by the JSON text raw."""
+    data = collection.to_dict()
+    edit(data)
+    return json.dumps(data).replace('"<raw>"', raw)
+
+
+@pytest.mark.parametrize(
+    ("edit", "raw"),
+    [
+        pytest.param(lambda data: data.update(title="<raw>"), "NaN", id="nan"),
+        pytest.param(lambda data: data.update(title="<raw>"), "Infinity", id="infinity"),
+        pytest.param(lambda data: data["providers"][0].update(links=[{"href": "<raw>"}]), "-Infinity", id="links"),
+        pytest.param(lambda data: data.update({"poi:values": "<raw>"}), "[1, NaN]", id="group"),
+        pytest.param(lambda data: data.update(title="<raw>"), '"\\ud800"', id="lone-surrogate"),
+        pytest.param(lambda data: data.update({"poi:nested": "<raw>"}), "[" * 257 + "]" * 257, id="too-deep"),
+        pytest.param(lambda data: data.update({"poi:size": "<raw>"}), "1e400", id="float-overflow"),
+        pytest.param(lambda data: data.update({"poi:size": "<raw>"}), "-1" + "0" * 400, id="integer-overflow"),
+        pytest.param(lambda data: data.update({"poi:size": "<raw>"}), '1, "poi:size": 2', id="repeated-key"),
+        pytest.param(lambda data: data.update(title="<raw>"), '"a", "title": "a"', id="repeated-equal-key"),
+        pytest.param(
+            lambda data: data["providers"][0].update(name="<raw>"), '"p", "name": "q"', id="repeated-nested-key"
+        ),
+    ],
+)
+def test_collection_json_is_as_strict_as_the_native_reader(
+    collection: taco.Collection, edit: Callable[[dict[str, Any]], object], raw: str
+) -> None:
+    with pytest.raises(CollectionError, match="not valid JSON"):
+        taco.Collection.from_json(_with_raw(collection, edit, raw))
+
+
+def test_collection_json_may_nest_as_deep_as_the_native_reader_allows(collection: taco.Collection) -> None:
+    text = _with_raw(collection, lambda data: data.update({"poi:nested": "<raw>"}), "[" * 256 + "]" * 256)
+    assert taco.Collection.from_json(text).to_json()
+
+
+def test_collection_json_numbers_may_reach_the_largest_double(collection: taco.Collection) -> None:
+    raw = "[1.7976931348623157e308, -1.7976931348623157e+308, 1e-400, 1" + "0" * 300 + "]"
+    loaded = taco.Collection.from_json(_with_raw(collection, lambda data: data.update({"poi:sizes": "<raw>"}), raw))
+    assert loaded.metadata["poi"]["sizes"] == [1.7976931348623157e308, -1.7976931348623157e308, 0.0, 10**300]
+
+
+def test_validate_reports_a_repeated_key(folder_dataset: Path) -> None:
+    path = folder_dataset / "COLLECTION.json"
+    text = path.read_text()
+    path.write_text(text.replace('"id": ', '"id": "again", "id": ', 1))
+    report = taco.validate(folder_dataset)
+    assert [issue.code for issue in report.errors] == ["container"]
+    assert "repeats the key 'id'" in report.errors[0].message
+
+
+@pytest.mark.parametrize(
+    "encode",
+    [
+        pytest.param(lambda text: b"\xef\xbb\xbf" + text.encode(), id="bom"),
+        pytest.param(lambda text: text.encode("utf-16"), id="utf-16"),
+        pytest.param(lambda text: text.encode().replace(b"Tiny", b"\xe9"), id="latin-1"),
+    ],
+)
+def test_collection_json_bytes_must_be_utf8(collection: taco.Collection, encode: Callable[[str], bytes]) -> None:
+    with pytest.raises(CollectionError, match="not valid JSON"):
+        taco.Collection.from_json(encode(collection.to_json()))
+
+
+def test_parsed_collection_values_must_be_json(collection: taco.Collection) -> None:
+    data = collection.to_dict()
+    data["providers"][0]["links"] = [{"href": math.nan}]
+    with pytest.raises(CollectionError, match="not valid JSON"):
+        taco.Collection.from_dict(data)
+    with pytest.raises(CollectionError, match="links must be JSON serializable"):
+        Provider("x", links=({"href": math.inf},))
+
+
+@pytest.mark.parametrize(
+    ("edit", "message"),
+    [
+        pytest.param(lambda data: data.update(title=123), "title must be a string", id="title"),
+        pytest.param(lambda data: data["providers"][0].update(url=5), "provider url", id="provider-url"),
+        pytest.param(lambda data: data["providers"][0].update(links=["x"]), "provider links", id="provider-links"),
+        pytest.param(lambda data: data.update(curators=[{"name": 7}]), "curator name must be", id="curator-name"),
+        pytest.param(lambda data: data.update(curators=[{"name": "c", "email": 5}]), "curator email", id="email"),
+        pytest.param(lambda data: data.update(curators=[{"name": "c", "role": ["x"]}]), "curator role", id="role"),
+        pytest.param(lambda data: data.update({"taco:structure": {"mask.tif": None}}), "structure", id="structure"),
+        pytest.param(lambda data: data.update({"taco:sources": ["a.zip"]}), "taco:sources", id="sources"),
+        pytest.param(lambda data: data.update(extent={"spatial": ["0", "0", "1", "1"]}), "numbers", id="strings"),
+        pytest.param(lambda data: data.update(extent={"spatial": [False, 0, True, 1]}), "numbers", id="booleans"),
+        pytest.param(
+            lambda data: data.update(extent={"spatial": [0, 0, 1, 1], "temporal": 5}), "start, end", id="temporal"
+        ),
+        pytest.param(
+            lambda data: data.update(
+                extent={"spatial": [0, 0, 1, 1], "temporal": {"a": "2024-01-01", "b": "2024-01-02"}}
+            ),
+            "start, end",
+            id="temporal-object",
+        ),
+    ],
+)
+def test_collection_json_values_have_their_spec_types(
+    collection: taco.Collection, edit: Callable[[dict[str, Any]], object], message: str
+) -> None:
+    data = collection.to_dict()
+    edit(data)
+    with pytest.raises(TacoError, match=message):
+        taco.Collection.from_dict(data)
 
 
 def test_collection_metadata_must_be_json(collection: taco.Collection) -> None:

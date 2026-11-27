@@ -1,10 +1,57 @@
 from __future__ import annotations
 
+import ctypes
+import errno
+import functools
 import os
 import shutil
+import sys
 import tempfile
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
+
+# Flags of renameat2 on Linux and renamex_np on macOS.
+_NO_REPLACE = 1 if sys.platform == "linux" else 4  # RENAME_NOREPLACE, RENAME_EXCL
+_EXCHANGE = 2  # RENAME_EXCHANGE, RENAME_SWAP
+_AT_FDCWD = -100
+# Errors that mean the file system has no hard links or does not know a rename flag.
+_UNSUPPORTED = frozenset({errno.EINVAL, errno.EMLINK, errno.ENOSYS, errno.ENOTSUP, errno.EOPNOTSUPP, errno.EPERM})
+
+
+@functools.cache
+def _rename_function() -> Callable[[bytes, bytes, int], int] | None:
+    """renameat2 on Linux or renamex_np on macOS, if the C library has it."""
+    if sys.platform not in ("linux", "darwin"):
+        return None
+    try:
+        libc = ctypes.CDLL(None, use_errno=True)
+        function = libc.renamex_np if sys.platform == "darwin" else libc.renameat2
+    except (AttributeError, OSError):
+        return None
+    function.restype = ctypes.c_int
+    if sys.platform == "darwin":
+        function.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint]
+        return function
+    function.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+    return lambda source, target, flags: function(_AT_FDCWD, source, _AT_FDCWD, target, flags)
+
+
+def _rename(source: Path, target: Path, flags: int) -> bool:
+    """Rename with a renameat2 or renamex_np flag; False where it is not supported."""
+    function = _rename_function()
+    if function is None:
+        return False
+    if function(os.fsencode(source), os.fsencode(target), flags) == 0:
+        return True
+    error = ctypes.get_errno()
+    if error in _UNSUPPORTED:
+        return False
+    raise OSError(error, os.strerror(error), os.fspath(source), None, os.fspath(target))
+
+
+def exchange(first: Path, second: Path) -> bool:
+    """Swap two paths in one step; False where the OS or file system cannot."""
+    return _rename(first, second, _EXCHANGE)
 
 
 def _remove(path: Path) -> None:
@@ -14,14 +61,28 @@ def _remove(path: Path) -> None:
         shutil.rmtree(path)
 
 
+def _rename_without_replacing(source: Path, target: Path) -> None:
+    if _rename(source, target, _NO_REPLACE):
+        return
+    if target.exists() or target.is_symlink():
+        raise FileExistsError(target)
+    # On POSIX this replaces a target created after the check.
+    source.rename(target)
+
+
 def _move_without_replacing(source: Path, target: Path) -> None:
     if source.is_dir() or os.name == "nt":
-        if target.exists() or target.is_symlink():
-            raise FileExistsError(target)
-        source.rename(target)
+        _rename_without_replacing(source, target)
         return
 
-    target.hardlink_to(source)
+    try:
+        target.hardlink_to(source)
+    except OSError as exc:
+        if exc.errno not in _UNSUPPORTED:
+            raise
+        # exFAT, SMB and some FUSE mounts have no hard links.
+        _rename_without_replacing(source, target)
+        return
     source.unlink()
 
 

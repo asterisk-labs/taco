@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import types
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
@@ -13,6 +14,7 @@ from ..container.parquet import Encoding
 from ..errors import ContractError, SampleError
 from .extension import CollectionSummary, Extension
 from .naming import validate_field_name
+from .types import check_type
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from pydantic import BaseModel
@@ -160,6 +162,14 @@ def _pydantic_arrow_type(model_field: Any) -> pa.DataType:
     return _arrow_type(model_field.annotation)
 
 
+def _check_stored_type(qualified: str, dtype: pa.DataType) -> None:
+    # COLLECTION.json keeps only the type string, so it must describe the type exactly.
+    try:
+        check_type(dtype)
+    except ContractError as exc:
+        raise ContractError(f"metadata field {qualified!r}: {exc}") from exc
+
+
 def _encoding_hint(model_field: Any) -> Encoding | None:
     annotation, _ = _optional(model_field.annotation)
     extras = list(model_field.metadata)
@@ -176,7 +186,7 @@ def _model_fields(namespace: str, model: type[BaseModel], optional: bool) -> tup
             raise ContractError(f"{model.__name__}.{name} has no type annotation")
         _, nullable = _optional(annotation)
         qualified = f"{namespace}:{name}"
-        validate_field_name(qualified, context="metadata")
+        validate_qualified_field(qualified)
         metadata = {}
         if model_field.description:
             metadata[b"description"] = model_field.description.encode()
@@ -184,6 +194,7 @@ def _model_fields(namespace: str, model: type[BaseModel], optional: bool) -> tup
         if hint is not None:
             metadata.update(hint.metadata)
         dtype = _pydantic_arrow_type(model_field)
+        _check_stored_type(qualified, dtype)
         result.append((name, pa.field(qualified, dtype, nullable=optional or nullable, metadata=metadata or None)))
     if not result:
         raise ContractError(f"metadata model {model.__name__} has no fields")
@@ -262,7 +273,8 @@ def _extension_binding(namespace: str, value: Extension, *, optional: bool = Fal
     positions = {field.name: index for index, (_, field) in enumerate(fields)}
     for field in value.fields:
         qualified = f"{namespace}:{field.name}"
-        validate_field_name(qualified, context="derived metadata")
+        validate_qualified_field(qualified)
+        _check_stored_type(qualified, field.type)
         metadata = field.metadata
         item = (field.name, pa.field(qualified, field.type, nullable=field.nullable or optional, metadata=metadata))
         if qualified in positions:
@@ -289,7 +301,7 @@ def _namespace(value: str) -> str:
 
 
 def validate_qualified_field(value: str) -> None:
-    if value.count(":") != 1:
+    if not isinstance(value, str) or value.count(":") != 1:
         raise ContractError(f"metadata field {value!r} must be namespace:field")
     namespace, name = value.split(":")
     _namespace(namespace)
@@ -302,6 +314,19 @@ def _declared_namespace(value: Any) -> str | None:
     if isinstance(value, Extension):
         return value.__taco_namespace__ or getattr(value.input_model, "__taco_namespace__", None)
     return getattr(_optional(value)[0], "__taco_namespace__", None)
+
+
+def check_level_rules(level: str, target: type, nullable: Iterable[str], *, optional: bool = False) -> None:
+    """Check a model's or extension's level and nullability rules against its nullable columns."""
+    levels: frozenset[str] = getattr(target, "__taco_levels__", frozenset())
+    if levels and level not in levels:
+        allowed = " or ".join(repr(name) for name in sorted(levels))
+        raise ContractError(f"{target.__name__} can only be used at metadata level {allowed}, not {level!r}")
+    if not getattr(target, "__taco_nullable__", True):
+        columns = sorted(nullable)
+        if columns:
+            rule = "cannot be optional" if optional else "columns cannot be nullable"
+            raise ContractError(f"{target.__name__} {rule}: {columns} must hold a value on every row at {level!r}")
 
 
 @dataclass(frozen=True, init=False)
@@ -323,9 +348,13 @@ class Level:
             if owner is not None and _declared_namespace(value) is None:
                 raise ContractError(f"metadata namespace {namespace!r} is reserved for the {owner} extension")
             if isinstance(value, Extension):
-                bindings.append(_extension_binding(namespace, value))
+                group = _extension_binding(namespace, value)
             else:
-                bindings.append(_model_binding(namespace, value))
+                group = _model_binding(namespace, value)
+            target = type(value) if isinstance(value, Extension) else _optional(value)[0]
+            nullable = (field.name for _, field in group.fields if field.nullable)
+            check_level_rules(name, target, nullable, optional=group.optional)
+            bindings.append(group)
         object.__setattr__(self, "name", name)
         object.__setattr__(self, "groups", tuple(bindings))
 
@@ -351,5 +380,6 @@ __all__ = [
     "Field",
     "Level",
     "Metadata",
+    "check_level_rules",
     "validate_qualified_field",
 ]

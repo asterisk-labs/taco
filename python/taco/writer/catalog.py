@@ -25,6 +25,7 @@ from ..contract.naming import (
     TACOCAT_DIR,
     level_folder,
     level_to_filename,
+    normalize_relative_path,
     validate_component,
 )
 from ..errors import ConsolidationError, ContractError
@@ -70,8 +71,28 @@ def _ordered_table(dataset: DatasetView, reference: DatasetView, level: str) -> 
     return table
 
 
-def _source_entry(dataset: DatasetView, directory: Path) -> dict[str, Any]:
-    source = Path(os.path.relpath(dataset.path, directory)).as_posix()
+def _source_name(path: Path, directory: Path) -> str:
+    # TACO 7.5: readers resolve a source against the directory that holds the
+    # catalog, and the path may not leave it.
+    try:
+        source = Path(os.path.relpath(path, directory)).as_posix()
+    except ValueError:  # another drive on Windows
+        source = ".."
+    if source == ".." or source.startswith("../"):
+        raise ConsolidationError(
+            f"partition {path} is not below {directory}, the directory that holds the TACOCAT; "
+            "pass an output= that contains every partition"
+        )
+    try:
+        normalize_relative_path(source, context="partition path")
+    except ContractError as exc:
+        raise ConsolidationError(str(exc)) from exc
+    if not source.endswith(".zip"):
+        raise ConsolidationError(f"partition path must end in .zip: {source!r}")
+    return source
+
+
+def _source_entry(dataset: DatasetView, source: str) -> dict[str, Any]:
     entry: dict[str, Any] = {"file": source, "samples": dataset.sample_count}
     extent = dataset.collection.extent
     if extent is not None:
@@ -104,7 +125,7 @@ def consolidate(
 
     paths = [Path(item).expanduser().resolve() for item in archives]
     directory = Path(output).expanduser().resolve() if output is not None else _common_parent(paths)
-    source_names = [Path(os.path.relpath(path, directory)).as_posix() for path in paths]
+    source_names = [_source_name(path, directory) for path in paths]
     if len(source_names) != len(set(source_names)):
         raise ConsolidationError("partition paths must be unique")
     target = directory / name
@@ -149,12 +170,12 @@ def consolidate(
                     )
                 return writers[level]
 
-            for index, path in enumerate(paths):
+            for index, (path, source_name) in enumerate(zip(paths, source_names, strict=True)):
                 dataset = reference if index == 0 else open_view(path)
                 _check_partition(dataset, reference)
                 for name in summaries:
                     summary_values[name].append(dataset.collection_json.get(name))
-                source_entry = _source_entry(dataset, directory)
+                source_entry = _source_entry(dataset, source_name)
                 sources.append(source_entry)
                 sample_table = dataset.level(SAMPLE_LEVEL)
                 if SAMPLE_ID not in sample_table.column_names:

@@ -62,6 +62,10 @@ class Extension(ABC):
     """
 
     __taco_scopes__: ClassVar[frozenset[str]] = frozenset()
+    # Empty allows any level. Pydantic models can declare this too.
+    __taco_levels__: ClassVar[frozenset[str]] = frozenset()
+    # False requires values in every row and forbids an optional group.
+    __taco_nullable__: ClassVar[bool] = True
     __taco_complete_level__: ClassVar[bool] = False
     __taco_namespace__: ClassVar[str | None] = None
     # True when each output row depends only on its input row, which skips the

@@ -6,11 +6,11 @@ import pickle
 import tempfile
 from collections.abc import Callable, Iterator
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, cast
 
 from ..container.publish import publish_many
 from ..contract.contract import SAMPLE_LEVEL
-from ..contract.naming import sanitize_filename
+from ..contract.naming import partition_filename, sanitize_filename
 from ..contract.sample import _PreparedSample
 from ..errors import WriterError
 from .base import BuildResult
@@ -23,11 +23,22 @@ if TYPE_CHECKING:
 logger = logging.getLogger("taco")
 
 
+def _unique_label(label: str, taken: set[str]) -> str:
+    # Avoid collisions on case-insensitive file systems.
+    unique, number = label, 1
+    while unique.lower() in taken:
+        number += 1
+        unique = f"{label}-{number}"
+    taken.add(unique.lower())
+    return unique
+
+
 def _stage_partitions(writer: ArchiveWriter) -> list[tuple[str, StagedSamples[tuple[_PreparedSample, int]]]]:
     directory = writer._stage / "partitions"
     directory.mkdir()
     partitions: list[tuple[str, StagedSamples[tuple[_PreparedSample, int]]]] = []
-    labels: dict[str, Any] = {}
+    labels: dict[tuple[str, str], str] = {}
+    taken: set[str] = set()
 
     try:
         if writer.partition_by is not None:
@@ -37,12 +48,11 @@ def _stage_partitions(writer: ArchiveWriter) -> list[tuple[str, StagedSamples[tu
             next_stage = 0
             for sample, size in _samples_with_partition_metadata(writer):
                 value = sample.metadata[writer.partition_by]
-                label = sanitize_filename(str(value))
-                if label in labels and labels[label] != value:
-                    raise WriterError(
-                        f"partition values {labels[label]!r} and {value!r} collide on file name {label!r}"
-                    )
-                labels[label] = value
+                # Distinguish None from the string "None".
+                key = (type(value).__name__, str(value))
+                label = labels.get(key)
+                if label is None:
+                    label = labels[key] = _unique_label(sanitize_filename(str(value)), taken)
 
                 stream = streams.get(label)
                 if stream is None or (
@@ -199,7 +209,7 @@ def write_partitioned(writer: ArchiveWriter) -> BuildResult:
 
     stem = writer.output.stem
     parent = writer.output.parent
-    outputs = [parent / f"{stem}_{label}.zip" for label, _ in partitions]
+    outputs = [parent / partition_filename(stem, label) for label, _ in partitions]
     for output in outputs:
         writer._validate_output(output)
     tacocat_dir = parent / ".tacocat"

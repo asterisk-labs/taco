@@ -11,8 +11,10 @@ from .sample import Asset
 from .schema import Metadata
 
 _VARIABLE_LEAF = re.compile(
-    r"^(?P<prefix>[^*\[\]]+)\*\[(?P<minimum>\d+)\s*,\s*(?P<maximum>\d+)\](?P<suffix>[^*\[\]]*)$"
+    r"^(?P<prefix>[^*\[\]]+)\*\[(?P<minimum>0|[1-9][0-9]*),(?P<maximum>0|[1-9][0-9]*)\](?P<suffix>[^*\[\]]*)$"
 )
+# 2^53 - 1, so that every reader holds the bounds exactly.
+_MAX_BOUND = 9_007_199_254_740_991
 
 
 @dataclass(frozen=True)
@@ -70,11 +72,12 @@ def parse_leaf(declaration: str) -> Leaf:
         return Leaf(declaration, folder, basename)
     prefix = match.group("prefix")
     suffix = match.group("suffix")
-    minimum = int(match.group("minimum"))
-    maximum = int(match.group("maximum"))
-    validate_component(prefix, context="variable leaf prefix")
-    if suffix:
-        validate_component("x" + suffix, context="variable leaf suffix")
+    bounds = match.group("minimum"), match.group("maximum")
+    if any(len(bound) > len(str(_MAX_BOUND)) or int(bound) > _MAX_BOUND for bound in bounds):
+        raise ContractError(f"variable leaf {declaration!r} has a bound above {_MAX_BOUND}")
+    minimum, maximum = (int(bound) for bound in bounds)
+    # The prefix need not be a name of its own; the names the sequence produces must be.
+    validate_component(f"{prefix}0{suffix}", context="variable leaf file name")
     if minimum > maximum:
         raise ContractError(f"variable leaf {declaration!r} has min > max")
     if minimum < 1:

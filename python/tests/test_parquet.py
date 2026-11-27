@@ -150,3 +150,38 @@ def test_trials_do_not_reach_the_metadata_collector(tmp_path: Path) -> None:
         writer.add(taco.Sample(id="s0", assets=b"x", metadata=taco.Metadata(place=Place(name="Lima", code="a"))))
         writer.run()
     assert len(collected) == 2
+
+
+def row_group_rows(path: Path) -> list[int]:
+    metadata = pq.read_metadata(path)
+    return [metadata.row_group(group).num_rows for group in range(metadata.num_row_groups)]
+
+
+def test_batches_fill_whole_row_groups(tmp_path: Path) -> None:
+    collection = taco.Collection(
+        contract=taco.Contract(structure=["a/x.bin", "b.bin"]),
+        id="groups",
+        description="Row groups",
+        licenses=["MIT"],
+        providers=["TACO tests"],
+    )
+
+    def write(start: int, count: int, *, append: bool = False) -> None:
+        output = tmp_path / "groups"
+        with taco.open_writer(collection, output, append=append, row_group_size=10, batch_size=4) as writer:
+            writer.extend(
+                taco.Sample(id=f"s{index}", assets=[taco.Asset(b"x", path="a/x.bin"), taco.Asset(b"y", path="b.bin")])
+                for index in range(start, start + count)
+            )
+            writer.run()
+
+    metadata = tmp_path / "groups" / "METADATA"
+    write(0, 25)
+    assert row_group_rows(metadata / "sample.parquet") == [10, 10, 5]
+    assert row_group_rows(metadata / "children.parquet") == [10] * 5
+    assert row_group_rows(metadata / "children__a.parquet") == [10, 10, 5]
+
+    # An append gathers the existing rows and the new ones in the same way.
+    write(25, 12, append=True)
+    assert row_group_rows(metadata / "sample.parquet") == [10, 10, 10, 7]
+    assert pq.read_table(metadata / "sample.parquet").column("id").to_pylist() == [f"s{index}" for index in range(37)]

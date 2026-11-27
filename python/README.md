@@ -81,7 +81,7 @@ export TACO_CACHE_DIR=/data/taco-cache
 ```
 
 `TACO_CACHE_SIZE` sets the limit in bytes, and `TACO_CACHE_REFRESH=1` downloads
-everything again.
+everything again, the GeoEnrich index once per process.
 
 ## Examples
 

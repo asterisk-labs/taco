@@ -32,9 +32,134 @@ JavaScript reader are documented here. The format follows
   and rewrites preserve declared built-in versions.
 - Built-ins reserve their namespaces. STAC profiles reject extra fields.
 - `jsonschema` is part of the `writer` extra.
+- Two levels whose Parquet filenames are equal ignoring case, such as
+  `children/a_/b` and `children/a/_b`, are a `ContractError`, and readers refuse
+  a `COLLECTION.json` that declares them.
+- `validate` reports every entry of `METADATA/` or of a TACOCAT folder that is
+  not a level's Parquet file, such as `.DS_Store`, as `unexpected files`. With
+  `check_data=True` it reads every ZIP payload to check its CRC-32, so it takes
+  longer on a large archive.
+- MajorTOM and Split are restricted to the `sample` level and cannot be optional.
+  Extensions and models declare these rules with `__taco_levels__` and
+  `__taco_nullable__`; the contract checks them when it is built.
+- `partition_by` removes accents and replaces unsafe filename characters with
+  `_`. Labels that collide, ignoring case, receive `-2`, `-3`, and so on.
+- `Collection.from_json`, `validate`, and the core require UTF-8 JSON without
+  NaN or Infinity and reject `COLLECTION.json` nested beyond 256 levels.
+- R and Julia use UTC for DuckDB queries and disable extension installation.
+  R can load an ICU extension already installed by DuckDB.
+- JavaScript `read` and `readLevel` use the same filter rules, with one exception
+  for 64-bit integers. The package requires hyparquet 1.30 or newer.
+- The spec now requires `internal:offset` and `internal:size` at every ZIP and
+  TACOCAT child level, matching the writer's existing output.
+- Remote ZIP cache checks use the CoZIP integrity hash, with one small request
+  per open.
+- Open remote datasets retain a snapshot of cached metadata until the process
+  exits, even if the cache entry is rebuilt or evicted.
+- Source-list level relations number `internal:current_id` and
+  `internal:parent_id` across sources, as TACOCAT does.
+- Readers percent-encode paths appended to HTTP URLs in metadata requests and
+  file locations.
 
+- Variable sequence bounds are decimal integers without a sign, spaces or leading
+  zeros, at most 2^53 - 1, in the writer and every reader. The prefix is checked
+  through the names it produces, so `img.*[1,3].tif` is valid.
+- `COLLECTION.json` may not repeat a key in an object or hold a number beyond the
+  finite double range, such as `1e400`.
+- The contract refuses types Parquet cannot store, such as `struct<>`, a decimal
+  scale outside `0..precision`, `fixed_size_binary` below 1, and `decimal32` or
+  `decimal64`, which used to become `decimal128`. Struct field names may not be
+  blank, padded, or hold `:,<>[]()`.
+- A level whose Parquet filename would exceed 255 bytes is refused when the
+  contract is built.
+- Values that a column type would change are refused: float16 or float32
+  overflow, and sub-unit times, timestamps and durations.
+- MajorTOM refuses a centroid outside `latitude_range` or `longitude_range`, or
+  south of a grid's first row, and gives every other one the cell of the whole
+  grid that contains it. Cells at the edge of a range can change.
+- A source list accepts partitions whose `split:counts` differ and adds them up,
+  as `consolidate` does.
+- `export` ignores NULL, negative and out-of-range `taco:sample_index` values, and
+  accepts HUGEINT and DECIMAL indices.
+- Metadata row groups hold `row_group_size` rows instead of one batch each.
+- JavaScript drops a stored `taco:sample_index` and rejects the collections the
+  Python reader rejects.
 ### Fixed
 
+- A dataset path holding `[`, `]`, `?` or `*` no longer reads the Parquet files
+  of another dataset, and a folder such as `id=7/` above a local dataset no
+  longer replaces its `id` column.
+- Processes that open the same remote source at once with an empty cache all
+  succeed instead of failing to write the cache entry.
+- A process forked after reading, such as a `DataLoader` worker, opens its own
+  DuckDB connection instead of hanging on its parent's.
+- The Python reader no longer tries to download DuckDB's ICU extension when it
+  connects, so it reads offline.
+- Julia tasks that make their first Taco call at the same time no longer
+  deadlock.
+- A folder whose name ends in `_` and holds another folder is readable: the core
+  takes the levels from `COLLECTION.json` instead of reading them back from the
+  Parquet filenames.
+- `validate` opens every partition of a TACOCAT, validates it like a ZIP and
+  checks the catalog rows, collection metadata and summaries against it. A
+  missing partition is an error, no longer a warning.
+- `validate` checks the offsets and sizes in the CoZIP index, the local headers
+  against the central directory, the general purpose flags and the end of the
+  archive.
+- `consolidate` rejects archives outside `output` rather than writing `../`
+  source paths.
+- The next FOLDER append recovers after a writer is killed or loses power. It
+  rolls back an unfinished metadata switch or completes a committed one.
+- `validate` detects missing or incorrect `extent` values. It reports missing
+  internal columns, null relative paths, and untransformable CRSs without crashing.
+- `Extent.union` no longer shifts coordinates. Like the ZIP writer, it breaks
+  ties in favor of an interval that does not cross the antimeridian.
+- R and Julia `sql()` results no longer depend on the host time zone, and R can
+  use an installed ICU.
+- JavaScript requests now reject on failure without crashing Node; failed level
+  loads can be retried.
+- JavaScript filters handle nulls, Dates, arrays, and column names with dots.
+  Row ranges select stored rows before filtering.
+- JavaScript encodes FOLDER and TACOCAT level URLs and reads levels that contain
+  only folders.
+- A remote ZIP republished at the same URL and size no longer uses stale cached
+  offsets.
+- Open remote datasets keep working across cache rebuilds and evictions;
+  `native_sql` remains valid until the process exits.
+- Parent joins in a source list no longer mix rows from different sources.
+- Remote FOLDER and TACOCAT names with spaces, `#` or `%` open, and GDAL opens
+  their locations.
+- A TACOCAT whose `taco:sources` lists a path with `..` is refused, and no
+  location can leave the catalog directory or, in a FOLDER, `DATA/`.
+- The long view keeps a child value whose field differs from an ancestor field
+  only in letter case.
+- `file://` sources give the locations of the local path they name, so GDAL
+  opens them, and a percent-encoded `file://` URI opens at all.
+- A source written two ways, such as `a.zip` and `./a.zip` or a `file://` URI,
+  is refused as a repeat in Python, R and Julia, and a leading `~` is expanded
+  in all three, `inspect` included.
+- R and Julia merge source-list time ranges by instant, not as text.
+- A variable sequence takes only the indices below its maximum in the core, so a
+  fixed `img10.tif` beside `img*[1,3].tif` keeps its own column.
+- A fork while another thread opens a local ZIP, or holds a cache or progress
+  lock, no longer deadlocks the child.
+- The ZIP writer no longer changes the process umask, which raced with other
+  threads, and new FOLDER datasets follow the umask instead of 0700.
+- Publishing with `overwrite=False` works where the file system has no hard
+  links.
+- A FOLDER append switches `METADATA/` in one step where the system can swap
+  two directories, so it is never missing.
+- With `TACO_CACHE_REFRESH`, GeoEnrich downloads its index once per process
+  instead of once per batch.
+- A NaN inside a list no longer looks like a value that depends on other rows.
+- The Pydantic path of `taco.Level` and a contract built from a mapping apply
+  the same type, name and extension checks as the other paths, and malformed
+  input raises TACO errors instead of raw Python exceptions.
+- `validate` checks child row order, `files` restrictions and MajorTOM codes, and
+  reports up to 10 schema violations per extension instead of one.
+- JavaScript orders long rows by sample and structure, lets `readLevel` filter a
+  stored column whose name has a dot, and the playground shows no location for
+  folder rows.
 - `consolidate` matches partition columns by name, so a partition that stores
   its columns in another order no longer swaps or rejects their values.
 - JavaScript asset reads detect archive size or ETag changes, keep cached bytes

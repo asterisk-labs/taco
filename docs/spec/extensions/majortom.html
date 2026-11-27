@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#ffffff">
 <meta name="description" content="The MajorTOM Extension of the TACO specification.">
 <title>TACO · MajorTOM Extension</title>
-<link rel="icon" href="../../assets/svg/taco-mark-static.svg?v=2" type="image/svg+xml">
+<link rel="icon" href="../../assets/svg/taco-mark-static.svg?v=3" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=League+Spartan:wght@300;400;500;600&display=swap" rel="stylesheet">
@@ -18,7 +18,7 @@
 <div class="page">
   <header class="masthead">
     <a class="lockup" href="../../index.html" aria-label="TACO home">
-      <img class="marksvg" src="../../assets/svg/taco-mark.svg?v=2" alt="">
+      <img class="marksvg" src="../../assets/svg/taco-mark.svg?v=3" alt="">
       <span class="wm-sm">TACO</span>
     </a>
 
@@ -77,7 +77,7 @@
 <li><strong>Owner:</strong> Asterisk Labs</li>
 </ul>
 <p><a href="majortom/v1.0.0/schema.json">JSON Schema</a> · <a href="majortom/examples/COLLECTION.json">Example</a></p>
-<p>This extension assigns each sample the cell of the spherical <a href="https://github.com/ESA-PhiLab/Major-TOM" rel="noopener noreferrer">MajorTOM</a> grid that contains its centroid. The code joins a sample to other MajorTOM datasets and indexes.</p>
+<p>This extension assigns each sample the cell of the spherical <a href="https://github.com/ESA-PhiLab/Major-TOM" rel="noopener noreferrer">MajorTOM</a> grid that contains its centroid. The code links a sample to other MajorTOM datasets and indexes.</p>
 <h2 class="part" id="dependencies">Dependencies</h2>
 <p>A centroid from the <a href="stac.html">STAC extension</a>, normally <code>stac:centroid</code> or <code>spatial:centroid</code>.</p>
 <h2 class="part" id="level-fields">Level fields</h2>
@@ -105,7 +105,8 @@
 </tr>
 </tbody>
 </table>
-<p>A code joins the grid size, the row and the column with <code>sep</code>, such as <code>MT100km_0012U_0034R</code>. Rows count up (<code>U</code>) and down (<code>D</code>) from the equator, and columns right (<code>R</code>) and left (<code>L</code>) from the prime meridian, with four digits.</p>
+<p>These fields MUST appear only at the <code>sample</code> level and MUST have a value in every row.</p>
+<p>A code joins the grid size, the row, and the column with <code>sep</code>, such as <code>MT100km_0012U_0034R</code>. The row counts up (<code>U</code>) or down (<code>D</code>) from the equator, and the column counts right (<code>R</code>) or left (<code>L</code>) from the prime meridian. Each has four digits.</p>
 <h2 class="part" id="collection-fields">Collection fields</h2>
 <p>Every parameter changes what a code means, so the writer stores all of them.</p>
 <table class="spec">
@@ -149,6 +150,7 @@
 </tr>
 </tbody>
 </table>
+<p>A centroid outside <code>latitude_range</code> or <code>longitude_range</code> MUST fail its sample, and so does one south of the first row of a grid. Every other centroid gets the cell of the whole grid that contains it, an edge belonging to the cell south or west of it, as in the MajorTOM reference grid. A validator recomputes every code from the stored centroids and parameters.</p>
 <p>An append whose parameters differ from the stored ones MUST fail. For example, <code>MajorTOM(dist_km=50)</code> cannot extend a dataset built with <code>dist_km=100</code>, because one column would hold codes from two grid sizes.</p>
 <h2 class="part" id="writer">Writer</h2>
 <pre><code class="language-python">taco.Level(

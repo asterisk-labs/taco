@@ -21,7 +21,7 @@ This extension stores the class name of each value in a file, such as a segmenta
 "labels:files": {"mask.tif": {"0": "clear", "1": "thick_cloud", "2": "thin_cloud", "3": "shadow", "255": "unlabeled"}}
 ```
 
-Every key of `labels:files` MUST be a declaration in `taco:structure`. Codes are non-negative integers written as JSON keys, and names are non-empty strings. Names MUST NOT repeat within a file. Codes need not be contiguous. There is no special ignore value; give it a name such as `unlabeled`.
+Every key of `labels:files` MUST be a declaration in `taco:structure`. Codes are non-negative integers written as JSON keys, and names are non-empty strings. Names MUST NOT repeat within a file. Codes need not be contiguous. There is no special ignore value. A code to be ignored gets a name like any other, such as `unlabeled`.
 
 ## Level fields
 

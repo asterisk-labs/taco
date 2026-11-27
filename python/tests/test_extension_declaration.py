@@ -142,6 +142,26 @@ def test_an_unknown_extension_is_only_a_warning(folder_dataset: Path) -> None:
         (lambda data: data.update({"majortom:extra": {"fine": 10}}), "do not match majortom:extra"),
         (lambda data: data.update({"majortom:latitude_range": [10, -10]}), "latitude_range must increase"),
         (lambda data: data.update({"majortom:longitude_range": [0, 0]}), "longitude_range must increase"),
+        (
+            lambda data: data["taco:metadata"]["children"].update(
+                {"majortom:code": data["taco:metadata"]["sample"]["majortom:code"]}
+            ),
+            "majortom columns must be at the sample level, found at ['children']",
+        ),
+        # The stored codes are computed again from these parameters.
+        (
+            lambda data: data.update({"majortom:dist_km": 50}),
+            "sample: majortom:code does not match the centroids and parameters on 4 rows (first row 0: 'MT100km_",
+        ),
+        (lambda data: data.update({"majortom:sep": "-"}), "expected 'MT100km-"),
+        (
+            lambda data: data.update({"majortom:latitude_range": [-10, 10]}),
+            "of row 0 is outside the MajorTOM latitude_range [-10.0, 10.0] or longitude_range [-180.0, 180.0]",
+        ),
+        (
+            lambda data: data.update({"majortom:centroid": "spatial:centroid"}),
+            "majortom:centroid 'spatial:centroid' is not a field of the sample level",
+        ),
     ],
 )
 def test_majortom_collection_fields_are_checked(
@@ -149,6 +169,29 @@ def test_majortom_collection_fields_are_checked(
 ) -> None:
     edit_collection(folder_dataset, change)
     assert any(expected in message for message in extension_errors(folder_dataset))
+
+
+def test_stored_majortom_codes_are_checked(folder_dataset: Path) -> None:
+    path = folder_dataset / "METADATA" / "sample.parquet"
+    table = pq.read_table(path)
+    index = table.schema.get_field_index("majortom:code")
+    codes = table.column(index).to_pylist()
+    table = table.set_column(index, table.schema.field(index), pa.array([codes[0], codes[0], *codes[2:]]))
+    pq.write_table(table, path)
+    expected = f"on 1 rows (first row 1: {codes[0]!r}, expected {codes[1]!r})"
+    assert any(expected in message for message in extension_errors(folder_dataset)), expected
+
+
+def test_every_schema_violation_is_reported_up_to_a_limit(folder_dataset: Path) -> None:
+    edit_collection(folder_dataset, lambda data: data.update({"majortom:dist_km": 0, "majortom:sep": "x"}))
+    errors = extension_errors(folder_dataset)
+    assert any(message.startswith(f"majortom:dist_km breaks {MAJORTOM}") for message in errors)
+    assert any(message.startswith(f"majortom:sep breaks {MAJORTOM}") for message in errors)
+
+    edit_collection(folder_dataset, lambda data: data.update({f"majortom:field{index}": index for index in range(15)}))
+    errors = [message for message in extension_errors(folder_dataset) if MAJORTOM in message]
+    assert len(errors) == 11
+    assert errors[-1] == f"COLLECTION.json breaks {MAJORTOM} in 7 more places"
 
 
 def test_one_profile_class_describes_folders_and_files(tmp_path: Path) -> None:

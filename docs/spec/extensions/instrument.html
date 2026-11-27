@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#ffffff">
 <meta name="description" content="The Instrument Extension of the TACO specification.">
 <title>TACO · Instrument Extension</title>
-<link rel="icon" href="../../assets/svg/taco-mark-static.svg?v=2" type="image/svg+xml">
+<link rel="icon" href="../../assets/svg/taco-mark-static.svg?v=3" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=League+Spartan:wght@300;400;500;600&display=swap" rel="stylesheet">
@@ -18,7 +18,7 @@
 <div class="page">
   <header class="masthead">
     <a class="lockup" href="../../index.html" aria-label="TACO home">
-      <img class="marksvg" src="../../assets/svg/taco-mark.svg?v=2" alt="">
+      <img class="marksvg" src="../../assets/svg/taco-mark.svg?v=3" alt="">
       <span class="wm-sm">TACO</span>
     </a>
 
@@ -80,7 +80,7 @@
 <p>This extension records the instruments that may produce each file and lists its bands
 in file order. For known instruments, the writer embeds metadata from
 <a href="https://github.com/awesome-spectral-indices/awesome-earth-observation-instruments" rel="noopener noreferrer">Awesome Earth Observation Instruments</a>
-(AEOI). TACO ships a copy under its MIT license.</p>
+(AEOI). TACO ships a copy of AEOI under the AEOI MIT license.</p>
 <h2 class="part" id="collection-fields">Collection fields</h2>
 <table class="spec">
 <thead>
@@ -104,7 +104,7 @@ in file order. For known instruments, the writer embeds metadata from
 <tr>
 <td><code>instrument:catalogue</code></td>
 <td>object</td>
-<td>Name, version and link of the bundled AEOI catalogue</td>
+<td>Name, version, and link of the bundled AEOI catalogue</td>
 </tr>
 </tbody>
 </table>
@@ -118,14 +118,18 @@ in file order. For known instruments, the writer embeds metadata from
   &quot;instrument:instruments&quot;: {
     &quot;MSI_S2A&quot;: {
       &quot;name&quot;: &quot;MultiSpectral Instrument&quot;,
+      &quot;acronym&quot;: &quot;MSI&quot;,
       &quot;type&quot;: &quot;multispectral&quot;,
       &quot;platform&quot;: [&quot;Sentinel-2A&quot;],
+      &quot;operator&quot;: [&quot;ESA&quot;, &quot;Copernicus&quot;],
       &quot;bands&quot;: {
         &quot;B4&quot;: {
           &quot;center_wavelength&quot;: 664.6,
           &quot;bandwidth&quot;: 30,
+          &quot;band_description&quot;: &quot;Red&quot;,
           &quot;common_name&quot;: &quot;red&quot;,
-          &quot;gsd&quot;: 10
+          &quot;gsd&quot;: 10,
+          &quot;snr&quot;: 142
         }
       }
     }
@@ -137,13 +141,13 @@ in file order. For known instruments, the writer embeds metadata from
   }
 }
 </code></pre>
-<p>A declaration may name several compatible instruments. For example, the same band
+<p>An entry may name several compatible instruments. For example, the same band
 stack may come from Sentinel-2A or Sentinel-2B. Every listed instrument MUST provide
-every listed band. This does not describe a file assembled from instruments with
+every listed band. An entry cannot describe a file assembled from instruments with
 different band sets.</p>
-<p>Each key in <code>instrument:files</code> MUST match a declaration in <code>taco:structure</code>. The writer
-resolves known identifiers from AEOI, copies only the bands in use and records the
-catalogue version. A custom instrument needs a non-empty <code>name</code>, <code>type</code> and <code>bands</code>.
+<p>Every key of <code>instrument:files</code> MUST be a declaration in <code>taco:structure</code>. The writer
+resolves known identifiers from AEOI, copies only the bands in use, and records the
+catalogue version. A custom instrument needs a non-empty <code>name</code>, <code>type</code>, and <code>bands</code>.
 Each band needs a positive <code>center_wavelength</code> and <code>bandwidth</code>, both in nm.</p>
 <h2 class="part" id="level-fields">Level fields</h2>
 <p>None.</p>

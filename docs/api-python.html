@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#ffffff">
 <meta name="description" content="The TACO Python API: the reader and the writer, function by function.">
 <title>TACO · Python</title>
-<link rel="icon" href="assets/svg/taco-mark-static.svg?v=2" type="image/svg+xml">
+<link rel="icon" href="assets/svg/taco-mark-static.svg?v=3" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=League+Spartan:wght@300;400;500;600&display=swap" rel="stylesheet">
@@ -17,7 +17,7 @@
 <div class="page">
   <header class="masthead">
     <a class="lockup" href="index.html" aria-label="TACO home">
-      <img class="marksvg" src="assets/svg/taco-mark.svg?v=2" alt="">
+      <img class="marksvg" src="assets/svg/taco-mark.svg?v=3" alt="">
       <span class="wm-sm">TACO</span>
     </a>
 
@@ -65,12 +65,12 @@
     <article class="content">
       <h1>Python</h1>
 <ul class="facts">
-        <li>Package <code>taco-eo</code> on <a href="https://pypi.org/project/taco-eo/" rel="noopener noreferrer">PyPI</a>, imported as <code>taco</code>, on Python 3.10 or newer, with wheels for Linux x86-64 and aarch64, macOS arm64 and x86-64 and Windows x86-64.</li>
+        <li>Package <code>taco-eo</code> on <a href="https://pypi.org/project/taco-eo/" rel="noopener noreferrer">PyPI</a>, imported as <code>taco</code>, on Python 3.10 or newer, with wheels for Linux (x86-64, aarch64), macOS (arm64, x86-64) and Windows (x86-64).</li>
         <li>Reader, and the only TACO writer</li>
       </ul>
 <pre><code class="language-sh">pip install taco-eo              # read
 pip install "taco-eo[writer]"    # read and write</code></pre>
-      <p>Python reads through libtaco, the C++ core with a C API that R and Julia load too. It calls the core through cffi, runs the queries in DuckDB and returns <code>pyarrow.Table</code> objects. The writer is Python: Pydantic checks the metadata, pyarrow writes the Parquet levels and cozip packs the archive. The rules every binding shares are on the <a href="api.html">API overview</a>. This page gives the Python names, their signatures and types, and what is specific to Python.</p>
+      <p>Python calls libtaco through cffi, runs queries in DuckDB and returns <code>pyarrow.Table</code> objects. Its writer checks metadata with Pydantic, writes Parquet with pyarrow and packs archives with CoZIP. See the <a href="api.html">API overview</a> for the common data model; this page covers Python calls and behavior.</p>
       <p>The public names are <a href="#open_dataset"><code>open_dataset</code></a>, <a href="#read"><code>read</code></a>, <a href="#dataset"><code>Dataset</code></a>, <a href="#inspect"><code>inspect</code></a>, <a href="#contract"><code>Contract</code></a>, <a href="#level"><code>Level</code></a>, <a href="#collection"><code>Collection</code></a>, <a href="#sample"><code>Sample</code>, <code>Asset</code>, <code>Folder</code>, <code>Metadata</code></a>, <a href="#encoding"><code>Encoding</code></a>, <a href="#open_writer"><code>open_writer</code></a>, <a href="#custom"><code>Extension</code>, <code>ExtensionContext</code></a>, <a href="#builtins"><code>extensions</code></a>, <a href="#validate"><code>validate</code></a>, <a href="#export"><code>export</code></a>, <a href="#consolidate"><code>consolidate</code></a>, <a href="#errors"><code>TacoError</code></a> and <code>__version__</code>.</p>
 
       <h2 class="part" id="install">Install</h2>
@@ -81,7 +81,7 @@ pip install "taco-eo[writer]"    # read and write</code></pre>
         <tr><th>taco-eo[rumi]</th><td>The writer and <code>rumi-eo[write]</code> 0.19 or newer, for the <a href="#builtins">Rumi extension</a>.</td></tr>
         <tr><th>taco-eo[geoenrich]</th><td>The writer and <code>earthengine-api</code>, for GeoEnrich with <code>backend="earthengine"</code>.</td></tr>
       </table>
-      <p>A wheel is tagged <code>py3-none-&lt;platform&gt;</code>: cffi loads the core at run time, so one wheel per platform serves every supported Python version. A source install compiles libtaco and needs a C++23 compiler, CMake, Ninja, pkg-config, libcurl 7.83 or newer and OpenSSL 3.</p>
+      <p>A wheel is tagged <code>py3-none-&lt;platform&gt;</code>: cffi loads the core at run time, so one wheel per platform serves every supported Python version. A source install compiles libtaco and needs a C++23 compiler, CMake, Ninja, pkg-config, libcurl 7.83 or newer and OpenSSL 3 or newer.</p>
       <p>Importing <code>taco</code> imports pyarrow. The first open loads libtaco, and the first query imports DuckDB. The writer names are imported when first accessed, so a read-only install imports, reads and queries without them. Accessing one without the extra raises <code>ImportError</code>:</p>
 <pre class="output"><code>ImportError: taco.open_writer needs the writer: pip install 'taco-eo[writer]' (missing cozip)</code></pre>
 
@@ -96,7 +96,7 @@ pip install "taco-eo[writer]"    # read and write</code></pre>
 <pre><code class="sig language-python">taco.open_dataset(source) -&gt; taco.Dataset</code></pre>
       <p>Opens a dataset and loads its collection and metadata. Payloads are not read.</p>
       <table class="spec">
-        <tr><th>source</th><td>Text or a path-like object, or a sequence of them, in one of the <a href="api.html#sources">source forms</a>. A value containing <code>://</code> is kept as written, and a local path is expanded and resolved. A sequence opens compatible partitions as one dataset, as <a href="#sources">source lists</a> describes. An empty sequence, an empty path or a repeated path raises <code>ValueError</code>, and any other type <code>TypeError</code>.</td></tr>
+        <tr><th>source</th><td>Text or a path-like object, or a sequence of them, in one of the <a href="api.html#sources">source forms</a>. A value containing <code>://</code> is kept as written, and a local path is expanded and resolved. A sequence opens compatible partitions as one dataset, as <a href="#sources">Source lists and TACOCAT</a> describes. An empty sequence, an empty path or a repeated path, or two paths to one file such as <code>a.zip</code> and <code>file://.../a.zip</code>, raises <code>ValueError</code>, and any other type <code>TypeError</code>.</td></tr>
       </table>
 <pre><code class="language-python">import taco
 
@@ -104,11 +104,11 @@ url = "https://data.source.coop/major-tom/core-dem/core-dem_MT3000km_0001D_0003L
 dataset = taco.open_dataset(url)
 dataset</code></pre>
 <pre class="output"><code>Dataset('major-tom-core-dem', source='https://data.source.coop/major-tom/core-dem/core-dem_MT3000km_0001D_0003L.zip')</code></pre>
-      <p>This partition of Major TOM Core-DEM holds 50,178 samples in 1,231,271,133 bytes. The open fetched 2,697,870 bytes of metadata, in 7 to 10 s over four runs here, and a later open read them from the <a href="#cache">cache</a> in about 1 s. The <code>Dataset</code> keeps one native handle per source and reuses it for every later query. It is a snapshot of the metadata it loaded.</p>
+      <p>This partition of Major TOM Core-DEM holds 50,178 samples in 1,231,271,133 bytes. The open fetched 2,697,870 bytes of metadata, in 7 to 10 s over four runs here, and a later open read them from the <a href="#cache">cache</a> in about 1 s. The <code>Dataset</code> keeps one native handle per source and reuses it for every later query. It is a snapshot of the metadata it loaded, except a local FOLDER or TACOCAT, which is read in place (<a href="api.html#sources">Sources and cache</a>).</p>
 
       <h3 id="dataset">Dataset</h3>
       <table class="spec">
-        <tr><th>collection</th><td>A <a href="#collection"><code>taco.Collection</code></a> parsed from <code>COLLECTION.json</code>. For a source list, the collection of the first source with the extents of all of them merged.</td></tr>
+        <tr><th>collection</th><td>A <a href="#collection"><code>taco.Collection</code></a> parsed from <code>COLLECTION.json</code>. For a source list, the collection of the first source with the extents of all of them merged and their <code>split:counts</code> added up.</td></tr>
         <tr><th>contract</th><td>A <a href="#contract"><code>taco.Contract</code></a>, the same as <code>collection.contract</code>.</td></tr>
         <tr><th>sources</th><td>A <code>tuple</code> of the normalized sources: <code>str</code> for a remote location and <code>pathlib.Path</code> for a local one.</td></tr>
         <tr><th>read, sql</th><td>The methods described under <a href="#read"><code>read</code></a> and <a href="#sql"><code>sql</code></a>.</td></tr>
@@ -163,7 +163,8 @@ peaks.slice(0, 1).to_pylist()</code></pre>
 <pre class="output"><code>['internal:current_id', 'internal:parent_id', 'internal:relative_path', 'internal:offset',
  'internal:size', 'rumi:header', 'rumi:minimum', 'rumi:maximum', 'rumi:mean', 'rumi:stddev',
  'rumi:p2', 'rumi:p98']</code></pre>
-      <p>The query runs as <code>SELECT * FROM (query)</code> under a <code>WITH</code> that defines the relations, so it must be a single statement, and the line numbers in DuckDB's messages count from the start of that wrapper, not of your query. Errors are DuckDB exceptions, not <code>TacoError</code>, as <a href="#errors">Errors</a> lists. Each thread keeps one DuckDB connection, set to <code>TimeZone=UTC</code>, so timestamps compare and print in UTC. <code>read</code> runs through the same connection.</p>
+      <p>Queries run as <code>SELECT * FROM (query)</code> under a <code>WITH</code> defining the relations, so each query must be one statement. DuckDB error line numbers include that wrapper; query failures raise DuckDB exceptions, not <code>TacoError</code> (<a href="#errors">Errors</a>).</p>
+      <p>Each thread keeps a DuckDB connection with <code>TimeZone=UTC</code>; <code>read</code> shares it. A forked process, such as a Linux PyTorch <code>DataLoader</code> worker, opens its own connection.</p>
 
       <h3 id="inspect">inspect</h3>
 <pre><code class="sig language-python">taco.inspect(source, query) -&gt; object</code></pre>
@@ -197,7 +198,7 @@ catalog.collection.sources["samples"], len(catalog.collection.sources["partition
 catalog.read().column_names[:3]</code></pre>
 <pre class="output"><code>(1735044, 63)
 ['source_file', 'taco:sample_index', 'id']</code></pre>
-      <p><code>Collection.sources</code> is the <code>taco:sources</code> object of a TACOCAT and <code>None</code> otherwise. <a href="api.html#how">How it works</a> times the first open of this TACOCAT. Once its metadata was cached, <code>read()</code> of all 1,735,044 rows took 3.07 s here.</p>
+      <p><code>Collection.sources</code> is the <code>taco:sources</code> object of a TACOCAT and <code>None</code> otherwise. The first open of this TACOCAT is timed under <a href="api.html#how">How it works</a>. Once its metadata was cached, <code>read()</code> of all 1,735,044 rows took 3.07 s here.</p>
 
       <h3 id="cache">Cache</h3>
       <p>Remote metadata is cached by the core, under the rules and variables of <a href="api.html#sources">Sources and cache</a>. Python passes no cache directory of its own, so the core reads <code>TACO_CACHE_DIR</code>, <code>TACO_CACHE_SIZE</code> and <code>TACO_CACHE_REFRESH</code> from the process environment at each open, and setting <code>os.environ</code> before an open is enough:</p>
@@ -209,9 +210,9 @@ import taco
 
 url = "https://data.source.coop/major-tom/core-dem/core-dem_MT3000km_0001D_0003L.zip"
 taco.open_dataset(url)
-sorted(os.listdir("taco-cache"))</code></pre>
+sorted(name for name in os.listdir("taco-cache") if not name.startswith("."))</code></pre>
 <pre class="output"><code>['CACHEDIR.TAG', 'major-tom-core-dem-zip-https-815e5df3eedb']</code></pre>
-      <p>The same root holds the MajorTOM index that <a href="#builtins">GeoEnrich</a> downloads while writing. Downloads show a tqdm bar in an interactive terminal and stay silent otherwise. Payloads are never cached.</p>
+      <p>The names left out start with a period: the snapshots that open datasets read, which their process removes when it exits. The same root holds the Major TOM index that <a href="#builtins">GeoEnrich</a> downloads while writing. Downloads show a tqdm bar in an interactive terminal and stay silent otherwise. Payloads are never cached.</p>
 
       <h2 class="part" id="writing">Writing</h2>
       <p>A build declares a contract, describes the dataset in a collection, opens a writer, adds samples and runs it. <a href="api.html#how">How it works</a>, <a href="api.html#contract">Contract</a> and <a href="api.html#metadata">Metadata</a> explain the model. This example writes three samples from bytes, so it runs anywhere:</p>
@@ -270,17 +271,18 @@ tiny.collection.to_dict()["split:counts"]</code></pre>
 <pre><code class="sig language-python">taco.Contract(*, structure, metadata=None)</code></pre>
       <p>The frozen <a href="api.html#contract">contract</a>: the files of a sample and the fields of each level.</p>
       <table class="spec">
-        <tr><th>structure</th><td>An iterable of <code>str</code>, the declarations, fixed files or variable sequences. A bare <code>str</code> or an empty list raises <code>ContractError</code>.</td></tr>
+        <tr><th>structure</th><td>An iterable of <code>str</code>: the declarations, each a fixed file or a variable sequence. A bare <code>str</code> or an empty list raises <code>ContractError</code>.</td></tr>
         <tr><th>metadata</th><td><code>None</code>, a list of <a href="#level"><code>taco.Level</code></a>, or a mapping from level name to <code>{field: declaration}</code> in the form <code>COLLECTION.json</code> stores. A level the structure does not imply raises <code>ContractError</code>.</td></tr>
       </table>
-      <p>The attributes are <code>structure</code>, a tuple of the declarations; <code>levels</code>, derived from the folders: <code>sample</code>, <code>children</code>, then one <code>children/&lt;folder&gt;</code> per folder, shallowest first and then in declaration order; <code>metadata</code>, a dict from level to a dict of <code>Field(type, nullable, description, files)</code>; and <code>operations</code>, the extension graph of a contract built in Python, which is empty for a contract read from a dataset. <code>to_dict()</code> returns the serialized form, <code>Contract.from_dict()</code> parses it, and two contracts are equal when the serialized forms are.</p>
+      <p><code>structure</code> is a tuple of declarations. <code>levels</code> starts with <code>sample</code> and <code>children</code>, then lists <code>children/&lt;folder&gt;</code> levels from shallowest to deepest in declaration order. <code>metadata</code> maps each level to its <code>Field(type, nullable, description, files)</code> values. <code>operations</code> holds the Python extension graph and is empty for a contract loaded from a dataset.</p>
+      <p><code>to_dict()</code> serializes the contract and <code>Contract.from_dict()</code> parses it. Contracts compare equal when their serialized forms match.</p>
 <pre><code class="language-python">contract.levels
 contract.metadata["sample"]["quality:cloud_cover"]
 contract.to_dict()["taco:metadata"]["sample"]["quality:cloud_cover"]</code></pre>
 <pre class="output"><code>('sample', 'children')
 Field(type='double', nullable=False, description='Cloud cover in percent', files=None)
 {'type': 'double', 'nullable': False, 'description': 'Cloud cover in percent'}</code></pre>
-      <p>The mapping form needs no Pydantic. A declaration is a dict with <code>type</code>, <code>nullable</code> and an optional <code>description</code>, a canonical type string or <code>pyarrow.DataType</code> for a field that is not nullable, or a <code>(type, description)</code> pair for a nullable one:</p>
+      <p>The mapping form needs no Pydantic. A declaration takes one of three forms: a dict with <code>type</code>, <code>nullable</code> and an optional <code>description</code>; a canonical type string or <code>pyarrow.DataType</code>, for a field that is not nullable; or a <code>(type, description)</code> pair, for a nullable one:</p>
 <pre><code class="language-python">taco.Contract(
     structure=["image.bin", "mask.bin"],
     metadata={"sample": {"quality:cloud_cover": {"type": "double", "nullable": False, "description": "Cloud cover in percent"}}},
@@ -288,7 +290,8 @@ Field(type='double', nullable=False, description='Cloud cover in percent', files
 
       <h3 id="level">Level</h3>
 <pre><code class="sig language-python">taco.Level(name, **groups)</code></pre>
-      <p>Binds namespaces to one metadata level. <code>name</code> is a level of the structure. Each keyword is a namespace, <code>[a-z][a-z0-9_]*</code> and not <code>taco</code>, <code>internal</code> or <code>cozip</code>, and becomes the prefix of its columns. A value is a Pydantic model class, required on every row; <code>Model | None</code>, a group that may be absent, whose columns are all nullable; or an instance of a <a href="#custom"><code>taco.Extension</code></a> subclass, which computes its columns in <code>run()</code>. A level left out of the list stores only the internal columns.</p>
+      <p>Binds namespaces to a structure level named by <code>name</code>. Each keyword becomes a column prefix and must match <code>[a-z][a-z0-9_]*</code>; <code>taco</code>, <code>internal</code> and <code>cozip</code> are reserved.</p>
+      <p>Pass a Pydantic model class for a required group, <code>Model | None</code> for an optional group with nullable columns, or a <a href="#custom"><code>taco.Extension</code></a> instance to compute columns in <code>run()</code>. A level omitted from the list still stores its internal columns.</p>
       <p>Each model field becomes a column. <code>T | None</code> makes it nullable, <code>Field(description=...)</code> gives its description, and <code>Annotated[T, pyarrow_type]</code> sets the exact type. Without <code>Annotated</code> the types map as follows:</p>
       <table class="spec">
         <tr><th>str, bytes, bool</th><td><code>string</code>, <code>binary</code>, <code>bool</code></td></tr>
@@ -338,15 +341,16 @@ pairs.levels</code></pre>
         <tr><th>description</th><td>A non-empty <code>str</code>.</td></tr>
         <tr><th>licenses</th><td>A non-empty sequence of <code>str</code>.</td></tr>
         <tr><th>providers</th><td>A non-empty sequence of names, or mappings with <code>name</code> and optional <code>roles</code>, <code>url</code> and <code>links</code>.</td></tr>
-        <tr><th>tasks</th><td>A sequence of <code>str</code>. A value outside <code>taco.contract.KNOWN_TASKS</code> is a <a href="#validate">validation</a> warning.</td></tr>
+        <tr><th>tasks</th><td>A non-empty sequence of <code>str</code>. A value outside <code>taco.contract.KNOWN_TASKS</code> is a <a href="#validate">validation</a> warning.</td></tr>
         <tr><th>title, keywords</th><td>A <code>str</code>, and a sequence of <code>str</code>.</td></tr>
         <tr><th>curators</th><td>A sequence of names, or mappings with <code>name</code> or <code>organization</code> and optional <code>email</code> and <code>role</code>.</td></tr>
         <tr><th>extent</th><td>The writer recomputes it on every build from the <code>spatial</code> or <code>stac</code> profile, so a value given here is not written.</td></tr>
         <tr><th>sources</th><td>Reserved for a TACOCAT. <code>open_writer</code> refuses a collection that sets it.</td></tr>
-        <tr><th>extensions</th><td>JSON Schema URLs of published extensions that are not built in. The identifiers of built-in extensions are added from the namespaces the contract uses.</td></tr>
+        <tr><th>extensions</th><td>JSON Schema URLs of published extensions that are not built in. The identifiers of built-in extensions are added from the namespaces the contract and the groups use.</td></tr>
         <tr><th>**groups</th><td>Collection metadata, one keyword per namespace: a mapping or a Pydantic model instance. Field <code>x</code> of group <code>g</code> is stored as <code>g:x</code>, as <a href="api.html#metadata">Metadata</a> describes.</td></tr>
       </table>
-      <p><code>collection.metadata</code> holds the groups as JSON values. <code>to_dict()</code> returns an independent copy of the whole document and <code>to_json()</code> its text, and <code>Collection.from_dict()</code> and <code>Collection.from_json()</code> parse one. Every check raises <code>CollectionError</code>, except a missing required argument, which raises Python's own <code>TypeError</code>.</p>
+      <p><code>collection.metadata</code> holds the groups as JSON values. <code>to_dict()</code> returns a copy of the document; <code>to_json()</code> returns its text. <code>Collection.from_dict()</code> and <code>Collection.from_json()</code> parse those forms. <code>from_json()</code> requires UTF-8 JSON without NaN or Infinity and allows at most 256 nesting levels.</p>
+      <p>Invalid collection data raises <code>CollectionError</code>. An invalid contract raises <code>ContractError</code>; a missing required Python argument raises <code>TypeError</code>.</p>
 <pre><code class="sig language-python">Collection.replace(**changes) -&gt; taco.Collection</code></pre>
       <p>Returns a copy with some arguments or groups replaced. A group set to <code>None</code> is removed. Replacing the contract also drops the groups of built-in extensions the new contract does not use.</p>
 <pre><code class="language-python">renamed = collection.replace(title="Tiny", source={"mission": "Sentinel-2"})
@@ -409,7 +413,7 @@ taco.open_dataset("pairs.zip").sql('SELECT "internal:relative_path", "scene:date
 <pre><code class="sig language-python">taco.open_writer(collection, output, *, append=False, overwrite=False, link=False,
                  row_group_size=65_536, batch_size=10_000, parquet_options=None,
                  partition_size=None, partition_by=None, progress=False, workers=1) -&gt; Writer</code></pre>
-      <p>Returns a writer for one build. An <code>output</code> ending in <code>.zip</code> gives an archive writer, any other path a FOLDER writer. It checks the arguments and does not touch the output, so an existing output raises <code>FileExistsError</code> from <code>run()</code>.</p>
+      <p>Returns a writer for one build. An <code>output</code> ending in <code>.zip</code> gives a ZIP writer, any other path a FOLDER writer. It checks the arguments and does not touch the output, so an existing output raises <code>FileExistsError</code> from <code>run()</code>.</p>
       <table class="spec">
         <tr><th>collection</th><td>A <code>taco.Collection</code> without <code>sources</code>.</td></tr>
         <tr><th>output</th><td>Text or a path-like object. <code>~</code> is expanded.</td></tr>
@@ -417,11 +421,11 @@ taco.open_dataset("pairs.zip").sql('SELECT "internal:relative_path", "scene:date
         <tr><th>overwrite</th><td>Replaces an existing output. A FOLDER writer still refuses a non-empty directory that is not a TACO folder.</td></tr>
         <tr><th>link</th><td>FOLDER only. Hard-links file assets instead of copying them, so a source must be on the same file system.</td></tr>
         <tr><th>row_group_size</th><td>A positive <code>int</code>, the rows of each Parquet row group.</td></tr>
-        <tr><th>batch_size</th><td>A positive <code>int</code>, the rows each level buffers before its extensions run and the batch is written.</td></tr>
+        <tr><th>batch_size</th><td>A positive <code>int</code>, the rows each level buffers before its extensions run. Finished batches are gathered into row groups of <code>row_group_size</code> rows.</td></tr>
         <tr><th>parquet_options</th><td>A mapping of <code>pyarrow.parquet.ParquetWriter</code> arguments, merged over <code>compression="zstd"</code>, level 9, and <code>write_statistics=True</code>. <code>row_group_size</code> is not accepted here and raises <code>ValueError</code> from <code>run()</code>.</td></tr>
         <tr><th>partition_size</th><td>ZIP only. Payload bytes per partition, an <code>int</code> or text such as <code>"4GB"</code>. Units are binary: <code>"4GB"</code> is 4 &times; 1024<sup>3</sup> bytes.</td></tr>
         <tr><th>partition_by</th><td>ZIP only. A <code>sample</code>-level field other than <code>id</code>, one partition per value. It may be a field an extension produces.</td></tr>
-        <tr><th>progress</th><td>Shows tqdm bars while planning, writing metadata and packing. They stay silent when the output is not a terminal.</td></tr>
+        <tr><th>progress</th><td>Shows tqdm bars while a ZIP build plans, writes metadata and packs, or while a FOLDER build writes. They stay silent when the output is not a terminal.</td></tr>
         <tr><th>workers</th><td>A positive <code>int</code>, the processes that build partitions; above 1 only with <code>partition_size</code> or <code>partition_by</code>. Workers start with <code>spawn</code>, so the collection, its models and extensions must be picklable and importable, not defined in a notebook, and a script needs an <code>if __name__ == "__main__":</code> guard.</td></tr>
       </table>
 
@@ -431,7 +435,7 @@ Writer.extend(samples) -&gt; int
 Writer.run() -&gt; taco.writer.BuildResult
 Writer.close() -&gt; None</code></pre>
       <p><code>add</code> checks a <code>taco.Sample</code> against the contract, copies inline bytes into a staging directory, measures every file and stages the sample on disk. It returns the position of the sample in this writer. <code>extend</code> calls <code>add</code> for each item of any iterable, a generator included, and returns the new count. Neither touches the output.</p>
-      <p><code>run</code> is the commit point. It runs the extensions, plans the ZIP offsets, writes each Parquet file once and moves the result into place, as <a href="spec/index.html#writer-lifecycle">the writer lifecycle</a> requires. A failed build leaves an existing output unchanged. A second call after success returns the same result. Leaving the <code>with</code> block calls <code>close</code>, which only removes the staging directory: a writer that never ran publishes nothing.</p>
+      <p><code>run</code> is the commit point: it runs extensions, plans ZIP offsets, writes Parquet files and publishes the result (<a href="spec/index.html#writer-lifecycle">writer lifecycle</a>). A failed build preserves the existing output; another call after success returns the same result. Leaving the <code>with</code> block calls <code>close</code> to remove staging files. A writer that never ran publishes nothing.</p>
 <pre><code class="language-python">def make(sample_id, split):
     return taco.Sample(
         id=sample_id,
@@ -457,7 +461,7 @@ writer.close()</code></pre>
         <tr><th>failed</th><td><code>run</code> raised. <code>add</code> and <code>run</code> raise <code>WriterError</code>; open a new writer.</td></tr>
         <tr><th>closed</th><td><code>close</code> ran before <code>run</code>. Nothing was written.</td></tr>
       </table>
-      <p>A writer also has <code>sample_count</code>, <code>result</code>, which is <code>None</code> until a build succeeds, <code>collection</code> and <code>contract</code>. <code>run</code> with no samples raises <code>WriterError: cannot build a dataset without samples</code>. The <code>BuildResult</code> is a frozen dataclass:</p>
+      <p>A writer also has <code>state</code>, <code>sample_count</code>, <code>collection</code>, <code>contract</code> and <code>result</code>, which is <code>None</code> until a build succeeds. <code>run</code> with no samples raises <code>WriterError: cannot build a dataset without samples</code>. The <code>BuildResult</code> is a frozen dataclass:</p>
       <table class="spec">
         <tr><th>path</th><td><code>pathlib.Path</code> of the archive, the folder, or the <code>.tacocat</code> directory of a partitioned build.</td></tr>
         <tr><th>samples</th><td><code>int</code>, the samples in the dataset, the earlier ones included after an append.</td></tr>
@@ -490,12 +494,14 @@ taco.read("growing").select(["taco:sample_index", "id"]).to_pylist()</code></pre
 [{'taco:sample_index': 0, 'id': 'a0'},
  {'taco:sample_index': 1, 'id': 'a1'},
  {'taco:sample_index': 2, 'id': 'b0'}]</code></pre>
-      <p>New samples continue the indices. An append rewrites every Parquet level and then replaces <code>METADATA/</code> and <code>COLLECTION.json</code> together. It raises <code>WriterError</code> when the <code>id</code>, the contract or an extension parameter differ, or when a new <code>id</code> is already in the dataset. To publish the folder as one archive, export all of it:</p>
+      <p>New samples continue the existing indices. An append stages samples, Parquet levels and <code>COLLECTION.json</code> under <code>.taco-append/</code>. It moves the samples into <code>DATA/</code>, switches <code>METADATA/</code> to commit, in one step where the system can swap two directories, as Linux and macOS can, and with two renames elsewhere, then publishes <code>COLLECTION.json</code>. Readers ignore the staging folder.</p>
+      <p>If the writer stops, the next append rolls back work before the metadata switch or completes work after it. Until recovery, <code>validate</code> may report extra samples in <code>DATA/</code>. A concurrent append raises <code>WriterError: another writer is appending to &lt;dataset&gt;</code>. An append also raises <code>WriterError</code> if the collection <code>id</code>, contract or extension parameters change, or if sample IDs repeat. To publish the folder as one archive, export it:</p>
 <pre><code class="language-python">taco.export("growing", "growing.zip", sql="SELECT * FROM sample", overwrite=True).samples</code></pre>
 <pre class="output"><code>3</code></pre>
 
       <h3 id="partitions">Partitions and TACOCAT</h3>
-      <p><code>partition_size</code> and <code>partition_by</code> split a ZIP build into archives beside a <code>.tacocat</code> directory that holds the merged metadata, as <a href="spec/index.html#75-tacocat">TACOCAT</a> specifies. A <code>partition_by</code> archive is named <code>&lt;stem&gt;_&lt;value&gt;.zip</code>, a size partition <code>&lt;stem&gt;_partNNNN.zip</code>, and both together <code>&lt;stem&gt;_&lt;value&gt;_partNNNN.zip</code>. A build that yields one partition writes one plain archive. The archives and the catalog are published together after the last one is written.</p>
+      <p><code>partition_size</code> and <code>partition_by</code> split a ZIP build into archives beside a <code>.tacocat</code> directory with merged metadata. See <a href="spec/index.html#75-tacocat">TACOCAT</a>. Archive names follow <code>&lt;stem&gt;_&lt;value&gt;.zip</code>, <code>&lt;stem&gt;_partNNNN.zip</code>, or <code>&lt;stem&gt;_&lt;value&gt;_partNNNN.zip</code> when both options are set.</p>
+      <p>Values lose accents and unsafe filename characters become <code>_</code>: <code>São Paulo</code> in <code>ds.zip</code> produces <code>ds_Sao_Paulo.zip</code>. Labels that collide, ignoring case, receive <code>-2</code>, <code>-3</code>, and so on. A build with one partition writes a plain archive. Otherwise, it publishes the archives and catalog together.</p>
 <pre><code class="language-python">splits = ["train", "train", "validation", "test"]
 with taco.open_writer(collection, "parts/tiny.zip", partition_by="split:split", overwrite=True) as writer:
     writer.extend(make(f"p{i}", split) for i, split in enumerate(splits))
@@ -531,7 +537,8 @@ if __name__ == "__main__":
       <p>An extension adds fields at write time. <a href="api.html#extensions">Extensions</a> lists the built-in ones and what each stores. This section shows how to bind them in Python and how to write one.</p>
 
       <h3 id="builtins">Built-in extensions</h3>
-      <p>Sample extensions live in <code>taco.extensions.sample.&lt;name&gt;</code> and go into a <code>Level</code>. Collection extensions live in <code>taco.extensions.collection.&lt;name&gt;</code> and go into <code>Collection</code> as groups. Bind each to the namespace it owns. A profile or plain model is passed as its class: <code>stac=STAC</code>, <code>spatial=Spatial</code>, <code>temporal=Temporal</code>, <code>split=Split</code>. An operation is passed as an instance: <code>majortom=MajorTOM(...)</code>, <code>geoenrich=GeoEnrich(...)</code>, <code>rumi=Rumi(...)</code>. So is a collection extension: <code>ml=ML(...)</code>, <code>labels=Labels(...)</code>, <code>instrument=Instrument(...)</code>.</p>
+      <p>Sample extensions live under <code>taco.extensions.sample</code> and bind to a <code>Level</code>. Collection extensions live under <code>taco.extensions.collection</code> and bind to <code>Collection</code>. Each uses its declared namespace.</p>
+      <p>Pass profiles and plain models as classes, such as <code>stac=STAC</code> or <code>split=Split</code>. Pass operations as instances, such as <code>majortom=MajorTOM(...)</code> or <code>rumi=Rumi(...)</code>. Collection extensions also use instances: <code>ml=ML(...)</code>, <code>labels=Labels(...)</code> and <code>instrument=Instrument(...)</code>.</p>
 <pre><code class="language-python">from taco.extensions.collection.labels import Labels
 from taco.extensions.collection.ml import ML
 from taco.extensions.sample.geoenrich import GeoEnrich
@@ -569,8 +576,9 @@ list(dem.metadata["children"])
  'geoenrich:admin_countries']
 ['rumi:header', 'rumi:mean', 'rumi:p98']
 ['geoenrich', 'labels', 'majortom', 'ml', 'rumi', 'split', 'stac']</code></pre>
-      <p><code>Collection.extensions</code> holds the schema URL of every extension in use; <code>Spatial</code> belongs to the <code>stac</code> extension. <code>MajorTOM</code> reads <code>stac:centroid</code> unless <code>centroid=</code> names another field. <code>GeoEnrich</code> reads the 10 km <code>majortom:code</code> with its default backend, and the centroid with <code>backend="earthengine"</code>. The writer resolves the order from what each extension requires, and a missing input fails when the contract is built: <code>ContractError: extensions at 'sample' require missing fields ['stac:centroid']</code>. A built-in bound to another namespace fails the same way: <code>ContractError: MajorTOM must use metadata namespace 'majortom', got 'mt'</code>.</p>
-      <p>Some extensions do work at <code>run()</code>. <code>Rumi</code> reads each local <code>.rumi</code> file and needs <code>taco-eo[rumi]</code>. <code>GeoEnrich</code> with the default <code>majortom-index</code> backend downloads the MajorTOM index into the <a href="#cache">cache</a> and revalidates it on every build, and with <code>backend="earthengine"</code> it needs <code>taco-eo[geoenrich]</code> and Earth Engine credentials.</p>
+      <p><code>Collection.extensions</code> records schema URLs for extensions in use; <code>Spatial</code> belongs to STAC. <code>MajorTOM</code> reads <code>stac:centroid</code> unless <code>centroid=</code> selects another field. <code>GeoEnrich</code> uses the 10 km <code>majortom:code</code> by default, or the centroid with <code>backend="earthengine"</code>.</p>
+      <p>The writer orders extensions by their required inputs. Missing inputs fail when the contract is built: <code>ContractError: extensions at 'sample' require missing fields ['stac:centroid']</code>. Binding a built-in to the wrong namespace also fails: <code>ContractError: MajorTOM must use metadata namespace 'majortom', got 'mt'</code>.</p>
+      <p>Some extensions do work at <code>run()</code>. <code>Rumi</code> reads each local <code>.rumi</code> file and needs <code>taco-eo[rumi]</code>. <code>GeoEnrich</code> with the default <code>majortom-index</code> backend downloads the Major TOM index into the <a href="#cache">cache</a> and revalidates it on every build, and with <code>backend="earthengine"</code> it needs <code>taco-eo[geoenrich]</code> and Earth Engine credentials.</p>
 
       <h3 id="custom">Writing an extension</h3>
       <p>Subclass <code>taco.Extension</code>, a frozen dataclass, and bind an instance in a <code>Level</code>. The writer calls <code>run</code> once per batch, after the files are local.</p>
@@ -581,7 +589,7 @@ list(dem.metadata["children"])
         <tr><th>input_model</th><td>Optional property: a Pydantic model for values the producer also supplies, or <code>None</code>.</td></tr>
         <tr><th>configuration()</th><td>Optional: JSON values describing the setup, kept in <code>Contract.operations</code> while writing and not stored.</td></tr>
         <tr><th>collection_metadata()</th><td>Optional: parameters that change what a column means, stored in <code>COLLECTION.json</code> under the namespace and checked on append.</td></tr>
-        <tr><th>__taco_scopes__</th><td>Class variable, <code>frozenset({"sample"})</code> to allow the extension in levels.</td></tr>
+        <tr><th>__taco_scopes__</th><td>Class variable, the scopes the extension allows. A set without <code>"sample"</code> keeps it out of levels; the default, an empty set, allows it anywhere.</td></tr>
         <tr><th>__taco_namespace__</th><td>Class variable, the namespace the extension owns, or <code>None</code> to accept any.</td></tr>
         <tr><th>__taco_complete_level__</th><td>Class variable, <code>True</code> to receive the whole level as one batch.</td></tr>
         <tr><th>__taco_row_local__</th><td>Class variable, <code>True</code> to skip the check that the output of a row depends only on that row.</td></tr>
@@ -652,7 +660,7 @@ lima.collection.extent</code></pre>
   'pixels:count': 65536}]
 Extent(spatial=(-77.1, -12.1, -76.9, -12.0),
        temporal=('2024-01-01T00:00:00Z', '2024-01-01T00:00:00Z'))</code></pre>
-      <p><code>STAC</code> computed the float32 centroid from the grid, <code>MajorTOM</code> read it, and <code>Pixels</code> ran on the shapes. The writer summarized the extent from the same rows. To prove an output does not depend on its batch, the writer runs the first row of each level again on its own. An extension that ranks rows within the batch fails:</p>
+      <p><code>STAC</code> computed the float32 centroid from the grid, <code>MajorTOM</code> read it, and <code>Pixels</code> ran on the shapes. The writer summarized the extent from the same rows. To check that an output does not depend on its batch, the writer runs the first row of each level again on its own. An extension that ranks rows within the batch fails:</p>
 <pre class="output"><code>SampleError: extension group 'rank' depends on the other rows of its batch; it runs once per batch, so a value that aggregates across samples belongs in a collection summary</code></pre>
       <p>A private namespace such as <code>pixels</code> needs no identifier. For a published extension, pass its JSON Schema URL in <code>Collection(extensions=[...])</code>.</p>
 
@@ -661,16 +669,17 @@ Extent(spatial=(-77.1, -12.1, -76.9, -12.0),
 
       <h3 id="validate">validate</h3>
 <pre><code class="sig language-python">taco.validate(path, *, check_data=True) -&gt; taco.validate.ValidationReport</code></pre>
-      <p>Checks a local dataset against the spec and collects every problem instead of stopping at the first. It reads the files with pyarrow and <code>zipfile</code>, not through the core, so a URL is treated as a local path and reported as not found. <code>check_data=False</code> skips the checks of the payload files against their metadata, the slow part on a large archive.</p>
+      <p>Checks a local dataset against the spec and collects all issues. It uses pyarrow and <code>zipfile</code>, so a URL is treated as a local path and reported as missing. For a TACOCAT, every listed partition must exist, pass ZIP validation and agree with the catalog's rows, sample count, collection metadata and summaries.</p>
+      <p><code>COLLECTION.json</code> follows the core's strict JSON rules. A ZIP or FOLDER <code>extent</code> must match the writer's summary of its rows within 1e-9 degrees. Child rows must follow their parents and the structure, a field restricted to some files must be null on other rows, and MajorTOM codes must match their centroids. Up to 10 schema violations are reported per extension. Set <code>check_data=False</code> to skip payload and ZIP CRC-32 checks, which take time on large archives. The report has:</p>
       <table class="spec">
-        <tr><th>path</th><td><code>pathlib.Path</code>, the path as given.</td></tr>
+        <tr><th>path</th><td><code>pathlib.Path</code>, the path as given with <code>~</code> expanded.</td></tr>
         <tr><th>container</th><td><code>"zip"</code>, <code>"folder"</code>, <code>"tacocat"</code>, or <code>None</code> when the dataset could not be opened.</td></tr>
         <tr><th>issues</th><td><code>list</code> of <code>Issue(severity, code, message)</code> in the order found. <code>severity</code> is <code>"error"</code> or <code>"warning"</code>.</td></tr>
         <tr><th>errors, warnings</th><td>The issues of each severity.</td></tr>
         <tr><th>ok</th><td><code>True</code> when there are no errors. Warnings do not count.</td></tr>
         <tr><th>raise_for_errors()</th><td>Raises <code>ValidationFailed</code> listing every error.</td></tr>
       </table>
-      <p>The codes are <code>container</code>, <code>id</code>, <code>sources</code>, <code>tasks</code>, <code>metadata</code>, <code>schema</code>, <code>current_id</code>, <code>parent_id</code>, <code>relative_path</code>, <code>structure</code>, <code>offsets</code>, <code>cozip</code>, <code>zip</code>, <code>data</code>, <code>source_file</code> and <code>extensions</code>, after the rules of <a href="spec/index.html#76-validation">Validation</a>. Here a FOLDER dataset loses one file and gains one it does not declare:</p>
+      <p>The codes are <code>container</code>, <code>id</code>, <code>sources</code>, <code>tasks</code>, <code>metadata</code>, <code>schema</code>, <code>current_id</code>, <code>parent_id</code>, <code>relative_path</code>, <code>structure</code>, <code>offsets</code>, <code>cozip</code>, <code>zip</code>, <code>data</code>, <code>source_file</code>, <code>extensions</code> and <code>profile</code>, named after the rules of <a href="spec/index.html#76-validation">Validation</a>. An issue inside a TACOCAT partition starts with its name, as in <code>partition 'b.zip': payloads do not match their CRC-32: 'DATA/0/mask.tif'</code>. Here a FOLDER dataset loses one file and gains one it does not declare:</p>
 <pre><code class="language-python">import shutil
 from pathlib import Path
 
@@ -688,11 +697,11 @@ Issue(severity='error', code='data', message='1 data files referenced by metadat
 
       <h3 id="export">export</h3>
 <pre><code class="sig language-python">taco.export(source, output, *, sql, overwrite=False, **fields) -&gt; taco.writer.BuildResult</code></pre>
-      <p>Writes the complete samples a query selects through <code>open_writer</code>, as <a href="spec/index.html#export">Export</a> specifies. The output keeps the contract and the <code>id</code> of each sample, and gets new indices from zero.</p>
+      <p>Writes, through <code>open_writer</code>, the complete samples a query selects, as <a href="spec/index.html#export">Export</a> specifies. The output keeps the contract and the <code>id</code> of each sample, and gets new indices from zero.</p>
       <table class="spec">
         <tr><th>source</th><td>One source, or an open <code>Dataset</code> whose native handle is reused. A source list raises <code>ValueError: export reads one dataset</code>.</td></tr>
         <tr><th>output</th><td>A <code>.zip</code> path, or any other path for a FOLDER.</td></tr>
-        <tr><th>sql</th><td>A query over <code>dataset</code>, <code>sample</code> or any level, as in <a href="#sql"><code>sql</code></a>. It must return <code>taco:sample_index</code>, which every relation carries during the export.</td></tr>
+        <tr><th>sql</th><td>A query over <code>dataset</code>, <code>sample</code> or any level, as in <a href="#sql"><code>sql</code></a>. It must return <code>taco:sample_index</code>, which every relation carries during the export. Its values must be integers, HUGEINT and DECIMAL included; NULL, negative values and indices past the last sample are ignored, and any other type raises <code>ValueError</code>.</td></tr>
         <tr><th>overwrite</th><td>Replaces an existing output.</td></tr>
         <tr><th>**fields</th><td>Collection arguments or groups to replace, as in <a href="#collection"><code>Collection.replace</code></a>, except <code>contract</code> and <code>sources</code>.</td></tr>
       </table>
@@ -718,12 +727,12 @@ taco.read("tiny-train.zip").select(["taco:sample_index", "id"]).to_pylist()</cod
 )
 peaks.samples, peaks.size</code></pre>
 <pre class="output"><code>(2, 102681)</code></pre>
-      <p><code>export</code> always shows its progress bar in an interactive terminal.</p>
+      <p><code>export</code> always shows its progress bars in an interactive terminal.</p>
 
       <h3 id="consolidate">consolidate</h3>
 <pre><code class="sig language-python">taco.consolidate(archives, output=None, *, name=".tacocat", overwrite=False,
                  row_group_size=65_536, parquet_options=None) -&gt; pathlib.Path</code></pre>
-      <p>Merges the metadata of ZIP archives built separately into a TACOCAT that points at them, and returns its directory. <code>output</code> is the directory that receives it, by default the one that holds every archive. Unlike a source list, it checks that the archives share the contract and collection metadata and that no <code>id</code> repeats.</p>
+      <p>Merges separately built ZIP archives into a TACOCAT and returns its directory. <code>output</code> defaults to the archives' shared parent; every archive must be inside it. Unlike a source list, consolidation checks that contracts and collection metadata agree and sample IDs are unique.</p>
 <pre><code class="language-python">for region in ("north", "south"):
     with taco.open_writer(collection, f"regions/{region}.zip", overwrite=True) as writer:
         writer.extend(make(f"{region}-{i}", "train") for i in range(3))
@@ -735,7 +744,7 @@ taco.open_dataset("regions").collection.sources</code></pre>
 <pre class="output"><code>'.tacocat'
 {'samples': 6,
  'partitions': [{'file': 'north.zip', 'samples': 3}, {'file': 'south.zip', 'samples': 3}]}</code></pre>
-      <p>Every failure raises <code>ConsolidationError</code>:</p>
+      <p>A failed check raises <code>ConsolidationError</code>:</p>
 <pre class="output"><code>ConsolidationError: pairs.zip was built with a different contract than north.zip
 ConsolidationError: partitions contain duplicate sample ids: ['north-0', 'north-1', 'north-2']
 ConsolidationError: partitions live in different directories; pass output= explicitly</code></pre>

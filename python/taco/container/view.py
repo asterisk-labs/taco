@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+import contextlib
 import io
-import json
 import zipfile
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -12,7 +12,7 @@ from typing import Any, Literal
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from ..contract.collection import Collection
+from ..contract.collection import Collection, parse_collection_json
 from ..contract.contract import SAMPLE_LEVEL, Contract
 from ..contract.naming import (
     COLLECTION_FILENAME,
@@ -79,7 +79,7 @@ class DatasetView:
     def iter_data_rows(self) -> Iterator[DataRow]:
         for level in self.levels:
             table = self.tables.get(level)
-            if table is None or level == SAMPLE_LEVEL:
+            if table is None or level == SAMPLE_LEVEL or RELATIVE_PATH not in table.column_names:
                 continue
             columns = [RELATIVE_PATH]
             columns += [name for name in (OFFSET, SIZE, SOURCE_FILE) if name in table.column_names]
@@ -118,29 +118,31 @@ def detect_container(path: Path) -> Container:
 def open_view(path: str | PathLike[str]) -> DatasetView:
     location = Path(path).expanduser().resolve()
     container = detect_container(location)
-    try:
-        if container == "zip":
-            with zipfile.ZipFile(location) as archive:
-                data = json.loads(archive.read(COLLECTION_FILENAME))
-        else:
-            data = json.loads((location / COLLECTION_FILENAME).read_bytes())
-        collection = Collection.from_dict(data)
-    except (CollectionError, ContractError) as exc:
-        raise ContainerError(f"invalid {COLLECTION_FILENAME} in {location}: {exc}") from exc
-    except Exception as exc:
-        raise ContainerError(f"could not read {COLLECTION_FILENAME} from {location}: {exc}") from exc
-
-    tables: dict[str, pa.Table] = {}
-    for level in collection.contract.levels:
+    # Opening a ZIP reads its whole central directory, so it is opened once.
+    with contextlib.ExitStack() as stack:
+        archive: zipfile.ZipFile | None = None
         try:
-            filename = level.replace("/", "__") + ".parquet"
             if container == "zip":
-                with zipfile.ZipFile(location) as archive:
-                    tables[level] = pq.read_table(io.BytesIO(archive.read(f"{METADATA_DIR}/{filename}")))
-            elif container == "folder":
-                tables[level] = pq.read_table(location / METADATA_DIR / filename)
+                archive = stack.enter_context(zipfile.ZipFile(location))
+                data = parse_collection_json(archive.read(COLLECTION_FILENAME))
             else:
-                tables[level] = pq.read_table(location / filename)
+                data = parse_collection_json((location / COLLECTION_FILENAME).read_bytes())
+            collection = Collection.from_dict(data)
+        except (CollectionError, ContractError) as exc:
+            raise ContainerError(f"invalid {COLLECTION_FILENAME} in {location}: {exc}") from exc
         except Exception as exc:
-            raise ContainerError(f"could not read level {level!r} from {location}: {exc}") from exc
+            raise ContainerError(f"could not read {COLLECTION_FILENAME} from {location}: {exc}") from exc
+
+        tables: dict[str, pa.Table] = {}
+        for level in collection.contract.levels:
+            try:
+                filename = level.replace("/", "__") + ".parquet"
+                if archive is not None:
+                    tables[level] = pq.read_table(io.BytesIO(archive.read(f"{METADATA_DIR}/{filename}")))
+                elif container == "folder":
+                    tables[level] = pq.read_table(location / METADATA_DIR / filename)
+                else:
+                    tables[level] = pq.read_table(location / filename)
+            except Exception as exc:
+                raise ContainerError(f"could not read level {level!r} from {location}: {exc}") from exc
     return DatasetView(location, container, collection, data, tables)

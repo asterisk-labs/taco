@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#ffffff">
 <meta name="description" content="The Rumi Extension of the TACO specification.">
 <title>TACO · Rumi Extension</title>
-<link rel="icon" href="../../assets/svg/taco-mark-static.svg?v=2" type="image/svg+xml">
+<link rel="icon" href="../../assets/svg/taco-mark-static.svg?v=3" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=League+Spartan:wght@300;400;500;600&display=swap" rel="stylesheet">
@@ -18,7 +18,7 @@
 <div class="page">
   <header class="masthead">
     <a class="lockup" href="../../index.html" aria-label="TACO home">
-      <img class="marksvg" src="../../assets/svg/taco-mark.svg?v=2" alt="">
+      <img class="marksvg" src="../../assets/svg/taco-mark.svg?v=3" alt="">
       <span class="wm-sm">TACO</span>
     </a>
 
@@ -134,9 +134,10 @@
 </tbody>
 </table>
 <p>Without a selection, a statistic covers every valid value of the array: all bands and, in a Cube, all time steps. <code>_b&lt;band&gt;</code> selects one band, <code>_t&lt;time&gt;</code> one time step of a Cube, and <code>_t&lt;time&gt;_b&lt;band&gt;</code> one band at one time step. Indexes start at zero and have no leading zeros, like variable sequences.</p>
-<p><code>stats=True</code> stores the six statistics without a selection. <code>stats=[&quot;mean&quot;, &quot;mean_b10&quot;, &quot;p98_t0_b3&quot;]</code> stores exactly those three columns for every Rumi file at the level.</p>
+<p><code>stats=True</code> stores the six statistics without a selection.</p>
 <pre><code>rumi:minimum  rumi:maximum  rumi:mean  rumi:stddev  rumi:p2  rumi:p98
 </code></pre>
+<p><code>stats=[&quot;mean&quot;, &quot;mean_b10&quot;, &quot;p98_t0_b3&quot;]</code> stores exactly those three columns for every Rumi file at the level.</p>
 <p>Statistics exclude non-finite values; booleans count as 0 and 1. The extension has no <code>nodata</code> option. Dataset-specific masking belongs outside this extension. A statistic is null when its selection holds no valid value.</p>
 <h3 id="selection-per-file">Selection per file</h3>
 <p><code>stats</code> MAY instead map a complete structure declaration to its own selection. The mapping MUST be non-empty, and each value MUST be <code>True</code>, a statistic name, or a non-empty list of statistic names. A declaration omitted from the mapping gets no statistics; it MUST NOT be represented by <code>False</code> or an empty list. The mapping is declared at the metadata level that owns those assets. For a variable sequence, the key is the declaration itself, including <code>*[min,max]</code>.</p>
@@ -147,7 +148,7 @@
     }
 )
 </code></pre>
-<p>The level stores the union of the selected statistic columns. A row contains null for a statistic that does not apply to its file. In <code>taco:metadata</code>, each restricted statistic declares the structure declarations it applies to with <code>files</code>.</p>
+<p>The level stores the union of the selected statistic columns. A row contains null for a statistic that does not apply to its file. When <code>stats</code> is a mapping, each statistic in <code>taco:metadata</code> lists the structure declarations it applies to in <code>files</code>.</p>
 <pre><code class="language-json">&quot;rumi:mean&quot;: {
   &quot;type&quot;: &quot;double&quot;,
   &quot;nullable&quot;: true,
@@ -164,7 +165,7 @@
 <p>The reader places the Rumi fields beside each <code>.rumi</code> file in <code>read()</code> and the <code>dataset</code> relation. After <code>{file}::location</code>, a file has a <code>{file}::header</code> column when its level declares <code>rumi:header</code>, and one <code>{file}::&lt;statistic&gt;</code> column for every statistic that applies to that declaration, such as <code>{file}::mean_b10</code>. They follow <code>taco:metadata</code> order.</p>
 <pre><code>read(&quot;multisensor.zip&quot;)
 # taco:sample_index | id       | optical.rumi::location | optical.rumi::header | optical.rumi::mean | radar.rumi::location | ...
-# 0            | lima-001 | /vsisubfile/...       | b&quot;LOVE...&quot;          | 1204.5             | /vsisubfile/...     | ...
+# 0                 | lima-001 | /vsisubfile/...        | b&quot;LOVE...&quot;           | 1204.5             | /vsisubfile/...      | ...
 </code></pre>
 <p>A Rumi variable sequence has a <code>LIST(BLOB)</code> column named after its prefix, such as <code>before/img::header</code>, and applicable <code>LIST(DOUBLE)</code> statistic columns such as <code>before/img::mean</code>.</p>
 <h2 class="part" id="writer">Writer</h2>

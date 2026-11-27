@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#ffffff">
 <meta name="description" content="The TACO specification: the contract, the metadata model and the FOLDER, ZIP and TACOCAT containers.">
 <title>TACO · Specification</title>
-<link rel="icon" href="../assets/svg/taco-mark-static.svg?v=2" type="image/svg+xml">
+<link rel="icon" href="../assets/svg/taco-mark-static.svg?v=3" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=League+Spartan:wght@300;400;500;600&display=swap" rel="stylesheet">
@@ -18,7 +18,7 @@
 <div class="page">
   <header class="masthead">
     <a class="lockup" href="../index.html" aria-label="TACO home">
-      <img class="marksvg" src="../assets/svg/taco-mark.svg?v=2" alt="">
+      <img class="marksvg" src="../assets/svg/taco-mark.svg?v=3" alt="">
       <span class="wm-sm">TACO</span>
     </a>
 
@@ -139,7 +139,7 @@
 <p><strong>Projection pushdown</strong> reads only the requested columns. Selecting two columns from a table of fifty does not require reading the other forty-eight.</p>
 <p>TACO MUST store tabular metadata in Parquet, with one file for each level of the sample hierarchy. Each file can be queried independently.</p>
 <p>A reader SHOULD use predicate and projection pushdown when its query engine supports them. Opening a dataset does not require loading every Parquet file or materializing all metadata.</p>
-<p>A writer MAY choose compression and encoding per column and SHOULD use ZSTD. Version 1 pages SHOULD use only PLAIN, RLE, dictionary, DELTA_BINARY_PACKED, DELTA_LENGTH_BYTE_ARRAY, or BYTE_STREAM_SPLIT. All TACO readers support them; JavaScript does not support DELTA_BYTE_ARRAY on version 1 pages.</p>
+<p>A writer MAY choose compression and encoding per column and SHOULD use ZSTD. Version 1 data pages SHOULD use only PLAIN, RLE, dictionary, DELTA_BINARY_PACKED, DELTA_LENGTH_BYTE_ARRAY, or BYTE_STREAM_SPLIT. Every TACO reader supports these encodings. The JavaScript reader does not support DELTA_BYTE_ARRAY on version 1 data pages.</p>
 <h3 id="32-vsi-path-convention">3.2. VSI Path Convention</h3>
 <p>TACO uses VSI paths to locate data. A VSI path describes how to reach a file on local disk, over HTTP, in object storage, or within a byte range of another file.</p>
 <pre><code>/vsicurl/https://example.com/scene.tif     reads from HTTP
@@ -160,9 +160,9 @@
 <p>The index points to the Parquet metadata. The metadata then provides the offsets and sizes needed to access individual data files.</p>
 <p>A TACO ZIP MUST conform to CoZIP 1.1.0 profile 2. Its index MUST include <code>COLLECTION.json</code> and every Parquet file in <code>METADATA/</code>.</p>
 <p>Every entry MUST use STORE mode. Compression is invalid because <code>/vsisubfile/</code> reads the stored byte range directly.</p>
-<p>STORE mode preserves the original file bytes inside a rebuilt archive. A platform that uses <a href="https://huggingface.co/docs/xet/chunking" rel="noopener noreferrer">Content-Defined Chunking</a> may therefore reuse unchanged chunks instead of uploading them again. Producers that rebuild ZIP datasets frequently SHOULD use CDC-aware storage.</p>
+<p>STORE mode preserves the original file bytes inside a rebuilt archive. A platform that uses <a href="https://huggingface.co/docs/xet/chunking" rel="noopener noreferrer">Content-Defined Chunking (CDC)</a> may therefore reuse unchanged chunks instead of uploading them again. Producers that rebuild ZIP datasets frequently SHOULD use CDC-aware storage.</p>
 <h2 class="part" id="4-design-goals">4. Design Goals</h2>
-<p>TACO follows five design requirements.</p>
+<p>TACO has five design goals.</p>
 <p><strong>Self-contained.</strong> A FOLDER or ZIP contains its data, metadata, and contract. Reading it does not require a database, API server, or external catalog.</p>
 <p><strong>Remote access.</strong> A reader can query metadata and fetch one file without downloading or extracting the complete dataset.</p>
 <p><strong>One contract.</strong> The contract declares every file and metadata field expected in a sample. The writer rejects missing files, undeclared files, and incompatible metadata.</p>
@@ -181,8 +181,8 @@
 <p>Each path describes either a fixed file or a variable sequence of files.</p>
 <p>Every data file in a sample MUST match exactly one declaration in <code>taco:structure</code>. Files that are not declared by the structure are invalid. Writers MUST NOT add placeholder, marker, or auxiliary files under <code>DATA/</code>.</p>
 <p>A <strong>fixed file</strong> appears exactly once in every sample. Its name is written directly in the structure, such as <code>B02.tif</code>.</p>
-<p>A <strong>variable sequence</strong> allows the number of files to differ between samples. It uses the form <code>prefix*[a,b].ext</code>, where <code>a</code> is the minimum number of files and <code>b</code> is the maximum. The prefix is required and <code>1 &lt;= a &lt;= b</code>.</p>
-<p>The <code>*</code> represents a zero-based index, not a filesystem glob. If a sample contains <code>k</code> files, their names MUST run from <code>prefix0.ext</code> to <code>prefix{k-1}.ext</code> without gaps, where <code>a &lt;= k &lt;= b</code>. An index MUST NOT contain leading zeros.</p>
+<p>A <strong>variable sequence</strong> allows the number of files to differ between samples. It uses the form <code>prefix*[a,b].ext</code>, where <code>a</code> is the minimum number of files and <code>b</code> is the maximum. The prefix is required. <code>a</code> and <code>b</code> are decimal integers without a sign, spaces, or leading zeros, and <code>1 &lt;= a &lt;= b &lt;= 9007199254740991</code> (2^53 - 1), so every reader holds <code>b</code> exactly. The prefix is not a file name of its own: every name the sequence produces, from <code>prefix0.ext</code> on, MUST be a valid file name (Section 5.3), so <code>img.*[1,3].tif</code> is valid and <code>img*[ 1,3].tif</code> is not.</p>
+<p>The <code>*</code> represents a zero-based index, not a file system glob. If a sample contains <code>k</code> files, their names MUST run from <code>prefix0.ext</code> to <code>prefix{k-1}.ext</code> without gaps, where <code>a &lt;= k &lt;= b</code>. An index MUST NOT contain leading zeros.</p>
 <p>Entries in the same folder MUST have unique identifiers. The identifier is the folder name, the complete fixed filename, or the prefix of a variable sequence.</p>
 <p>A folder or fixed file MUST NOT have a name that a variable sequence can produce. Two variable sequences MUST NOT be able to produce the same filename.</p>
 <p>These comparisons ignore letter case, so <code>B02.tif</code> and <code>b02.tif</code> conflict: case-insensitive file systems and SQL identifiers treat them as one name.</p>
@@ -256,12 +256,13 @@
 </tr>
 </tbody>
 </table>
-<p>For example, the level <code>children/before</code> is stored in <code>children__before.parquet</code>.</p>
+<p>For example, the level <code>children/before</code> is stored in <code>children__before.parquet</code>. A level's Parquet filename MUST NOT exceed 255 bytes, the limit of common file systems.</p>
+<p>The mapping cannot be reversed, because a folder name may start or end with <code>_</code>: the levels <code>children/a_/b</code> and <code>children/a/_b</code> both map to <code>children__a___b.parquet</code>. Two levels MUST NOT map to the same filename, ignoring letter case. Readers MUST take the levels from <code>taco:metadata</code> and MUST NOT derive them from Parquet filenames.</p>
 <p>Folder and file names MUST NOT contain <code>&lt;</code>, <code>&gt;</code>, <code>:</code>, <code>&quot;</code>, <code>\</code>, <code>|</code>, or <code>?</code>, and MUST NOT end with a space or period. The characters <code>*</code>, <code>[</code>, and <code>]</code> are reserved for variable sequence declarations.</p>
 <h3 id="54-metadata">5.4. Metadata</h3>
 <p>Tabular metadata describes the sample and the nodes inside it. A node is either a folder or a file. Collection metadata is global to the dataset and is defined separately in Section 5.5.</p>
 <p>The tabular metadata schema is written to <code>taco:metadata</code>. Each level maps qualified field names to their declarations.</p>
-<p>Every field MUST declare the following properties. Its type MUST be representable in Apache Parquet.</p>
+<p>Every field MUST declare the following properties. Its type MUST be representable in Apache Parquet: a <code>struct</code> has at least one field, a decimal scale lies between 0 and its precision, and a <code>fixed_size_binary</code> size is at least 1. Sizes, precisions, and scales are decimal integers. A struct field name MUST be non-empty, MUST NOT start or end with whitespace, and MUST NOT contain <code>:</code>, <code>,</code>, <code>&lt;</code>, <code>&gt;</code>, <code>[</code>, <code>]</code>, <code>(</code>, or <code>)</code>.</p>
 <table class="spec">
 <thead>
 <tr>
@@ -405,6 +406,7 @@
 <p><code>sample</code> contains one row per sample. <code>children</code> contains rows for <code>before</code>, <code>after</code>, and <code>change_map.tif</code>. Acquisition fields are null for <code>change_map.tif</code>. The two folder levels contain one row for each band file.</p>
 <h3 id="55-collection">5.5. Collection</h3>
 <p><code>COLLECTION.json</code> contains the dataset description, contract, and collection metadata. Within a FOLDER or ZIP partition, each sample has a zero-based position. The <code>id</code> column defined in Section 7.2 is its logical identifier.</p>
+<p><code>COLLECTION.json</code> MUST be UTF-8 JSON conforming to RFC 8259. It MUST NOT repeat a key within an object, contain non-finite numbers such as NaN or Infinity or a number beyond the finite double range such as <code>1e400</code>, or nest beyond 256 levels.</p>
 <p>For this specification, <code>taco:version</code> MUST equal <code>3.0.0</code>. The <code>id</code> and <code>description</code> MUST be non-empty. The <code>licenses</code> and <code>providers</code> lists MUST each contain at least one entry. <code>tasks</code> MAY be omitted; when present it MUST contain at least one entry.</p>
 <table class="spec">
 <thead>
@@ -600,6 +602,7 @@
 </tr>
 </tbody>
 </table>
+<p>An extension MAY restrict its sample fields to specific levels or require non-null values in every row. MajorTOM and Split fields occur only at the <code>sample</code> level and are never null.</p>
 <p>File-dependent extensions MUST reject rows without files.</p>
 <h4 id="declaration">Declaration</h4>
 <p><code>COLLECTION.json</code> lists the extensions a dataset uses in <code>taco:extensions</code>.</p>
@@ -697,7 +700,7 @@
 <p><code>COLLECTION.json</code> contains the dataset description and contract defined in Section 5.5.</p>
 <p>TACOCAT uses the separate layout defined in Section 7.5 and does not contain <code>DATA/</code> or <code>METADATA/</code> directories.</p>
 <h3 id="72-internal-columns">7.2. Internal Columns</h3>
-<p>TACO adds columns for identity, row relationships and data access. <code>id</code> is unqualified because the specification defines it; the rest use the reserved <code>internal:</code> namespace. Users MUST NOT create either.</p>
+<p>TACO adds columns for identity, row relationships, and data access. <code>id</code> is unqualified because the specification defines it; the rest use the reserved <code>internal:</code> namespace. Users MUST NOT create either.</p>
 <table class="spec">
 <thead>
 <tr>
@@ -718,31 +721,31 @@
 <td><code>internal:current_id</code></td>
 <td><code>uint64</code></td>
 <td>No</td>
-<td>All Parquets</td>
+<td>Every level</td>
 </tr>
 <tr>
 <td><code>internal:parent_id</code></td>
 <td><code>uint64</code></td>
 <td>No</td>
-<td>All except sample</td>
+<td>Every level except <code>sample</code></td>
 </tr>
 <tr>
 <td><code>internal:relative_path</code></td>
 <td><code>string</code></td>
 <td>No</td>
-<td>All Parquets</td>
+<td>Every level</td>
 </tr>
 <tr>
 <td><code>internal:offset</code></td>
 <td><code>uint64</code></td>
 <td>Yes</td>
-<td>ZIP and TACOCAT levels containing files</td>
+<td>Every ZIP and TACOCAT level except <code>sample</code></td>
 </tr>
 <tr>
 <td><code>internal:size</code></td>
 <td><code>uint64</code></td>
 <td>Yes</td>
-<td>ZIP and TACOCAT levels containing files</td>
+<td>Every ZIP and TACOCAT level except <code>sample</code></td>
 </tr>
 <tr>
 <td><code>internal:source_file</code></td>
@@ -756,11 +759,11 @@
 <p>In every container, <code>internal:current_id</code> MUST equal the zero-based row position in its Parquet file. Sample rows follow writer input order in FOLDER and ZIP datasets. Child rows are grouped by parent order and follow the structure order defined in Section 5.2.</p>
 <p><code>internal:parent_id</code> refers to <code>internal:current_id</code> in the parent level. A join between two levels therefore uses <code>child.internal:parent_id = parent.internal:current_id</code>.</p>
 <p><code>internal:relative_path</code> is relative to <code>DATA/</code> in the file containing the payload. A FOLDER or ZIP sample row uses <code>&lt;idx&gt;</code>, and a child row uses <code>&lt;idx&gt;/&lt;structure-path&gt;</code>. TACOCAT retains these source-relative values after reindexing.</p>
-<p>ZIP and TACOCAT metadata MUST include <code>internal:offset</code> and <code>internal:size</code> at every child level containing files. These values are null for folder rows. <code>sample.parquet</code> MUST NOT contain these columns because its rows represent sample roots rather than files.</p>
+<p>ZIP and TACOCAT metadata MUST include <code>internal:offset</code> and <code>internal:size</code> at every child level, including one that holds only folders. These values are null for folder rows. <code>sample.parquet</code> MUST NOT contain these columns because its rows represent sample roots rather than files.</p>
 <p><code>internal:offset</code> is the payload offset measured from byte 0 of the source ZIP. <code>internal:size</code> is the payload length in bytes.</p>
 <p>TACOCAT reassigns <code>internal:current_id</code> after combining its source partitions. The new identifiers are global within each consolidated Parquet file. It also rewrites <code>internal:parent_id</code> to refer to the consolidated parent level.</p>
 <p>Parent joins use only <code>internal:parent_id</code> and <code>internal:current_id</code>. The values of <code>internal:source_file</code> and <code>id</code> do not change.</p>
-<p>Readers expose a generated <code>taco:sample_index</code> column for public queries. For one FOLDER, ZIP, or TACOCAT container, its value matches <code>internal:current_id</code> in <code>sample.parquet</code>. For a source list, the reader assigns it across all sources in source order and then row order. <code>taco:sample_index</code> is not stored and MUST NOT be used as a persistent sample identity. Use <code>id</code> for stable identity.</p>
+<p>Readers expose a generated <code>taco:sample_index</code> column for public queries. For one FOLDER, ZIP, or TACOCAT container, its value matches <code>internal:current_id</code> in <code>sample.parquet</code>. For a source list, the reader assigns it across all sources in source order and then row order. The level relations of a source list count <code>internal:current_id</code> and <code>internal:parent_id</code> across the sources in the same order, as TACOCAT stores them, so a parent join stays within one source. <code>taco:sample_index</code> is not stored and MUST NOT be used as a persistent sample identity. Use <code>id</code> for stable identity.</p>
 <p>Readers use these columns to build VSI paths. ZIP paths use the form <code>/vsisubfile/{offset}_{size},{zip_path}</code>. FOLDER files use <code>DATA/{idx}/{structure_path}</code> and do not require a Parquet lookup for the data path.</p>
 <h3 id="73-zip-container">7.3. ZIP Container</h3>
 <p>A ZIP container packages one dataset or partition in a <code>.zip</code> archive. It MUST satisfy the complete TACO profile in Section 14 of the CoZIP 1.1.0 specification. Its CoZIP index declares profile 2 and contains offsets to <code>COLLECTION.json</code> and every Parquet file in <code>METADATA/</code>.</p>
@@ -771,6 +774,7 @@
 <p>A FOLDER container is a plain directory with the logical layout from Section 7.1. It uses the same contract and data paths as ZIP, but its Parquet files do not contain ZIP offsets.</p>
 <p>New samples can be appended without rebuilding existing data, making FOLDER suitable for incremental datasets.</p>
 <p>The writer MUST publish an append as one completed update. If the operation fails, the previously published dataset MUST remain unchanged.</p>
+<p>During an append, a writer MAY stage files in <code>.taco-append/</code> at the dataset root. Readers and validators MUST ignore this folder. Before writing, a new writer MUST recover an abandoned append: undo it if its metadata was not switched, or complete it if it was.</p>
 <h3 id="75-tacocat">7.5. TACOCAT</h3>
 <p>TACOCAT makes several ZIP partitions queryable as one collection. It contains consolidated metadata and references the original ZIP files for data access.</p>
 <pre><code>.tacocat/
@@ -801,7 +805,7 @@ a.zip       | 0          | 0         | 0/image.tif
 a.zip       | 1          | 1         | 1/image.tif
 b.zip       | 2          | 2         | 0/image.tif
 </code></pre>
-<p><code>internal:relative_path</code> remains relative to the source ZIP, so sample row 2 in the consolidated table still references <code>0/image.tif</code> inside <code>b.zip</code>.</p>
+<p><code>internal:relative_path</code> remains relative to the source ZIP, so child row 2, which belongs to consolidated sample 2, still references <code>0/image.tif</code> inside <code>b.zip</code>.</p>
 <p>A source path is resolved relative to the directory containing <code>.tacocat/</code>. It MUST be a normalized relative POSIX path ending in <code>.zip</code>.</p>
 <p>The path MUST NOT contain an empty component, <code>.</code>, <code>..</code>, a leading slash, a trailing slash, or a backslash. To read a file, the reader combines the source path with <code>internal:offset</code> and <code>internal:size</code>.</p>
 <p>For example, this source stays below the catalog directory and is valid:</p>
@@ -813,7 +817,7 @@ b.zip       | 2          | 2         | 0/image.tif
 {&quot;file&quot;: &quot;partitions\\europe.zip&quot;, &quot;samples&quot;: 100000}
 </code></pre>
 <p>The first escapes the catalog directory, the second is absolute, and the third uses a platform-specific separator.</p>
-<p>TACOCAT consolidation MUST verify that every partition has the same <code>id</code>, contract, and collection metadata. The only fields that may differ are <code>extent</code> and <code>taco:sources</code>. The consolidated extent is the union of the partition extents.</p>
+<p>TACOCAT consolidation MUST verify that every partition has the same <code>id</code>, contract, and collection metadata. The only fields that may differ are <code>taco:sources</code> and the collection summaries, such as <code>extent</code> and <code>split:counts</code>, because each partition summarizes its own rows (Section 5.7). The consolidated extent is the union of the partition extents, and every other summary combines the partition values as its extension defines.</p>
 <p><code>taco:sources</code> records each partition, its sample count, and its extent. Readers can use this information to skip irrelevant ZIP files.</p>
 <p>Every source path MUST be unique and MUST match <code>internal:source_file</code> in the consolidated Parquet rows. <code>taco:sources</code> MUST appear in TACOCAT and MUST NOT appear in a FOLDER or ZIP dataset.</p>
 <p><code>samples</code> is the total number of samples and MUST equal the sum of the partition counts. Each entry in <code>partitions</code> MUST contain <code>file</code> and <code>samples</code>. It MUST also copy <code>spatial</code> and <code>temporal</code> when the source partition declares them.</p>
@@ -829,7 +833,7 @@ b.zip       | 2          | 2         | 0/image.tif
 }
 </code></pre>
 <h3 id="76-validation">7.6. Validation</h3>
-<p>A conforming dataset MUST satisfy every rule in this specification. <code>taco.validate()</code> MUST check the complete physical container and report each violation. A reader MUST reject any violation it encounters, but it does not need to read every payload before serving an unrelated query.</p>
+<p>A conforming dataset MUST satisfy every rule in this specification. <code>taco.validate()</code> MUST check the complete physical container and report each violation; it MAY cap the number it reports for one extension. A reader MUST reject any violation it encounters, but it does not need to read every payload before serving an unrelated query.</p>
 <p>Complete validation MUST check the following conditions.</p>
 <ol class="list">
 <li>
@@ -839,10 +843,10 @@ b.zip       | 2          | 2         | 0/image.tif
 <p><code>METADATA/</code> contains exactly one Parquet file for every contract level and no unexpected entries. Each file carries the matching <code>taco:level</code> schema metadata.</p>
 </li>
 <li>
-<p>Every Parquet schema contains exactly the user columns declared for its level and the internal columns required by its container. Types, top-level nullability, nested nullability, and descriptions MUST match the contract. A non-empty description is stored in Arrow field metadata under <code>description</code>.</p>
+<p>Every Parquet schema contains exactly the user columns declared for its level and the internal columns required by its container. Types, top-level nullability, nested nullability, and descriptions MUST match the contract. A non-empty description is stored in Arrow field metadata under <code>description</code>. A field that declares <code>files</code> is null on every row of another file and on folder rows (Section 5.4).</p>
 </li>
 <li>
-<p><code>internal:current_id</code> equals the row position, every <code>internal:parent_id</code> resolves to a row in the parent level, and every <code>internal:relative_path</code> matches the sample structure.</p>
+<p><code>internal:current_id</code> equals the row position, every <code>internal:parent_id</code> resolves to a row in the parent level, and every <code>internal:relative_path</code> matches the sample structure. Child rows are grouped by parent in parent order and follow the structure order (Section 7.2).</p>
 </li>
 <li>
 <p>Every sample <code>id</code> is non-empty and unique. Every sample contains all required fixed files and a valid number of contiguous files for every variable sequence.</p>
@@ -854,13 +858,13 @@ b.zip       | 2          | 2         | 0/image.tif
 <p>ZIP entries satisfy the CoZIP TACO profile. Every <code>internal:offset</code> and <code>internal:size</code> pair matches the payload boundary and size of its declared file.</p>
 </li>
 <li>
-<p>TACOCAT source paths, sample counts, global identifiers, parent references, extents, and <code>internal:source_file</code> values match <code>taco:sources</code> and the referenced ZIP partitions.</p>
+<p>Every ZIP partition a TACOCAT references exists and is valid on its own. TACOCAT source paths, sample counts, rows, global identifiers, parent references, collection metadata, extents and other summaries, and <code>internal:source_file</code> values match <code>taco:sources</code> and the referenced ZIP partitions.</p>
 </li>
 <li>
 <p><code>taco:extensions</code> lists every extension the dataset uses, and <code>COLLECTION.json</code> validates against the JSON Schema of each one (Section 5.7).</p>
 </li>
 <li>
-<p>Every row follows the rules of the extensions it uses.</p>
+<p>Every row follows the rules of its extensions. Collection summaries in a ZIP or FOLDER, such as <code>extent</code> and <code>split:counts</code>, match their rows.</p>
 </li>
 </ol>
 <p>For example, this contract declaration requires an <code>int64</code> Parquet column.</p>
@@ -920,7 +924,7 @@ b.zip       | 2          | 2         | 0/image.tif
 </table>
 <p>Metadata for the complete dataset is not a separate object. It is passed to <code>Collection</code> as groups, described under Collection metadata below.</p>
 <h4 id="metadata-schema">Metadata schema</h4>
-<p>Built-ins live under <code>taco.extensions.sample</code> or <code>taco.extensions.collection</code>. A dataset may also define Pydantic models and <code>taco.Extension</code> subclasses.</p>
+<p>Built-in extensions live under <code>taco.extensions.sample</code> or <code>taco.extensions.collection</code>. A dataset may also define Pydantic models and <code>taco.Extension</code> subclasses.</p>
 <p>The writer MUST reject a group used at the wrong scope.</p>
 <pre><code>import taco
 from pydantic import BaseModel, Field
@@ -955,7 +959,7 @@ Float32 = Annotated[float, pa.float32()]
 TimestampUTC = Annotated[datetime, pa.timestamp(&quot;us&quot;, tz=&quot;UTC&quot;)]
 </code></pre>
 <p>The serialized contract contains the resulting columns, not Python class names, import paths, defaults, or validators.</p>
-<p><code>Annotated[T, taco.Encoding(name)]</code> adds a <code>dictionary</code>, <code>plain</code>, <code>byte_stream_split</code>, or <code>delta</code> hint; extensions use <code>taco.Encoding(name).metadata</code>. The writer defaults to ZSTD level 9 and otherwise tests 10,000 rows. Hints are not stored. Explicit Parquet encoding options take precedence.</p>
+<p><code>Annotated[T, taco.Encoding(name)]</code> adds a Parquet encoding hint: <code>dictionary</code>, <code>plain</code>, <code>byte_stream_split</code>, or <code>delta</code>. Extensions attach the same hint with <code>taco.Encoding(name).metadata</code>. Without a hint, the writer tries every encoding on up to 10,000 rows of the column and keeps the smallest result. The writer compresses with ZSTD level 9 by default. Hints are not stored in the dataset. Explicit Parquet encoding options take precedence.</p>
 <h4 id="collection-metadata-1">Collection metadata</h4>
 <p>Pass collection metadata as keyword groups. Each group accepts a mapping or a Pydantic model that serializes to a JSON object. For example, <code>source={&quot;mission&quot;: &quot;Sentinel-2&quot;}</code> writes <code>&quot;source:mission&quot;: &quot;Sentinel-2&quot;</code> to <code>COLLECTION.json</code>.</p>
 <pre><code>collection = taco.Collection(
@@ -970,10 +974,10 @@ TimestampUTC = Annotated[datetime, pa.timestamp(&quot;us&quot;, tz=&quot;UTC&quo
 <p>Pass <code>extensions=[schema_url, ...]</code> for published extensions outside the built-ins.
 <code>Collection</code> adds the built-in identifiers from the namespaces the contract uses.</p>
 <p>Groups must be non-empty, use valid qualified field names, and contain JSON values. Sample groups are rejected, as are values that conflict with an active extension. Validation failures raise <code>CollectionError</code>.</p>
-<p>Group names cannot be <code>metadata</code> or a named parameter of <code>Collection</code>. Readers still preserve those namespaces when they occur in a file. <code>Collection.replace(poi={...})</code> replaces the entire <code>poi</code> group; <code>poi=None</code> removes it. <code>taco.export()</code> accepts the same overrides.</p>
+<p>Group names cannot be <code>metadata</code> or a named parameter of <code>Collection</code>. Readers still preserve those namespaces when they occur in an existing <code>COLLECTION.json</code>. <code>Collection.replace(poi={...})</code> replaces the entire <code>poi</code> group; <code>poi=None</code> removes it. <code>taco.export()</code> accepts the same overrides.</p>
 <p><code>collection.metadata</code> holds the groups as JSON values. <code>to_dict()</code> returns an independent copy, so editing its nested lists or dictionaries does not change the collection. Collection groups are validated at construction and stored only in <code>COLLECTION.json</code>. <code>to_dict()</code> includes <code>taco:version</code> and <code>taco:extensions</code>.</p>
 <h4 id="collection-summaries">Collection summaries</h4>
-<p>An extension may summarize its columns into collection metadata, as the <a href="extensions/stac.html">STAC extension</a> does for <code>extent</code> and the <a href="extensions/split.html">Split extension</a> for <code>split:counts</code>. <code>consolidate</code> combines the summaries of its partitions.</p>
+<p>An extension may summarize its columns into collection metadata, as the <a href="extensions/stac.html">STAC extension</a> does for <code>extent</code> and the <a href="extensions/split.html">Split extension</a> for <code>split:counts</code>. <code>taco.consolidate()</code> combines the summaries of its partitions.</p>
 <p>Summaries run independently for every output partition. They consume metadata in batches and retain only the values needed for the summary. They do not keep the complete metadata table in memory.</p>
 <h4 id="sample-metadata">Sample metadata</h4>
 <p>Metadata is attached to the object it describes. <code>Sample.metadata</code> describes the sample, <code>Folder.metadata</code> describes a folder, and <code>Asset.metadata</code> describes a file. The writer assigns each object to the correct metadata level.</p>
@@ -1001,7 +1005,7 @@ TimestampUTC = Annotated[datetime, pa.timestamp(&quot;us&quot;, tz=&quot;UTC&quo
 <h4 id="writer-time-extensions">Writer-time extensions</h4>
 <p>An extension declares the columns it requires and produces. It may also declare a Pydantic model for values supplied by the producer. The contract is invalid when a required column is missing.</p>
 <p>For example, <code>taco.extensions.sample.majortom.MajorTOM</code> requires the centroid computed for <code>taco.extensions.sample.stac.STAC</code> and produces <code>majortom:code</code>.</p>
-<p>The writer computes extension outputs from batches of validated metadata during <code>run()</code>. Each context also contains the local asset associated with every row, allowing format extensions to inspect payloads without asking producers to duplicate file metadata.</p>
+<p>The writer computes extension outputs from batches of validated metadata during <code>run()</code>. Each extension context (<code>taco.ExtensionContext</code>) also contains the local asset associated with every row, allowing format extensions to inspect payloads without asking producers to duplicate file metadata.</p>
 <p>The built-in extensions are listed in Section 5.7 and specified in their own documents.</p>
 <p>Extension dependencies and operational settings remain in the active Python contract while writing. Semantic parameters are stored as collection metadata as defined in Section 5.7. The persisted contract contains only the resulting structure and metadata schema.</p>
 <h4 id="writer-lifecycle">Writer lifecycle</h4>
@@ -1011,7 +1015,7 @@ TimestampUTC = Annotated[datetime, pa.timestamp(&quot;us&quot;, tz=&quot;UTC&quo
 <p>FOLDER containers may use <code>append=True</code>. ZIP containers may be partitioned. The writer builds every partition and the TACOCAT before publishing them together. If publication fails, it restores the previous files.</p>
 <h4 id="export">Export</h4>
 <p><code>taco.export()</code> writes a subset of an existing dataset through the same writer. Its required <code>sql</code> argument may query <code>dataset</code>, <code>sample</code>, or any declared metadata level. Every relation carries <code>taco:sample_index</code> while this query runs, and the result MUST retain that column.</p>
-<p>The query selects samples, not individual files. If any returned row belongs to a sample, the export includes that sample's complete structure and metadata. Duplicate rows select the sample once. Values of <code>taco:sample_index</code> that do not belong to the source are ignored.</p>
+<p>The query selects samples, not individual files. If any returned row belongs to a sample, the export includes that sample's complete structure and metadata. Duplicate rows select the sample once. Values of <code>taco:sample_index</code> that do not belong to the source, such as NULL, negative values, and indices past the last sample, are ignored. A value that is not an integer is an error.</p>
 <p>The output keeps the source contract, identity, licenses, providers, tasks, and collection metadata unless the caller replaces collection fields. Selected samples keep their <code>id</code> and receive new indices from zero in source order. The writer recalculates <code>extent</code> and removes <code>taco:sources</code>.</p>
 <p>For example, this query examines only the <code>after</code> level. Every matching sample is still exported with its <code>before</code>, <code>after</code>, and any other files required by the structure.</p>
 <pre><code>source = &quot;change-detection.zip&quot;
@@ -1079,10 +1083,10 @@ with taco.open_writer(collection, &quot;clouds.zip&quot;) as writer:
 </code></pre>
 <h3 id="82-reader">8.2. Reader</h3>
 <p>The TACO core is the reader. Every binding loads this core and MUST expose the same operations, arguments, relations, validation rules, column order, and logical results.</p>
-<p>The core detects ZIP, FOLDER, or TACOCAT from the path. It reads <code>COLLECTION.json</code> and the metadata Parquet, then generates the SQL for the requested view.</p>
+<p>The core detects ZIP, FOLDER, or TACOCAT from the path. It reads <code>COLLECTION.json</code> and the metadata Parquet files, then generates the SQL for the requested view.</p>
 <p>For a ZIP, the core reads the byte-zero index and fetches <code>COLLECTION.json</code> and every indexed Parquet range in one batch. A local ZIP is extracted to a temporary directory owned by the process and never enters the cache.</p>
 <p>For a remote FOLDER or TACOCAT, the core fetches the Parquet files named by <code>taco:metadata</code>. It does not rely on directory listing. The files are stored in a local cache entry named <code>&lt;id&gt;-&lt;container&gt;-&lt;origin&gt;-&lt;hash&gt;</code> and laid out like a TACO FOLDER without <code>DATA/</code>.</p>
-<p>Before reusing cached metadata, a reader MUST revalidate the remote source. It MAY use an ETag, modification time, content length, or an equivalent origin-provided value. It MUST refresh the entry when the source changed or cannot be validated. <code>TACO_CACHE_REFRESH</code> forces a refresh. An open <code>Dataset</code> remains a snapshot of the metadata it loaded.</p>
+<p>Before reusing cached metadata, a reader MUST revalidate the remote source. It MAY use an ETag, modification time, content length, or another value that identifies the source version. For a ZIP, the CoZIP header's integrity hash distinguishes archives that have the same padded size. A reader MUST refresh a changed entry and MUST fail to open if it cannot validate the source. <code>TACO_CACHE_REFRESH</code> forces a rebuild. An open remote <code>Dataset</code> keeps its metadata snapshot even if the cache entry is rebuilt or evicted.</p>
 <p>The cache keeps at most <code>TACO_CACHE_SIZE</code> bytes. The default is 5 GiB. When the limit is exceeded, the least recently opened entries are removed first. <code>TACO_CACHE_DIR</code> overrides the user cache directory. Local FOLDER and TACOCAT containers are read in place.</p>
 <p>The reader reports remote download progress in interactive terminals and stays silent otherwise.</p>
 <h4 id="readsource-files">read(source, files)</h4>
@@ -1094,9 +1098,9 @@ read(&quot;s3://bucket/cloudsen12.zip&quot;)
 read(&quot;hf://datasets/tacofoundation/cloudsen12/cloudsen12.zip&quot;)
 read(&quot;source://taco/cloudsen12/cloudsen12.zip&quot;)
 </code></pre>
-<p>Remote file locations use the VSI prefix of their storage, such as <code>/vsicurl/</code>, <code>/vsis3/</code>, <code>/vsigs/</code>, <code>/vsiaz/</code>, <code>/vsihf/</code>, or <code>/vsisource/</code>.</p>
+<p>Remote file locations use the VSI prefix of their storage, such as <code>/vsicurl/</code>, <code>/vsis3/</code>, <code>/vsigs/</code>, <code>/vsiaz/</code>, <code>/vsihf/</code>, or <code>/vsisource/</code>. Below an <code>http://</code> or <code>https://</code> URL, every path component a reader appends MUST be percent-encoded as JavaScript's <code>encodeURIComponent</code> encodes it, so all readers return the same location.</p>
 <p><strong>files</strong> limits which structure declarations appear in the result. A fixed file is selected by its full contract path. A variable sequence is selected by its declaration, such as <code>img*[4,16].tif</code>. By default every declared file is returned.</p>
-<p>The result includes the generated <code>taco:sample_index</code> and the stable logical <code>id</code>. TACOCAT also includes <code>source_file</code>, which identifies the ZIP containing each sample.</p>
+<p>The result includes the generated <code>taco:sample_index</code> and the stable logical <code>id</code>. A TACOCAT or a source list also includes <code>source_file</code>, which identifies the ZIP containing each sample.</p>
 <p>Every selected file has a <code>{file}::location</code> column calculated by the reader. Location columns are not stored in metadata. An extension may add generated columns after a file's location, such as <code>{file}::header</code> in the <a href="extensions/rumi.html">Rumi extension</a>. These generated columns do not modify the dataset.</p>
 <p>Collection metadata is not repeated in every result row. It is available through <code>Dataset.collection</code>.</p>
 <p>The <code>dataset</code> relation and <code>read()</code> use the following column order. <code>source_file</code> is present only for TACOCAT or a source list.</p>
@@ -1120,19 +1124,19 @@ read(&quot;source://taco/cloudsen12/cloudsen12.zip&quot;)
 </table>
 <p>Generated file columns follow the selected declarations in structure order. Each <code>{file}::location</code> column is immediately followed by the file's extension columns, in <code>taco:metadata</code> order. A variable sequence occupies one list column in the position of its declaration.</p>
 <pre><code>read(&quot;cloudsen12.zip&quot;)
-# taco:sample_index | id        | split:split | quality:cloud_cover | s2_l1c.tif::location | s2_l2a.tif::location | target.tif::location
-# 0            | lima-001  | train    | 23.5                | /vsisubfile/...     | /vsisubfile/...     | /vsisubfile/...
+# taco:sample_index | id       | quality:cloud_cover | split:split | s2_l1c.tif::location | s2_l2a.tif::location | target.tif::location
+# 0                 | lima-001 | 23.5                | train       | /vsisubfile/...      | /vsisubfile/...      | /vsisubfile/...
 
 # Two selected files
-read(&quot;change_detection.zip&quot;, files=[&quot;before/B02.tif&quot;, &quot;after/B02.tif&quot;])
+read(&quot;change-detection.zip&quot;, files=[&quot;before/B02.tif&quot;, &quot;after/B02.tif&quot;])
 # taco:sample_index | id | split:split | before/B02.tif::location | after/B02.tif::location
 </code></pre>
 <p>A generated column is named after its structure path, followed by <code>::location</code> or an extension column, so <code>before/B02.tif</code> becomes <code>before/B02.tif::location</code>. The double <code>::</code> distinguishes generated columns from metadata fields, which contain exactly one <code>:</code>.</p>
 <p>A variable sequence uses the path to its prefix. <code>before/img*[1,16].tif</code> becomes the <code>LIST(VARCHAR)</code> column <code>before/img::location</code>. Extension columns of a sequence are lists too.</p>
 <pre><code>read(&quot;multitemporal_s2.zip&quot;)
 # taco:sample_index | id       | split:split | img::location
-# 0            | lima-001 | train    | [/vsisubfile/..., /vsisubfile/..., ...]
-# 1            | lima-002 | val      | [/vsisubfile/..., /vsisubfile/..., ...]
+# 0                 | lima-001 | train       | [/vsisubfile/..., /vsisubfile/..., ...]
+# 1                 | lima-002 | validation  | [/vsisubfile/..., /vsisubfile/..., ...]
 </code></pre>
 <p>The list is ordered by the numeric sequence index and contains between the declared minimum and maximum number of locations.</p>
 <p><code>read()</code> MUST order rows by <code>taco:sample_index</code>. SQL results have no implicit order unless the query contains <code>ORDER BY</code>.</p>
@@ -1173,7 +1177,7 @@ dataset.sql('SELECT * FROM dataset WHERE &quot;taco:sample_index&quot; = 10')
 folder = open_dataset(&quot;cloudsen12/&quot;)
 catalog = open_dataset(&quot;cloudsen12/.tacocat&quot;)
 </code></pre>
-<p>The reader verifies that every entry in a source list belongs to the same collection. It then streams their tables through <code>UNION ALL BY NAME</code> without materializing one table per source. <code>Dataset</code> merges the partition extents.</p>
+<p>The reader verifies that every entry in a source list belongs to the same collection. It then streams their tables through <code>UNION ALL BY NAME</code> without materializing one table per source. <code>Dataset</code> merges the partition extents and combines their summaries, adding up <code>split:counts</code> per key.</p>
 <p>A TACOCAT is already consolidated and must be opened as one path.</p>
 <p>Rows from a source list include <code>source_file</code>. The reader assigns <code>taco:sample_index</code> globally by following source-list order and then row order within each source. Reversing the source list may therefore change <code>taco:sample_index</code>, while <code>id</code> remains unchanged.</p>
 <figure class="dataset-figure">
@@ -1208,7 +1212,7 @@ catalog = open_dataset(&quot;cloudsen12/.tacocat&quot;)
 <div class="dm-section dm-folded"><div class="dm-summary"><span class="dm-arrow">&gt;</span><span class="dm-name">Collection</span><span class="dm-count">cloudsen12</span></div></div>
 <div class="dm-section dm-folded"><div class="dm-summary"><span class="dm-arrow">&gt;</span><span class="dm-name">Sources</span><span class="dm-count">1 source</span></div></div>
 </div>
-<figcaption><b>Figure 4.</b> Notebook representation of a Dataset. The contract is visible without reading the sample table.</figcaption>
+<figcaption><b>Figure 1.</b> Notebook representation of a Dataset. The contract is visible without reading the sample table.</figcaption>
 </figure>
 <p><code>Dataset</code> is not a dataframe. It holds dataset semantics, while <code>read()</code> and <code>sql()</code> return tables. <code>inspect()</code> provides direct access to the contract and low-level native SQL.</p>
 <p>Notebook environments use the Dataset HTML representation to show the collection identity, structure, and metadata levels without materializing the sample table.</p>

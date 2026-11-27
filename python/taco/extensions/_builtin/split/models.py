@@ -47,6 +47,9 @@ class Split(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     __taco_scopes__: ClassVar[frozenset[str]] = frozenset({"sample"})
+    # Every sample, and nothing below it, has one of the four partitions.
+    __taco_levels__: ClassVar[frozenset[str]] = frozenset({"sample"})
+    __taco_nullable__: ClassVar[bool] = False
     __taco_namespace__: ClassVar[str | None] = "split"
     __taco_summaries__: ClassVar[tuple[type[CollectionSummary], ...]] = (Counts,)
 

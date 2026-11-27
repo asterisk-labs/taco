@@ -12,7 +12,7 @@
 This extension records the instruments that may produce each file and lists its bands
 in file order. For known instruments, the writer embeds metadata from
 [Awesome Earth Observation Instruments](https://github.com/awesome-spectral-indices/awesome-earth-observation-instruments)
-(AEOI). TACO ships a copy under its MIT license.
+(AEOI). TACO ships a copy of AEOI under the AEOI MIT license.
 
 ## Collection fields
 
@@ -20,7 +20,7 @@ in file order. For known instruments, the writer embeds metadata from
 | --- | --- | --- |
 | `instrument:files` | object | Instruments and ordered bands for each structure declaration |
 | `instrument:instruments` | object | Metadata for every referenced instrument, limited to the bands in use |
-| `instrument:catalogue` | object | Name, version and link of the bundled AEOI catalogue |
+| `instrument:catalogue` | object | Name, version, and link of the bundled AEOI catalogue |
 
 ```json
 {
@@ -33,14 +33,18 @@ in file order. For known instruments, the writer embeds metadata from
   "instrument:instruments": {
     "MSI_S2A": {
       "name": "MultiSpectral Instrument",
+      "acronym": "MSI",
       "type": "multispectral",
       "platform": ["Sentinel-2A"],
+      "operator": ["ESA", "Copernicus"],
       "bands": {
         "B4": {
           "center_wavelength": 664.6,
           "bandwidth": 30,
+          "band_description": "Red",
           "common_name": "red",
-          "gsd": 10
+          "gsd": 10,
+          "snr": 142
         }
       }
     }
@@ -53,14 +57,14 @@ in file order. For known instruments, the writer embeds metadata from
 }
 ```
 
-A declaration may name several compatible instruments. For example, the same band
+An entry may name several compatible instruments. For example, the same band
 stack may come from Sentinel-2A or Sentinel-2B. Every listed instrument MUST provide
-every listed band. This does not describe a file assembled from instruments with
+every listed band. An entry cannot describe a file assembled from instruments with
 different band sets.
 
-Each key in `instrument:files` MUST match a declaration in `taco:structure`. The writer
-resolves known identifiers from AEOI, copies only the bands in use and records the
-catalogue version. A custom instrument needs a non-empty `name`, `type` and `bands`.
+Every key of `instrument:files` MUST be a declaration in `taco:structure`. The writer
+resolves known identifiers from AEOI, copies only the bands in use, and records the
+catalogue version. A custom instrument needs a non-empty `name`, `type`, and `bands`.
 Each band needs a positive `center_wavelength` and `bandwidth`, both in nm.
 
 ## Level fields

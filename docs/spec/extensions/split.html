@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#ffffff">
 <meta name="description" content="The Split Extension of the TACO specification.">
 <title>TACO · Split Extension</title>
-<link rel="icon" href="../../assets/svg/taco-mark-static.svg?v=2" type="image/svg+xml">
+<link rel="icon" href="../../assets/svg/taco-mark-static.svg?v=3" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=League+Spartan:wght@300;400;500;600&display=swap" rel="stylesheet">
@@ -18,7 +18,7 @@
 <div class="page">
   <header class="masthead">
     <a class="lockup" href="../../index.html" aria-label="TACO home">
-      <img class="marksvg" src="../../assets/svg/taco-mark.svg?v=2" alt="">
+      <img class="marksvg" src="../../assets/svg/taco-mark.svg?v=3" alt="">
       <span class="wm-sm">TACO</span>
     </a>
 
@@ -77,7 +77,7 @@
 <li><strong>Owner:</strong> Asterisk Labs</li>
 </ul>
 <p><a href="split/v1.0.0/schema.json">JSON Schema</a> · <a href="split/examples/COLLECTION.json">Example</a></p>
-<p>This extension records the partition of each sample, so every tool reads the same training, validation and test sets.</p>
+<p>This extension records the partition of each sample, so every tool reads the same training, validation, and test sets.</p>
 <h2 class="part" id="level-fields">Level fields</h2>
 <table class="spec">
 <thead>
@@ -111,7 +111,7 @@
 <tr>
 <td><code>split:counts</code></td>
 <td>object</td>
-<td>Number of samples in <code>train</code>, <code>validation</code>, <code>test</code> and <code>excluded</code>, including the empty ones</td>
+<td>Number of samples in each of <code>train</code>, <code>validation</code>, <code>test</code>, and <code>excluded</code>, including those with no samples</td>
 </tr>
 </tbody>
 </table>
@@ -124,7 +124,7 @@
 taco.Level(&quot;sample&quot;, split=Split)
 taco.Metadata(split=Split(split=&quot;train&quot;))
 </code></pre>
-<p><code>partition_by=&quot;split:split&quot;</code> writes one ZIP per partition.</p>
+<p><code>taco.open_writer(..., partition_by=&quot;split:split&quot;)</code> writes one ZIP per partition.</p>
 
     </article>
 

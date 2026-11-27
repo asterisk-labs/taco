@@ -3,12 +3,14 @@
 Built-ins live under `taco.extensions.sample.<name>` for metadata levels and
 `taco.extensions.collection.<name>` for `COLLECTION.json`.
 
-An **extension** is a metadata operation the writer runs during `run()`, after assets
-are local. It may take producer input, produce columns, or both.
+A sample extension may take producer input, generate columns, or both. The writer
+runs its operation during `run()`, after assets are local. Collection extensions
+store dataset-level metadata in `COLLECTION.json`.
 
 `Collection.extensions` stores the JSON Schema URL of every extension in use.
 Built-ins are inferred from their namespaces (`stac`, `spatial`, `temporal`, `rumi`,
-`majortom`, `geoenrich`). Pass `extensions=[schema_url, ...]` for any other published
+`majortom`, `geoenrich`, `split`, `instrument`, `labels`, `ml`). Pass
+`extensions=[schema_url, ...]` for any other published
 extension. Under `https://asterisk.coop/taco/spec/extensions/` only the bundled
 identifiers are accepted. `taco.Collection` raises `CollectionError` for any other
 version of a built-in or any other name in that namespace, and `taco.validate` reports
@@ -29,17 +31,23 @@ publish the matching schema and example under `docs/spec/extensions/`.
 
 ## Built-in extensions
 
-| Extension | Requires | Produces | Scopes |
+| Extension | Requires | Stores | Scope |
 | --- | --- | --- | --- |
-| `stac.Spatial` | `spatial:geometry`, `proj_code`, `proj_shape`, `proj_transform` | `spatial:centroid` | sample |
-| `stac.STAC` | `stac:geometry`, `proj_code`, `proj_shape`, `proj_transform` | `stac:centroid` | sample |
+| `stac.Spatial` | `spatial:geometry` or the `proj_` grid fields | `spatial:centroid` | sample |
+| `stac.STAC` | `stac:geometry` or the `proj_` grid fields, plus time | `stac:centroid` | sample |
 | `rumi.Rumi(header=True, stats=False)` | nothing | `rumi:header` and optional statistics | sample |
-| `MajorTOM(dist_km=100, extra=(), latitude_range=(-85, 85), longitude_range=(-180, 180), sep="_", centroid="stac:centroid")` | the centroid field | `majortom:code` plus one per extra grid | sample |
+| `MajorTOM(dist_km=100, extra=(), latitude_range=(-85, 85), longitude_range=(-180, 180), sep="_", centroid="stac:centroid")` | the centroid field | `majortom:code` plus one per extra grid; a centroid outside either range, or south of a grid's first row, fails its sample, and every other one gets the cell of the whole grid that contains it (edges go south and west) | sample |
 | `GeoEnrich(variables=None, backend="majortom-index", scale_m=5120, batch_size=250, max_concurrency=8, centroid="stac:centroid", code="majortom:code", index_url=...)` | the 10 km MajorTOM code by default; the centroid field for `earthengine` | one column per variable | sample |
 | `split.Split` (the class) | nothing | `split:split`: `train`, `validation`, `test` or `excluded`, at the `sample` level only; summarized as `split:counts` with all four keys | sample |
 | `collection.instrument.Instrument(files=..., instruments=...)` | nothing | `instrument:files` from the producer; `instrument:instruments` (AEOI records with only the used bands) and `instrument:catalogue` from the writer | collection |
 | `collection.labels.Labels(files=...)` | nothing | `labels:files`: each file's values and their class names, such as `{"mask.tif": {"0": "clear", "255": "unlabeled"}}`; no ignore value, an unannotated code is one more named class | collection |
 | `collection.ml.ML(inputs=..., targets=...)` | nothing | `ml:inputs` and `ml:targets`: structure declarations or metadata fields; at least one target, with no entry in both lists | collection |
+
+An extension or Pydantic model may declare `__taco_levels__` to restrict its levels
+(empty means any level), and `__taco_nullable__ = False` to require a value in
+every row. `taco.Level` checks both rules when building the contract. MajorTOM
+and Split allow only `sample` and cannot be optional; invalid declarations raise
+`ContractError`.
 
 The same profile class is used in a level and its rows. `Spatial` and `STAC` fill a
 missing `centroid`; `Temporal` has no operation. `STAC | None` makes the whole group

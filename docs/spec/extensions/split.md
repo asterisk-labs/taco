@@ -9,7 +9,7 @@
 
 [JSON Schema](split/v1.0.0/schema.json) · [Example](split/examples/COLLECTION.json)
 
-This extension records the partition of each sample, so every tool reads the same training, validation and test sets.
+This extension records the partition of each sample, so every tool reads the same training, validation, and test sets.
 
 ## Level fields
 
@@ -23,7 +23,7 @@ This extension records the partition of each sample, so every tool reads the sam
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `split:counts` | object | Number of samples in `train`, `validation`, `test` and `excluded`, including the empty ones |
+| `split:counts` | object | Number of samples in each of `train`, `validation`, `test`, and `excluded`, including those with no samples |
 
 The writer computes `split:counts` from the rows it writes; a producer does not supply it. A TACOCAT adds the counts of its partitions.
 
@@ -40,4 +40,4 @@ taco.Level("sample", split=Split)
 taco.Metadata(split=Split(split="train"))
 ```
 
-`partition_by="split:split"` writes one ZIP per partition.
+`taco.open_writer(..., partition_by="split:split")` writes one ZIP per partition.

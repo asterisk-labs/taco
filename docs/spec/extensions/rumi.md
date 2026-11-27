@@ -34,11 +34,13 @@ The writer MUST obtain `rumi:header` from `rumi.info(source=asset_path).header`.
 
 Without a selection, a statistic covers every valid value of the array: all bands and, in a Cube, all time steps. `_b<band>` selects one band, `_t<time>` one time step of a Cube, and `_t<time>_b<band>` one band at one time step. Indexes start at zero and have no leading zeros, like variable sequences.
 
-`stats=True` stores the six statistics without a selection. `stats=["mean", "mean_b10", "p98_t0_b3"]` stores exactly those three columns for every Rumi file at the level.
+`stats=True` stores the six statistics without a selection.
 
 ```
 rumi:minimum  rumi:maximum  rumi:mean  rumi:stddev  rumi:p2  rumi:p98
 ```
+
+`stats=["mean", "mean_b10", "p98_t0_b3"]` stores exactly those three columns for every Rumi file at the level.
 
 Statistics exclude non-finite values; booleans count as 0 and 1. The extension has no `nodata` option. Dataset-specific masking belongs outside this extension. A statistic is null when its selection holds no valid value.
 
@@ -55,7 +57,7 @@ taco.extensions.sample.rumi.Rumi(
 )
 ```
 
-The level stores the union of the selected statistic columns. A row contains null for a statistic that does not apply to its file. In `taco:metadata`, each restricted statistic declares the structure declarations it applies to with `files`.
+The level stores the union of the selected statistic columns. A row contains null for a statistic that does not apply to its file. When `stats` is a mapping, each statistic in `taco:metadata` lists the structure declarations it applies to in `files`.
 
 ```json
 "rumi:mean": {
@@ -83,7 +85,7 @@ The reader places the Rumi fields beside each `.rumi` file in `read()` and the `
 ```
 read("multisensor.zip")
 # taco:sample_index | id       | optical.rumi::location | optical.rumi::header | optical.rumi::mean | radar.rumi::location | ...
-# 0            | lima-001 | /vsisubfile/...       | b"LOVE..."          | 1204.5             | /vsisubfile/...     | ...
+# 0                 | lima-001 | /vsisubfile/...        | b"LOVE..."           | 1204.5             | /vsisubfile/...      | ...
 ```
 
 A Rumi variable sequence has a `LIST(BLOB)` column named after its prefix, such as `before/img::header`, and applicable `LIST(DOUBLE)` statistic columns such as `before/img::mean`.

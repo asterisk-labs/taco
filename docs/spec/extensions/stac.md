@@ -9,7 +9,7 @@
 
 [JSON Schema](stac/v1.0.0/schema.json) · [Example](stac/examples/COLLECTION.json)
 
-This extension defines three metadata profiles built from the fields of a STAC Item and its projection extension. `temporal` records when a sample was observed, `spatial` where it is, and `stac` both. The writer derives a `centroid` for the spatial profiles and summarizes them into the collection `extent`.
+This extension defines three metadata profiles built from the fields of a STAC Item and its projection extension. `temporal` records when a sample was observed, `spatial` where it is, and `stac` both. The writer derives a `centroid` for the `spatial` and `stac` profiles and summarizes them into the collection `extent`.
 
 ## Profiles
 
@@ -27,7 +27,7 @@ A profile MUST use its canonical namespace: `temporal`, `spatial`, or `stac`. Th
 
 Every profile MUST use the following canonical field declarations. A field is present in each profile listed under Applies to. When the complete profile group is optional, every stored column in that group is nullable. Its fields and types remain canonical.
 
-| Field | Applies to | Type | Nullable | STAC field | Meaning |
+| Field | Applies to | Type | Nullable | STAC field | Description |
 | --- | --- | --- | --- | --- | --- |
 | `geometry` | `spatial`, `stac` | `binary` | Yes | `geometry` | Footprint in EPSG:4326 as WKB, when the producer supplies one |
 | `bbox` | `spatial`, `stac` | `list<double>` | Yes | `bbox` | `[west, south, east, north]` of `geometry`, when the producer supplies it |
@@ -39,9 +39,9 @@ Every profile MUST use the following canonical field declarations. A field is pr
 | `proj_shape` | `spatial`, `stac` | `list<int64>` | Yes | `proj:shape` | Grid height and width in pixels |
 | `proj_transform` | `spatial`, `stac` | `list<double>` | Yes | `proj:transform` | Affine transform of the grid |
 
-For example, a valid Temporal profile has exactly these three canonical columns:
+For example, a valid `temporal` profile has exactly these three canonical columns:
 
-```
+```json
 {
   "temporal:datetime": {"type": "timestamp[us, UTC]", "nullable": true, "description": "Acquisition time; null when only a range is known"},
   "temporal:start_datetime": {"type": "timestamp[us, UTC]", "nullable": true, "description": "First time covered by the observation, inclusive"},
@@ -49,7 +49,7 @@ For example, a valid Temporal profile has exactly these three canonical columns:
 }
 ```
 
-Using `timestamp[ms]` or omitting `end_datetime` does not conform to the Temporal profile.
+Using `timestamp[ms]` or omitting `end_datetime` does not conform to the `temporal` profile.
 
 ## Collection fields
 
@@ -59,7 +59,7 @@ None in its namespaces. The writer summarizes the profiles into the core `extent
 
 **Time.** Every row MUST have a `datetime`, or both a `start_datetime` and an `end_datetime`. `start_datetime` and `end_datetime` MUST be given together, MUST NOT be reversed, and bound an inclusive range. A row MAY also carry a `datetime` inside its range. An observation without a single acquisition instant, such as a DEM or an annual composite, uses a range.
 
-**Footprint.** A supplied `geometry` MUST be a non-empty, valid, two-dimensional WKB geometry with longitude and latitude coordinates in EPSG:4326. It MUST NOT be a GeometryCollection. A footprint that crosses the antimeridian MUST be split into parts at 180 degrees, as RFC 7946 requires. Therefore no edge may span more than 180 degrees of longitude, except an edge whose two ends lie on the antimeridian or an edge along a pole.
+**Footprint.** A supplied `geometry` MUST be a non-empty, valid, two-dimensional WKB geometry with longitude and latitude coordinates in EPSG:4326. It MUST NOT be a GeometryCollection. A footprint that crosses the antimeridian MUST be split into parts at 180 degrees, as RFC 7946 recommends. Therefore no edge may span more than 180 degrees of longitude, except an edge whose two ends lie on the antimeridian or an edge along a pole.
 
 **Bounding box.** A producer MAY supply `bbox` together with `geometry`. It holds `[west, south, east, north]`. `south` and `north` are the latitude bounds of `geometry`. `west` and `east` bound the narrowest longitude interval that covers every part of `geometry`. When that interval crosses the antimeridian, `west` is greater than `east`. When two intervals are equally narrow, the one that does not cross is used.
 
@@ -72,15 +72,15 @@ y = d * column + e * row + f
 
 This is the order of STAC `proj:transform` and of rasterio, not the order of the GDAL geotransform. A grid in `EPSG:4326` uses longitude as `x`.
 
-**Writer outputs.** A row MUST supply a complete grid, `geometry`, or both. The writer derives only `centroid`; `geometry` and `bbox` remain null unless supplied. A supplied `geometry` MAY differ from the grid. A supplied `bbox` MUST match it.
+**Inputs and outputs.** A row MUST supply a complete grid, `geometry`, or both. The writer derives only `centroid`; `geometry` and `bbox` remain null unless supplied. A supplied `geometry` MAY differ from the grid. A supplied `bbox` MUST match `geometry`.
 
 **Grid footprint.** A grid footprint starts from its reprojected corners. Edges are subdivided to half-pixel precision. Antimeridian crossings are split at 180 degrees; polar footprints close through the enclosed pole.
 
-The writer and `taco.validate` MUST reject, on every level, a grid that wraps more than once in its CRS units or extends beyond its CRS domain.
+The writer and `taco.validate()` MUST reject, on every level, a grid that wraps more than once in its CRS units or extends beyond its CRS domain.
 
 **Centroid.** `centroid` is a float32 EPSG:4326 `{lon, lat}` struct. It is the supplied value, the reprojected grid center, or the centroid of `geometry` after joining antimeridian-split parts. The writer rounds it before other extensions run. It is not exported to STAC.
 
-A row where an optional profile group is absent as a whole is exempt from these rules. `taco.validate` MUST check them on every other row.
+A row where an optional profile group is absent as a whole is exempt from these rules. `taco.validate()` MUST check them on every other row.
 
 ## Collection extent
 
@@ -92,7 +92,7 @@ For `stac`, the temporal interval starts at the earliest `start_datetime` or `da
 
 ## Writer
 
-`taco.extensions.sample.stac` provides `Temporal`, `Spatial` and `STAC`. Bind the
+`taco.extensions.sample.stac` provides `Temporal`, `Spatial`, and `STAC`. Bind the
 class to a level and pass instances in row metadata. The writer fills a missing
 `centroid`.
 

@@ -9,7 +9,7 @@
 
 [JSON Schema](ml/v1.0.0/schema.json) · [Example](ml/examples/COLLECTION.json)
 
-This extension says what a model reads and what it predicts. The collection `tasks` names the task; the [Labels](labels.md) and [Instrument](instrument.md) extensions describe the classes and bands of those files.
+This extension says what a model reads and what it predicts. The core `tasks` field names the task, and the [Labels](labels.md) and [Instrument](instrument.md) extensions describe the classes and bands of the files.
 
 ## Collection fields
 

@@ -180,6 +180,32 @@ def test_unknown_crs_is_rejected() -> None:
         grid_footprint("EPSG:99999", (2, 2), (1, 0, 0, 0, -1, 0))
 
 
+def test_the_writer_and_validate_reject_a_crs_without_a_path_to_wgs84(tmp_path: Path) -> None:
+    # pyproj knows this lunar CRS but raises ProjError for a transformation to the Earth.
+    code, message = "IAU_2015:30100", "cannot be transformed to EPSG:4326"
+    with pytest.raises(ValueError, match=message):
+        grid_bbox(code, (10, 10), (10, 0, 0, 0, -10, 100))
+    contract = taco.Contract(
+        structure=["data.bin"], metadata=[taco.Level("sample", stac=taco.extensions.sample.stac.STAC)]
+    )
+    moon = taco.extensions.sample.stac.STAC(
+        proj_code=code, proj_shape=(10, 10), proj_transform=(10, 0, 0, 0, -10, 100), datetime=START
+    )
+    with pytest.raises(taco.errors.SampleError, match=message):
+        write(tmp_path, contract, taco.Sample(id="moon", assets=b"x", metadata=taco.Metadata(stac=moon)))
+
+    earth = taco.extensions.sample.stac.STAC(**GRID, datetime=START)
+    output = write(
+        tmp_path / "edited", contract, taco.Sample(id="earth", assets=b"x", metadata=taco.Metadata(stac=earth))
+    )
+    path = output / "METADATA" / "sample.parquet"
+    table = pq.read_table(path)
+    index = table.schema.get_field_index("stac:proj_code")
+    pq.write_table(table.set_column(index, table.schema.field(index), pa.array([code], pa.string())), path)
+    report = taco.validate(output)
+    assert any(issue.code == "profile" and message in issue.message for issue in report.errors), report
+
+
 def test_footprint_must_be_split_at_the_antimeridian() -> None:
     wrapped = Polygon([(179, 0), (-179, 0), (-179, 1), (179, 1)])
     with pytest.raises(ValueError, match="crosses the antimeridian"):
@@ -254,6 +280,48 @@ def test_centroid_is_stored_as_float32(tmp_path: Path) -> None:
 def test_centroid_must_be_a_valid_point() -> None:
     with pytest.raises(ValueError, match="outside EPSG:4326 bounds"):
         taco.extensions.sample.stac.STAC(**GRID, centroid=(181, 0), datetime=START)
+
+
+@pytest.mark.parametrize(
+    ("ranges", "centroid"),
+    [
+        pytest.param({"longitude_range": (0, 90)}, (-100, 10), id="longitude"),
+        pytest.param({}, (5, 89), id="latitude"),
+    ],
+)
+def test_the_writer_rejects_a_centroid_outside_the_majortom_ranges(
+    tmp_path: Path, ranges: dict[str, tuple[float, float]], centroid: tuple[float, float]
+) -> None:
+    majortom = taco.extensions.sample.majortom.MajorTOM(**ranges)
+    contract = taco.Contract(
+        structure=["data.bin"],
+        metadata=[taco.Level("sample", stac=taco.extensions.sample.stac.STAC, majortom=majortom)],
+    )
+    stac = taco.extensions.sample.stac.STAC(**GRID, centroid=centroid, datetime=START)
+    message = (
+        f"stac:centroid {tuple(map(float, centroid))} of 'far' is outside the MajorTOM latitude_range "
+        f"{list(majortom.latitude_range)} or longitude_range {list(majortom.longitude_range)}"
+    )
+    with pytest.raises(taco.errors.SampleError) as error:
+        write(tmp_path, contract, taco.Sample(id="far", assets=b"x", metadata=taco.Metadata(stac=stac)))
+    assert str(error.value) == message
+
+
+def majortom_code(majortom: taco.extensions.sample.majortom.MajorTOM, lon: float, lat: float) -> str:
+    return str(majortom.compute({"stac:centroid": [(lon, lat)]})["code"][0])
+
+
+def test_majortom_codes_name_the_cell_of_the_whole_grid() -> None:
+    MajorTOM = taco.extensions.sample.majortom.MajorTOM
+    # Rows start every 180/201 degrees, so -84.5 lies in the row from -85.07, which starts outside the range.
+    assert majortom_code(MajorTOM(), 5, -84.5) == "MT100km_0095D_0000R"
+    # The ranges bound the centroids, not the cells: a centroid on the meridian is in the cell west of it.
+    assert majortom_code(MajorTOM(longitude_range=(0, 90)), 0, 0.5) == majortom_code(MajorTOM(), 0, 0.5)
+    assert majortom_code(MajorTOM(), 0, 0.5) == "MT100km_0000U_0001L"
+    assert majortom_code(MajorTOM(), -180, 0.5) == majortom_code(MajorTOM(), 180, 0.5) == "MT100km_0000U_0200R"
+    # At 2000 km the first row starts at -81.8, and nothing south of it has a cell.
+    with pytest.raises(taco.errors.SampleError, match="south of the first MajorTOM row at 2000 km"):
+        majortom_code(MajorTOM(dist_km=2000), 10, -84)
 
 
 def test_projected_footprint_retains_curved_edges() -> None:

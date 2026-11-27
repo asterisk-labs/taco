@@ -219,13 +219,17 @@ def _to_wgs84(code: str) -> Any:
         cache = _transformers.cache = {}
     if code not in cache:
         from pyproj import CRS, Transformer
-        from pyproj.exceptions import CRSError
+        from pyproj.exceptions import CRSError, ProjError
 
         try:
             source = CRS.from_user_input(code)
         except CRSError as exc:
             raise ValueError(f"proj_code {code!r} is not a known CRS") from exc
-        cache[code] = Transformer.from_crs(source, CRS.from_epsg(4326), always_xy=True)
+        try:
+            cache[code] = Transformer.from_crs(source, CRS.from_epsg(4326), always_xy=True)
+        except ProjError as exc:
+            # A CRS of another celestial body, for example, has no path to EPSG:4326.
+            raise ValueError(f"proj_code {code!r} cannot be transformed to EPSG:4326") from exc
     return cache[code]
 
 

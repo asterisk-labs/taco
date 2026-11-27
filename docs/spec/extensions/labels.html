@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#ffffff">
 <meta name="description" content="The Labels Extension of the TACO specification.">
 <title>TACO · Labels Extension</title>
-<link rel="icon" href="../../assets/svg/taco-mark-static.svg?v=2" type="image/svg+xml">
+<link rel="icon" href="../../assets/svg/taco-mark-static.svg?v=3" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=League+Spartan:wght@300;400;500;600&display=swap" rel="stylesheet">
@@ -18,7 +18,7 @@
 <div class="page">
   <header class="masthead">
     <a class="lockup" href="../../index.html" aria-label="TACO home">
-      <img class="marksvg" src="../../assets/svg/taco-mark.svg?v=2" alt="">
+      <img class="marksvg" src="../../assets/svg/taco-mark.svg?v=3" alt="">
       <span class="wm-sm">TACO</span>
     </a>
 
@@ -97,7 +97,7 @@
 </table>
 <pre><code class="language-json">&quot;labels:files&quot;: {&quot;mask.tif&quot;: {&quot;0&quot;: &quot;clear&quot;, &quot;1&quot;: &quot;thick_cloud&quot;, &quot;2&quot;: &quot;thin_cloud&quot;, &quot;3&quot;: &quot;shadow&quot;, &quot;255&quot;: &quot;unlabeled&quot;}}
 </code></pre>
-<p>Every key of <code>labels:files</code> MUST be a declaration in <code>taco:structure</code>. Codes are non-negative integers written as JSON keys, and names are non-empty strings. Names MUST NOT repeat within a file. Codes need not be contiguous. There is no special ignore value; give it a name such as <code>unlabeled</code>.</p>
+<p>Every key of <code>labels:files</code> MUST be a declaration in <code>taco:structure</code>. Codes are non-negative integers written as JSON keys, and names are non-empty strings. Names MUST NOT repeat within a file. Codes need not be contiguous. There is no special ignore value. A code to be ignored gets a name like any other, such as <code>unlabeled</code>.</p>
 <h2 class="part" id="level-fields">Level fields</h2>
 <p>None.</p>
 <h2 class="part" id="writer">Writer</h2>

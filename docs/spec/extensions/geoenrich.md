@@ -9,7 +9,7 @@
 
 [JSON Schema](geoenrich/v1.0.0/schema.json) · [Example](geoenrich/examples/COLLECTION.json)
 
-This extension adds environmental, socioeconomic and administrative variables to samples.
+This extension adds environmental, socioeconomic, and administrative variables to samples.
 
 ## Backends
 

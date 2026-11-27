@@ -5,6 +5,8 @@
 #include "rumi.hpp"
 
 #include <algorithm>
+#include <charconv>
+#include <cstdint>
 #include <cstring>
 #include <exception>
 
@@ -24,6 +26,12 @@ constexpr const char* location_column = "taco:location";
 constexpr const char* flat_location_column = "cozip:location";
 constexpr const char* data_directory = "DATA";
 
+// A level's local Parquet file and nothing else. DuckDB would read [ ] ? *
+// in its path as a glob and add a column for every key=value directory.
+std::string parquet_scan(const std::string& path) {
+    return "read_parquet(" + sql_literal(glob_escape(path)) + ", hive_partitioning = false)";
+}
+
 std::string regex_escape(std::string_view value) {
     std::string out;
     for (const char c : value) {
@@ -34,12 +42,38 @@ std::string regex_escape(std::string_view value) {
     return out;
 }
 
+// DuckDB resolves names ignoring ASCII case, so fields that differ only in
+// case are one column.
+bool same_name(std::string_view left, std::string_view right) {
+    const auto lower = [](char c) { return c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c; };
+    return left.size() == right.size() &&
+           std::equal(left.begin(), left.end(), right.begin(), [&](char a, char b) { return lower(a) == lower(b); });
+}
+
+// Locations below /vsicurl/http(s):// carry percent-encoded paths.
+bool http_location(std::string_view base) {
+    constexpr std::string_view prefix = "/vsicurl/";
+    return base.starts_with(prefix) && is_http_url(base.substr(prefix.size()));
+}
+
+// Match encode_uri_path using DuckDB's url_encode, restoring '/' and the
+// punctuation left unescaped by encodeURIComponent.
+std::string encoded_uri_path(const std::string& expression) {
+    std::string out = "url_encode(" + expression + ")";
+    for (const auto& [escaped, plain] : {std::pair{"%2F", "/"}, std::pair{"%21", "!"}, std::pair{"%2A", "*"},
+                                          std::pair{"%27", "'"}, std::pair{"%28", "("}, std::pair{"%29", ")"}})
+        out = "replace(" + out + ", " + sql_literal(escaped) + ", " + sql_literal(plain) + ")";
+    return out;
+}
+
 // A structure leaf is a literal name or prefix*[min,max]suffix.
 struct Leaf {
     std::string declaration;
     bool variable = false;
     std::string prefix;
     std::string suffix;
+    // The indices of a sequence are below its maximum.
+    std::uint64_t maximum = 0;
 };
 
 Leaf parse_leaf(const std::string& declaration) {
@@ -49,8 +83,13 @@ Leaf parse_leaf(const std::string& declaration) {
     if (star == std::string::npos)
         return leaf;
     const auto open = declaration.find('[', star);
-    const auto close = declaration.find(']', open == std::string::npos ? star : open);
-    if (open != star + 1 || close == std::string::npos)
+    const auto comma = declaration.find(',', open == std::string::npos ? star : open);
+    const auto close = declaration.find(']', comma == std::string::npos ? star : comma);
+    if (open != star + 1 || comma == std::string::npos || close == std::string::npos)
+        fail("malformed variable leaf in taco:structure: " + declaration);
+    const std::string_view maximum = std::string_view(declaration).substr(comma + 1, close - comma - 1);
+    const auto [end, error] = std::from_chars(maximum.data(), maximum.data() + maximum.size(), leaf.maximum);
+    if (error != std::errc() || end != maximum.data() + maximum.size())
         fail("malformed variable leaf in taco:structure: " + declaration);
     leaf.variable = true;
     leaf.prefix = declaration.substr(0, star);
@@ -124,12 +163,11 @@ class QueryBuilder {
   public:
     QueryBuilder(const Dataset& dataset, const ReadOptions& options)
         : dataset_(dataset), options_(options), tacocat_(dataset.container == Container::tacocat),
-          has_offsets_(dataset.container != Container::folder) {}
+          has_offsets_(dataset.container != Container::folder), http_(http_location(dataset.location_base)) {}
 
     [[nodiscard]] std::string level_query() const {
         const auto level = dataset_.level_index(options_.level);
-        return "SELECT " + metadata_projection() + " FROM read_parquet(" +
-               sql_literal(dataset_.level_paths[level]) + ")";
+        return "SELECT " + metadata_projection() + " FROM " + parquet_scan(dataset_.level_paths[level]);
     }
 
     [[nodiscard]] std::string flat_query() const {
@@ -146,11 +184,15 @@ class QueryBuilder {
         out += sql_identifier(sample_index) + ", id, path";
         if (options_.location)
             out += ", " + sql_identifier(location_column);
+        // Keep the deepest spelling of a field declared at multiple levels.
         std::vector<std::string> fields;
-        for (const auto& [level, names] : dataset_.contract.fields) {
-            for (const auto& name : names) {
-                if (std::find(fields.begin(), fields.end(), name) == fields.end())
-                    fields.push_back(name);
+        for (auto level = dataset_.level_names.rbegin(); level != dataset_.level_names.rend(); ++level) {
+            if (const auto* names = dataset_.contract.fields_of(*level)) {
+                for (const auto& name : *names) {
+                    if (std::none_of(fields.begin(), fields.end(),
+                                     [&](const std::string& field) { return same_name(field, name); }))
+                        fields.push_back(name);
+                }
             }
         }
         std::sort(fields.begin(), fields.end());
@@ -177,8 +219,8 @@ class QueryBuilder {
                            sql_identifier(column.name);
                 }
             }
-            out += " FROM (SELECT " + metadata_projection() + " FROM read_parquet(" +
-                   sql_literal(dataset_.level_paths[0]) + ")) AS " + alias(0);
+            out += " FROM (SELECT " + metadata_projection() + " FROM " + parquet_scan(dataset_.level_paths[0]) +
+                   ") AS " + alias(0);
             const auto idx = idx_filter(alias(0));
             if (!idx.empty())
                 out += " WHERE " + idx;
@@ -255,11 +297,8 @@ class QueryBuilder {
             return ", MAX(CASE WHEN path = " + sql_literal(leaf.declaration) + " THEN " + sql_identifier(column) +
                    " END) AS " + sql_identifier(name);
         }
-        // A leading zero makes the name a different file, not part of the sequence.
-        const auto pattern = variable_pattern(leaf);
-        return ", list(" + sql_identifier(column) + " ORDER BY TRY_CAST(regexp_extract(path, " + sql_literal(pattern) +
-               ", 1) AS BIGINT)) FILTER (WHERE regexp_matches(path, " + sql_literal(pattern) + ")) AS " +
-               sql_identifier(name);
+        return ", list(" + sql_identifier(column) + " ORDER BY " + variable_index(leaf, "path") + ") FILTER (WHERE " +
+               variable_match(leaf, "path") + ") AS " + sql_identifier(name);
     }
 
     static std::string metadata_projection() {
@@ -289,14 +328,30 @@ class QueryBuilder {
     // Where one data row can be read from.
     [[nodiscard]] std::string location_expression(std::size_t level) const {
         const auto row = alias(level);
-        if (dataset_.container == Container::folder)
-            return sql_literal(dataset_.location_base + "/" + data_directory + "/") + " || " + row + "." +
-                   sql_identifier(id_path);
-        const std::string archive =
-            tacocat_ ? sql_literal(dataset_.location_base + "/") + " || " + row + "." + sql_identifier(id_source)
-                     : sql_literal(dataset_.location_base);
+        if (dataset_.container == Container::folder) {
+            // Reject paths that could escape DATA/ or are not normalized.
+            const std::string path = row + "." + sql_identifier(id_path);
+            return "CASE WHEN regexp_full_match(" + path + ", " + sql_literal(R"([^/\\]+(/[^/\\]+)*)") +
+                   ") AND NOT regexp_matches(" + path + ", " + sql_literal(R"((^|/)\.\.?(/|$))") + ") THEN " +
+                   sql_literal(dataset_.location_base + "/" + data_directory + "/") + " || " +
+                   (http_ ? encoded_uri_path(path) : path) + " ELSE error(concat(" +
+                   sql_literal("FOLDER row has a relative path that is not normalized: ") + ", " + path + ")) END";
+        }
+        const std::string archive = tacocat_ ? partition_location(row) : sql_literal(dataset_.location_base);
         return "'/vsisubfile/' || " + row + "." + sql_identifier(id_offset) + " || '_' || " + row + "." +
                sql_identifier(id_size) + " || ',' || " + archive;
+    }
+
+    // Reject a partition absent from taco:sources before forming its location.
+    [[nodiscard]] std::string partition_location(const std::string& row) const {
+        const std::string source = row + "." + sql_identifier(id_source);
+        std::string out = "CASE " + source;
+        for (const auto& file : dataset_.partitions) {
+            out += " WHEN " + sql_literal(file) + " THEN " +
+                   sql_literal(dataset_.location_base + "/" + (http_ ? encode_uri_path(file) : file));
+        }
+        return out + " ELSE error(concat(" + sql_literal("TACOCAT row names a partition outside taco:sources: ") +
+               ", " + source + ")) END";
     }
 
     // The contract path: internal:relative_path without the sample index.
@@ -319,8 +374,17 @@ class QueryBuilder {
         return out + ")";
     }
 
-    static std::string variable_pattern(const Leaf& leaf) {
-        return "^" + regex_escape(leaf.prefix) + "(0|[1-9][0-9]*)" + regex_escape(leaf.suffix) + "$";
+    // The index a sequence gives the name in path, or NULL for a name it does
+    // not match. A leading zero makes the name a different file.
+    static std::string variable_index(const Leaf& leaf, const std::string& path) {
+        const auto pattern = "^" + regex_escape(leaf.prefix) + "(0|[1-9][0-9]*)" + regex_escape(leaf.suffix) + "$";
+        return "TRY_CAST(regexp_extract(" + path + ", " + sql_literal(pattern) + ", 1) AS UBIGINT)";
+    }
+
+    // Whether path is a name of the sequence: only its indices below the
+    // maximum are, so img*[1,3].tif leaves img10.tif to another declaration.
+    static std::string variable_match(const Leaf& leaf, const std::string& path) {
+        return variable_index(leaf, path) + " < " + std::to_string(leaf.maximum);
     }
 
     [[nodiscard]] std::string selected_files_filter(std::size_t level, const std::vector<Leaf>& leaves) const {
@@ -330,31 +394,28 @@ class QueryBuilder {
             if (i)
                 out += " OR ";
             if (leaves[i].variable)
-                out += "regexp_matches(" + path + ", " + sql_literal(variable_pattern(leaves[i])) + ")";
+                out += variable_match(leaves[i], path);
             else
                 out += path + " = " + sql_literal(leaves[i].declaration);
         }
         return out + ")";
     }
 
-    // The user columns of level and of every ancestor, deepest first. A field
-    // redeclared higher up is hidden, so the row carries the value of the
-    // level it belongs to.
+    // Prefer the deepest declaration when ancestor fields share a name,
+    // ignoring ASCII case as DuckDB does.
     [[nodiscard]] std::string ancestor_projection(std::size_t level) const {
         std::vector<std::size_t> chain;
         for (auto node = level; node > 0; node = dataset_.level_index(parent_level(dataset_.level_names[node])))
             chain.push_back(node);
         chain.push_back(0);
 
-        std::vector<std::string> seen;
         std::vector<std::pair<std::string, std::size_t>> selected;
         for (const auto index : chain) {
             if (const auto* declared = dataset_.contract.fields_of(dataset_.level_names[index])) {
                 for (const auto& name : *declared) {
-                    if (std::find(seen.begin(), seen.end(), name) == seen.end()) {
-                        seen.push_back(name);
+                    if (std::none_of(selected.begin(), selected.end(),
+                                     [&](const auto& field) { return same_name(field.first, name); }))
                         selected.emplace_back(name, index);
-                    }
                 }
             }
         }
@@ -388,8 +449,8 @@ class QueryBuilder {
         // DuckDB plan all Parquet scans as one statement.
         std::string out = "WITH ";
         for (std::size_t i = 0; i < dataset_.level_paths.size(); ++i) {
-            out += (i ? ", " : "") + alias(i) + " AS (SELECT " + metadata_projection() + " FROM read_parquet(" +
-                   sql_literal(dataset_.level_paths[i]) + "))";
+            out += (i ? ", " : "") + alias(i) + " AS (SELECT " + metadata_projection() + " FROM " +
+                   parquet_scan(dataset_.level_paths[i]) + ")";
         }
         return out;
     }
@@ -489,7 +550,39 @@ class QueryBuilder {
     const ReadOptions& options_;
     bool tacocat_;
     bool has_offsets_;
+    bool http_;
 };
+
+// Number source-list rows across sources so parent joins cannot mix them.
+std::string level_union(const std::vector<const Dataset*>& datasets, const std::vector<std::string>& labels,
+                        const ReadOptions& options) {
+    const bool child = options.level != "sample";
+    const auto rows = [](const Dataset& dataset, const std::string& level) {
+        return "(SELECT count(*) FROM " + parquet_scan(dataset.level_paths[dataset.level_index(level)]) + ")";
+    };
+    std::string counts;
+    for (std::size_t i = 0; i < datasets.size(); ++i) {
+        counts += (i ? " UNION ALL SELECT " : "SELECT ") + std::to_string(i) + " AS taco_source, " +
+                  rows(*datasets[i], options.level) + " AS taco_rows";
+        if (child)
+            counts += ", " + rows(*datasets[i], parent_level(options.level)) + " AS taco_parent_rows";
+    }
+    std::string out = "WITH taco_offsets AS MATERIALIZED (SELECT taco_source, "
+                      "CAST(sum(taco_rows) OVER taco_order - taco_rows AS UBIGINT) AS taco_current";
+    if (child)
+        out += ", CAST(sum(taco_parent_rows) OVER taco_order - taco_parent_rows AS UBIGINT) AS taco_parent";
+    out += " FROM (" + counts + ") AS taco_counts WINDOW taco_order AS (ORDER BY taco_source))";
+    for (std::size_t i = 0; i < datasets.size(); ++i) {
+        out += i ? "\nUNION ALL BY NAME\n" : "\n";
+        out += "SELECT " + sql_literal(labels[i]) + " AS source_file, taco.* REPLACE (taco." +
+               sql_identifier(id_current) + " + o.taco_current AS " + sql_identifier(id_current);
+        if (child)
+            out += ", taco." + sql_identifier(id_parent) + " + o.taco_parent AS " + sql_identifier(id_parent);
+        out += ") FROM (" + build_sql(*datasets[i], options) + ") AS taco JOIN taco_offsets AS o ON o.taco_source = " +
+               std::to_string(i);
+    }
+    return out;
+}
 
 } // namespace
 
@@ -515,24 +608,18 @@ std::string build_union_sql(const std::vector<const Dataset*>& datasets, const R
     for (const auto* dataset : datasets)
         sources.push_back(dataset->source);
     const auto labels = source_labels(sources);
+    if (!options.level.empty())
+        return level_union(datasets, labels, options);
     ReadOptions partition_options = options;
-    if (options.level.empty())
-        partition_options.idx.clear();
+    partition_options.idx.clear();
 
     std::string out;
     for (std::size_t i = 0; i < datasets.size(); ++i) {
         if (i)
             out += "\nUNION ALL BY NAME\n";
-        const auto label = sql_literal(labels[i]);
-        if (options.level.empty())
-            out += "SELECT " + std::to_string(i) + " AS internal_source_order, " + label +
-                   " AS source_file, taco.*";
-        else
-            out += "SELECT " + label + " AS source_file, taco.*";
-        out += " FROM (" + build_sql(*datasets[i], partition_options) + ") AS taco";
+        out += "SELECT " + std::to_string(i) + " AS internal_source_order, " + sql_literal(labels[i]) +
+               " AS source_file, taco.* FROM (" + build_sql(*datasets[i], partition_options) + ") AS taco";
     }
-    if (!options.level.empty())
-        return out;
     const auto public_index = sql_identifier(sample_index);
     const std::string indexed =
         "SELECT source_file, CAST(dense_rank() OVER (ORDER BY internal_source_order, " + public_index +

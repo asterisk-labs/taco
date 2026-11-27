@@ -41,6 +41,8 @@ struct Dataset {
     std::vector<std::string> level_names;
     std::vector<std::string> level_paths;
     Contract contract;
+    // TACOCAT only: the partition files taco:sources lists, below location_base.
+    std::vector<std::string> partitions;
     [[nodiscard]] std::size_t level_index(std::string_view name) const;
 };
 

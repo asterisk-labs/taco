@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#ffffff">
 <meta name="description" content="The TACO API in Python, R, Julia, C and JavaScript.">
 <title>TACO · API</title>
-<link rel="icon" href="assets/svg/taco-mark-static.svg?v=2" type="image/svg+xml">
+<link rel="icon" href="assets/svg/taco-mark-static.svg?v=3" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=League+Spartan:wght@300;400;500;600&display=swap" rel="stylesheet">
@@ -17,7 +17,7 @@
 <div class="page">
   <header class="masthead">
     <a class="lockup" href="index.html" aria-label="TACO home">
-      <img class="marksvg" src="assets/svg/taco-mark.svg?v=2" alt="">
+      <img class="marksvg" src="assets/svg/taco-mark.svg?v=3" alt="">
       <span class="wm-sm">TACO</span>
     </a>
 
@@ -64,14 +64,14 @@
 
     <article class="content">
       <h1>API</h1>
-<p class="lede">Python writes TACO datasets and reads them. R and Julia read them through the same C core, and JavaScript reads them on its own. This page covers what they share. Each language page has the calls and examples.</p>
+<p class="lede">Python writes and reads TACO datasets. R and Julia share its C reader core; JavaScript has a separate reader. This page covers the common model. Each language page lists its calls and examples.</p>
 
       <h2 class="part" id="how">How it works</h2>
-      <p>A TACO dataset is a list of samples. A sample is one training or evaluation example: the files that belong together, such as two images and a change mask, and the metadata that describes them. One contract, declared before the first sample is written, fixes which files every sample holds and which fields each level stores. The writer refuses a sample that does not fit, so every reader can trust the shape of every sample.</p>
-      <p>The figures below use a dataset of two samples written with the Python writer. The figures on the landing page use <a href="https://source.coop/major-tom/core-dem" rel="noopener noreferrer">Major TOM Core-DEM</a>, a public dataset of 1,735,044 samples on Source Cooperative, read with the reader in Python on a laptop. Step through each figure with the names under it or the arrow keys.</p>
+      <p>A TACO dataset contains samples. Each sample holds one training or evaluation example: related files, such as two images and a change mask, plus their metadata. Before writing, the producer declares a contract for the files and metadata fields. The writer rejects samples that do not fit it.</p>
+      <p>The figures below use a dataset of two samples written with the Python writer. The TACOCAT figure and the timings use <a href="https://source.coop/major-tom/core-dem" rel="noopener noreferrer">Major TOM Core-DEM</a>, a public dataset of 1,735,044 samples on Source Cooperative, read with the Python reader on a laptop. Step through each figure with the names under it or the arrow keys.</p>
       <figure class="steps" data-step="1">
         <div class="steps-say">
-          <p data-k="1" data-name="samples"><b>Samples.</b> Each sample is a folder of files and a row of metadata. These two have <mark class="steps-mark">the same three files</mark>, an image before, an image after and a change mask, and each has a split, a date and a position.</p>
+          <p data-k="1" data-name="samples"><b>Samples.</b> Each sample is a folder of files and a row of metadata. These two have <mark class="steps-mark">the same three files</mark>: an image before, an image after and a change mask. Each has a split, a date and a position.</p>
           <p data-k="2" data-name="contract"><b>Contract.</b> The contract declares <mark class="steps-mark">the files of every sample and the fields of each level</mark>. Folders follow from the paths, so this structure has the levels <code>sample</code>, <code>children</code>, <code>children/before</code> and <code>children/after</code>.</p>
           <p data-k="3" data-name="levels"><b>Levels.</b> Each level is <mark class="steps-mark">one Parquet table with one row per node</mark>. <code>sample</code> has a row per sample, <code>children</code> a row per direct child of a sample, and <code>children/before</code> a row per file in every <code>before/</code> folder.</p>
           <p data-k="4" data-name="parents"><b>Parents.</b> A row points at its parent with <code>internal:parent_id</code>, which equals <code>internal:current_id</code> in the level above. <mark class="steps-mark is-green">1/before/B02.tif</mark> has parent 3, the row <code>1/before</code>, whose parent is sample 1, <code>lima-0002</code>.</p>
@@ -173,7 +173,8 @@
         </svg>
         </div>
       </figure>
-      <p>A reader never lists <code>DATA/</code>. It reads <code>COLLECTION.json</code> and the Parquet files, filters them with SQL, and builds the location of every file it returns from the row, so nothing is extracted. For Major TOM Core-DEM, the first open downloads 70.3 MB of metadata for 1,735,044 samples, which took between 55 s and 101 s in three runs here, and about 2 s once cached. A query for the samples in Peru above 4,500 m then keeps 492 of them in 14 ms, and their files are 492 byte ranges, 16.5 MB of the 23.6 GB of DEM files.</p>
+      <p>A reader uses <code>COLLECTION.json</code> and Parquet metadata to locate files. It filters rows with SQL and returns file locations without listing <code>DATA/</code> or extracting payloads.</p>
+      <p>On Major TOM Core-DEM, the first open fetched 70.3 MB of metadata for 1,735,044 samples in 55–101 s across three laptop runs; cached opens took about 2 s. A query for Peruvian samples above 4,500 m returned 492 rows in 14 ms. Their files total 492 byte ranges, or 16.5 MB of 23.6 GB of DEM data.</p>
 
       <h2 class="part" id="languages">Languages</h2>
       <table class="spec">
@@ -197,18 +198,19 @@
       <p>Only Python writes. It adds <code>open_writer</code>, <code>validate</code>, <code>export</code> and <code>consolidate</code>, described on the <a href="api-python.html">Python page</a> and summed up <a href="#validate">below</a>. Julia keeps its functions unexported, so they are called as <code>Taco.read</code> and <code>Taco.sql</code>.</p>
 
       <h2 class="part" id="contract">Contract</h2>
-      <p>The contract has two parts: the structure, which lists the files of a sample, and the metadata schema, which lists the fields of each level. It is stored in <code>COLLECTION.json</code> as <code>taco:structure</code> and <code>taco:metadata</code>, and it never changes. A change to the structure, a field, a type or the meaning of a field makes a different dataset that needs a new <code>id</code> (<a href="spec/index.html#6-dataset-identity-and-mutability">spec 6</a>).</p>
+      <p>The contract lists each sample's files and the fields of each metadata level. It lives in <code>COLLECTION.json</code> as <code>taco:structure</code> and <code>taco:metadata</code>. Changing the structure, fields, types or their meaning requires a new dataset <code>id</code> (<a href="spec/index.html#6-dataset-identity-and-mutability">spec 6</a>).</p>
       <table class="spec">
         <thead><tr><th>declaration</th><th>means</th></tr></thead>
         <tr><td><code>mask.tif</code></td><td>One file, in every sample.</td></tr>
         <tr><td><code>before/B02.tif</code></td><td>One file in the folder <code>before/</code>. Folders follow from the paths.</td></tr>
         <tr><td><code>img*[4,16].tif</code></td><td>A variable sequence: <code>img0.tif</code> to <code>img{k-1}.tif</code> with no gaps, where 4 &le; k &le; 16 and no index has a leading zero. The <code>*</code> is an index, not a glob.</td></tr>
       </table>
-      <p>Paths are relative POSIX paths of printable ASCII, so the same contract works in a folder and in a ZIP. A name cannot hold <code>&lt; &gt; : " \ | ?</code>, end with a space or a period, or contain <code>__</code>, and <code>*</code>, <code>[</code> and <code>]</code> appear only in a sequence. Two names in a folder that differ only in letter case conflict, because case-insensitive file systems and SQL treat them as one (<a href="spec/index.html#52-structure">spec 5.2</a> and <a href="spec/index.html#53-reserved-characters">5.3</a>).</p>
-      <p>The order of the structure matters. A folder takes the place of its first path, and child rows follow that order, so the levels in the figure list <code>before</code>, <code>after</code>, then <code>mask.tif</code>.</p>
+      <p>Structure paths use relative POSIX syntax and printable ASCII. Names cannot contain <code>&lt; &gt; : " \ | ?</code> or <code>__</code>, or end with a space or period. The characters <code>*</code>, <code>[</code> and <code>]</code> are reserved for sequences.</p>
+      <p>Names in one folder must also differ beyond letter case. Folder paths must map to distinct Parquet filenames: <code>a_/b</code> and <code>a/_b</code> both map to <code>children__a___b.parquet</code> and therefore conflict (<a href="spec/index.html#52-structure">spec 5.2</a> and <a href="spec/index.html#53-reserved-characters">5.3</a>).</p>
+      <p>The order of the structure matters. A folder takes the place of its first path, and child rows follow that order, so the <code>children</code> rows in the figure list <code>before</code>, <code>after</code>, then <code>mask.tif</code>.</p>
 
       <h2 class="part" id="metadata">Metadata</h2>
-      <p>Every level of the structure is a level of metadata: <code>sample</code>, <code>children</code>, and <code>children/&lt;folder&gt;</code> for each folder, stored as <code>METADATA/sample.parquet</code>, <code>children.parquet</code> and <code>children__before.parquet</code>. A level may have no fields of its own. Each field has a qualified name, an Arrow type, a nullability and a description.</p>
+      <p>Every level of the structure is a level of metadata: <code>sample</code>, <code>children</code>, and <code>children/&lt;folder&gt;</code> for each folder, stored as <code>METADATA/sample.parquet</code>, <code>children.parquet</code> and, for <code>before/</code>, <code>children__before.parquet</code>. A level may have no fields of its own. Each field has a qualified name, an Arrow type, a nullability and a description.</p>
       <table class="spec">
         <thead><tr><th>rule</th><th>so</th></tr></thead>
         <tr><td>A field is <code>namespace:field</code>, with one <code>:</code>, the namespace matching <code>[a-z][a-z0-9_]*</code>.</td><td><code>split:split</code>, <code>quality:cloud_cover</code>. In SQL every such name goes in double quotes.</td></tr>
@@ -217,7 +219,7 @@
         <tr><td>The <code>taco</code>, <code>internal</code> and <code>cozip</code> namespaces are reserved, and so are <code>id</code>, <code>taco:sample_index</code>, <code>taco:location</code> and <code>cozip:location</code>.</td><td>The writer adds <code>id</code> and the <code>internal:</code> columns; the reader computes the rest.</td></tr>
         <tr><td>Names are unique in a level, ignoring case.</td><td>SQL cannot tell <code>quality:score</code> from <code>quality:Score</code>.</td></tr>
       </table>
-      <p>The writer adds these columns to every level (<a href="spec/index.html#72-internal-columns">spec 7.2</a>):</p>
+      <p>The writer adds these columns (<a href="spec/index.html#72-internal-columns">spec 7.2</a>):</p>
       <table class="spec">
         <thead><tr><th>column</th><th>in</th><th>holds</th></tr></thead>
         <tr><td><code>id</code></td><td><code>sample</code></td><td>The producer's identifier of the sample, unique in the dataset and kept by export and consolidation.</td></tr>
@@ -230,7 +232,7 @@
       <p>Collection metadata describes the whole dataset and lives in <code>COLLECTION.json</code> only: <code>id</code>, <code>description</code>, <code>licenses</code> and <code>providers</code>, which every dataset has, then <code>tasks</code>, <code>title</code>, <code>curators</code>, <code>keywords</code> and qualified fields such as <code>source:mission</code>. The writer adds <code>extent</code> and extension summaries such as <code>split:counts</code> from the rows it writes (<a href="spec/index.html#55-collection">spec 5.5</a>).</p>
 
       <h2 class="part" id="extensions">Extensions</h2>
-      <p>An extension gives a namespace a published meaning, and is identified by the URL of its JSON Schema, such as <code>https://asterisk.coop/taco/spec/extensions/stac/v1.0.0/schema.json</code>. The dataset lists the extensions it uses in <code>taco:extensions</code>. Some compute their columns while the writer runs, from the fields and files of each row, and some summarize their rows into collection fields. A reader needs none of them to read a dataset (<a href="spec/index.html#57-extensions">spec 5.7</a>).</p>
+      <p>An extension defines a namespace and has a JSON Schema URL, such as <code>https://asterisk.coop/taco/spec/extensions/stac/v1.0.0/schema.json</code>. A dataset lists its extensions in <code>taco:extensions</code>. Extensions may derive columns while writing or summarize rows into collection fields. Readers can read the stored values without loading the extensions (<a href="spec/index.html#57-extensions">spec 5.7</a>).</p>
       <table class="spec">
         <thead><tr><th>extension</th><th>namespaces</th><th>stores</th></tr></thead>
         <tr><td><a href="spec/extensions/stac.html">STAC</a></td><td><code>spatial</code>, <code>temporal</code>, <code>stac</code></td><td>Where and when a sample was taken: a grid or a footprint, a datetime or a range. The writer adds the centroid and the collection <code>extent</code>.</td></tr>
@@ -327,7 +329,7 @@
         </svg>
         </div>
       </figure>
-      <p>Build a dataset as a FOLDER and publish it as a ZIP (<a href="spec/index.html#61-container-mode-and-mutability">spec 6.1</a>). The two hold the same samples, and only the ZIP metadata carries the byte offsets that make one file one range request. A ZIP is never modified: a change means writing it again. Because every entry is stored as it is, a platform that deduplicates by content, such as Hugging Face, uploads only the chunks that changed.</p>
+      <p>Build as a FOLDER and publish as a ZIP (<a href="spec/index.html#61-container-mode-and-mutability">spec 6.1</a>). Both hold the same samples; ZIP metadata adds byte offsets for range reads. A ZIP is immutable and must be rebuilt to change it. Its entries are stored uncompressed, allowing storage systems with content deduplication to reuse unchanged chunks.</p>
       <p>The writer partitions a ZIP by size, by a field such as <code>split:split</code>, or both, and <code>consolidate</code> joins ZIPs written separately. In a TACOCAT, <code>internal:current_id</code> and <code>internal:parent_id</code> are renumbered across partitions, while <code>internal:relative_path</code> and <code>id</code> keep their values, so each row still addresses its own ZIP (<a href="spec/index.html#75-tacocat">spec 7.5</a>).</p>
 
       <h2 class="part" id="read">Read</h2>
@@ -343,7 +345,7 @@
       </table>
       <p>Generated names carry <code>::</code>, which no field can hold, since a field has exactly one <code>:</code>. Collection metadata is not repeated on each row: it is the dataset's <code>collection</code>.</p>
       <p><code>id</code> is the identity of a sample. <code>taco:sample_index</code> is only a position: it starts at zero in every dataset, and for a list of sources it runs across them in list order, so reversing the list renumbers every sample. Store and cite <code>id</code>, never the index.</p>
-      <p>A list of sources opens compatible ZIPs as one dataset. Each must have the same collection, ignoring <code>extent</code>, and a path may appear once. A list does not check that <code>id</code> is unique across parts; <code>consolidate</code> does. A TACOCAT is opened by its own path, never inside a list.</p>
+      <p>A list of sources opens compatible ZIPs as one dataset. Each must have the same collection, ignoring <code>extent</code> and <code>split:counts</code>, which the dataset combines (the extents joined, the counts added up per key), and no file may appear twice, however its path is written. A list does not check that <code>id</code> is unique across parts; <code>consolidate</code> does. Its level relations count <code>internal:current_id</code> and <code>internal:parent_id</code> across the list, as a TACOCAT stores them, so the parent join stays within each source. A TACOCAT is opened by its own path, never inside a list.</p>
 
       <h2 class="part" id="sql">SQL</h2>
       <p><code>sql</code> runs one DuckDB query over the relation <code>dataset</code>, which is exactly what <code>read</code> returns, and one relation per level, named like the level. The level relations are raw: they keep the <code>internal:</code> columns and have no locations.</p>
@@ -352,7 +354,7 @@ FROM dataset
 WHERE "geoenrich:admin_countries" = 'Peru' AND "geoenrich:elevation" &gt; 4500
 ORDER BY "geoenrich:elevation" DESC</code></pre>
       <ul class="list">
-        <li>Quote every field and every level with a <code>/</code>: <code>"split:split"</code>, <code>FROM "children/before"</code>. Without quotes DuckDB fails to parse the query.</li>
+        <li>Quote every field, and every level whose name contains a <code>/</code>: <code>"split:split"</code>, <code>FROM "children/before"</code>. Without quotes DuckDB fails to parse the query.</li>
         <li>Join a level to its parent with <code>child."internal:parent_id" = parent."internal:current_id"</code>, and use aliases when a field name appears at two levels.</li>
         <li>Add <code>ORDER BY</code> when order matters. Only <code>read</code> promises an order.</li>
         <li>An error in the query is a DuckDB error, such as a parser or catalog error, not a TACO error.</li>
@@ -368,19 +370,22 @@ ORDER BY "geoenrich:elevation" DESC</code></pre>
         <tr><td><code>s3://bucket/tiny.zip</code>, <code>gs://</code>, <code>az://</code></td><td><code>/vsisubfile/412_66,/vsis3/bucket/tiny.zip</code>, and <code>/vsigs/</code>, <code>/vsiaz/</code></td></tr>
         <tr><td><code>hf://datasets/org/repo/tiny.zip</code></td><td><code>/vsisubfile/412_66,/vsihf/datasets/org/repo/tiny.zip</code></td></tr>
         <tr><td><code>source://account/product/tiny.zip</code></td><td><code>/vsisubfile/412_66,/vsisource/account/product/tiny.zip</code></td></tr>
+        <tr><td><code>file:///home/me/my%20data/tiny.zip</code></td><td><code>/vsisubfile/412_66,/home/me/my data/tiny.zip</code>, the local path the URI names, percent-decoded</td></tr>
         <tr><td>a FOLDER, such as <code>tiny/</code></td><td><code>/home/me/tiny/DATA/0/before/B02.tif</code></td></tr>
       </table>
-      <p>Opening a remote dataset copies its metadata, never its files. For a ZIP the reader reads the index at byte 0, then fetches <code>COLLECTION.json</code> and every Parquet range in one batch. For a remote FOLDER or TACOCAT it fetches the files that <code>taco:metadata</code> names, since it never lists a directory. A local ZIP has its metadata extracted to a temporary directory for the process, and a local FOLDER or TACOCAT is read in place.</p>
+      <p>Opening a remote dataset downloads metadata only. For a ZIP, the reader starts with the index at byte 0, then fetches <code>COLLECTION.json</code> and the Parquet ranges in one batch. For a remote FOLDER or TACOCAT, it fetches the files named by <code>taco:metadata</code>. Local ZIP metadata goes to a process-owned temporary directory; local FOLDER and TACOCAT metadata is read in place.</p>
       <table class="spec">
         <thead><tr><th>variable</th><th>does</th></tr></thead>
-        <tr><td><code>TACO_CACHE_DIR</code></td><td>Where remote metadata is kept. By default <code>$XDG_CACHE_HOME/taco</code>, else <code>~/.cache/taco</code>.</td></tr>
+        <tr><td><code>TACO_CACHE_DIR</code></td><td>Where remote metadata is kept. By default <code>$XDG_CACHE_HOME/taco</code>, else <code>~/.cache/taco</code>, or <code>%LOCALAPPDATA%\taco\cache</code> on Windows.</td></tr>
         <tr><td><code>TACO_CACHE_SIZE</code></td><td>The most bytes the cache keeps, 5 GiB by default. The entries opened least recently go first.</td></tr>
-        <tr><td><code>TACO_CACHE_REFRESH</code></td><td>Any value rebuilds the entries a call opens.</td></tr>
+        <tr><td><code>TACO_CACHE_REFRESH</code></td><td>Any value rebuilds the entries a call opens, and makes Python download the GeoEnrich index again once per process.</td></tr>
       </table>
-      <p>Before it uses a cached entry, the reader checks the size the server reports for the source, and builds the entry again when it changed. If that check fails, the open fails. An open dataset is a snapshot of the metadata it loaded. Credentials come from where the usual tools keep them, as Karu's <a href="https://asterisk.coop/karu/configuration.html" rel="noopener noreferrer">configuration page</a> lists: <code>HF_TOKEN</code> or the Hugging Face login, the AWS variables and profiles, Google application default credentials and the Azure storage variables. The JavaScript reader uses <code>fetch</code>, so it reads public and presigned URLs.</p>
+      <p>The reader checks a remote ZIP's 8-byte integrity hash, or the reported sizes of FOLDER and TACOCAT metadata, before using a cache entry. It rebuilds changed entries and fails to open when the check fails. Open remote datasets keep a snapshot until process exit, so cache replacement does not change their metadata. Local FOLDER and TACOCAT datasets are read in place; later queries can see an append.</p>
+      <p>Karu uses credentials from the usual stores: <code>HF_TOKEN</code> or a Hugging Face login, AWS variables and profiles, Google application default credentials, and Azure storage variables. See <a href="https://asterisk.coop/karu/configuration.html" rel="noopener noreferrer">Karu configuration</a>. The JavaScript reader uses <code>fetch</code> and accepts public or presigned URLs.</p>
 
       <h2 class="part" id="files">Open a file</h2>
-      <p>A location is a VSI path, the convention GDAL uses (<a href="spec/index.html#32-vsi-path-convention">spec 3.2</a>). <code>/vsisubfile/offset_size,archive</code> names <code>size</code> bytes from <code>offset</code> in the archive, so a reader that understands it fetches only that file. GDAL, rasterio, terra and sf open the <code>/vsicurl/</code>, <code>/vsis3/</code>, <code>/vsigs/</code> and <code>/vsiaz/</code> forms. <code>/vsihf/</code> and <code>/vsisource/</code> are Karu's names, which Rumi reads; for GDAL, open the dataset through its <code>https://</code> URL instead.</p>
+      <p>A location is a VSI path, GDAL's convention for addressing files (<a href="spec/index.html#32-vsi-path-convention">spec 3.2</a>). <code>/vsisubfile/offset_size,archive</code> selects <code>size</code> bytes starting at <code>offset</code>. GDAL, rasterio, terra and sf support <code>/vsicurl/</code>, <code>/vsis3/</code>, <code>/vsigs/</code> and <code>/vsiaz/</code>. Rumi also reads Karu's <code>/vsihf/</code> and <code>/vsisource/</code> paths; use an <code>https://</code> URL for those sources with GDAL.</p>
+      <p>For HTTP sources, the reader percent-encodes appended path components like JavaScript's <code>encodeURIComponent</code>: <code>my dir/a#1.tif</code> becomes <code>my%20dir/a%231.tif</code>.</p>
       <p>Major TOM Core-DEM stores Rumi files. Rumi reads a location, with the header the dataset keeps beside it:</p>
 <pre><code class="language-python">import rumi, taco
 
@@ -397,12 +402,12 @@ dem.shape, dem.min(), dem.max()</code></pre>
         <thead><tr><th>call</th><th>does</th></tr></thead>
         <tr><td><code>taco.validate(path)</code></td><td>Checks a local FOLDER, ZIP or TACOCAT against every rule of <a href="spec/index.html#76-validation">spec 7.6</a>, the payloads included, and reports every problem it finds rather than the first.</td></tr>
         <tr><td><code>taco.export(source, out, sql=...)</code></td><td>Writes the samples a query selects as a new dataset. A row selects its whole sample, which keeps its <code>id</code> and gets a new index, and the writer computes the extent again.</td></tr>
-        <tr><td><code>taco.consolidate(sources, out)</code></td><td>Joins ZIPs written separately into a TACOCAT, after checking that they share the <code>id</code>, the contract and the collection metadata and that no sample <code>id</code> repeats.</td></tr>
+        <tr><td><code>taco.consolidate(sources, out)</code></td><td>Joins separately written ZIPs into a TACOCAT. It checks collection IDs, contracts, metadata and sample ID uniqueness, and requires every ZIP to be inside the catalog directory.</td></tr>
       </table>
       <p>A reader also refuses what it meets that breaks the specification, but it does not read every file before it answers a query, so <code>validate</code> is the check to run before publishing.</p>
 
       <h2 class="part" id="errors">Errors</h2>
-      <p>Python raises a subclass of <code>taco.TacoError</code> for problems with a container, a contract or a sample, and DuckDB's own errors for a bad query. R raises plain errors and Julia <code>ArgumentError</code> or <code>ErrorException</code>, with the same messages, and JavaScript a <code>TacoError</code> with a code. Each language page lists them.</p>
+      <p>Python raises a subclass of <code>taco.TacoError</code> for problems with a container, a contract or a sample, and DuckDB's own errors for a bad query. R raises plain errors and Julia raises <code>ArgumentError</code> or <code>ErrorException</code>, with the same messages as Python. JavaScript raises a <code>TacoError</code> that carries a code. Each language page lists them.</p>
       <table class="spec">
         <thead><tr><th>error</th><th>cause</th></tr></thead>
         <tr><td><code>ContainerError</code></td><td>A source that cannot be opened or is not a valid dataset, an unknown <code>files</code> entry, a TACOCAT inside a list.</td></tr>
@@ -420,7 +425,7 @@ dem.shape, dem.min(), dem.max()</code></pre>
         <thead><tr><th>requirement</th><th>why</th></tr></thead>
         <tr><td>Answer <code>Range</code> with 206 and the stored bytes.</td><td>Readers fetch the index, the metadata and each file as ranges.</td></tr>
         <tr><td>Apply no <code>Content-Encoding</code>.</td><td>Offsets and sizes refer to the stored bytes.</td></tr>
-        <tr><td>Report the object's size.</td><td>The reader compares it with its cached entry.</td></tr>
+        <tr><td>Report the object's size.</td><td>The reader uses it for range requests. A ZIP cache entry is checked against its CoZIP integrity hash.</td></tr>
         <tr><td>For browsers, allow <code>Range</code> across origins and expose <code>Content-Range</code>.</td><td>The JavaScript reader and the <a href="playground/index.html">playground</a> need both.</td></tr>
       </table>
       <p>A TACO ZIP is a cozip, so <a href="https://asterisk.coop/cozip/api.html#verify" rel="noopener noreferrer"><code>cozip.verify</code></a> checks its index and hash from the URL. It took 1.6 s for a 1.23 GB partition of Major TOM Core-DEM. Then paste the URL into the <a href="playground/index.html">playground</a> to browse it.</p>

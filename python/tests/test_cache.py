@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import gc
 import http.client
+import multiprocessing
+import os
 import re
 import threading
 import urllib.error
@@ -15,10 +17,11 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
+from pydantic import BaseModel
 
 import taco
 from taco import _cache as cache
-from taco.reader import native
+from taco.reader import engine, native
 
 
 @dataclass
@@ -211,7 +214,9 @@ def test_the_core_evicts_cached_downloads_like_its_own_entries(
         monkeypatch.setenv("TACO_CACHE_SIZE", "1")
         taco.open_dataset(f"{server.url}/dataset.zip")
     assert not index.exists()
-    assert len([item for item in cache_dir.iterdir() if item.is_dir()]) == 1
+    # The dataset's snapshot is not an entry.
+    entries = [item for item in cache_dir.iterdir() if item.is_dir() and not item.name.startswith(".open-")]
+    assert len(entries) == 1
 
 
 def test_local_archives_stay_out_of_the_cache(tmp_path: Path, collection: taco.Collection, make_sample) -> None:
@@ -297,3 +302,113 @@ def test_geoenrich_queries_a_cached_copy_of_a_remote_index(tmp_path: Path, cache
     assert server.downloads == 1
     # The dataset records the origin, not the local copy.
     assert extension.collection_metadata()["index_url"] == url
+
+
+class Version(BaseModel):
+    label: str
+
+
+def publish(path: Path, payloads: dict[str, bytes]) -> str:
+    """Write a ZIP with one sample per label at path and return its file:// URI."""
+    collection = taco.Collection(
+        contract=taco.Contract(structure=["data.bin"], metadata=[taco.Level("sample", version=Version)]),
+        id="published",
+        description="Republished at one URI",
+        licenses=["MIT"],
+        providers=["TACO tests"],
+    )
+    samples = [
+        taco.Sample(
+            id=f"s{index}",
+            assets=taco.Asset(payload, path="data.bin"),
+            metadata=taco.Metadata(version=Version(label=label)),
+        )
+        for index, (label, payload) in enumerate(payloads.items())
+    ]
+    with taco.open_writer(collection, path, overwrite=True) as writer:
+        writer.extend(samples)
+        writer.run()
+    return path.as_uri()
+
+
+def labels(dataset: taco.Dataset) -> list[str]:
+    query = 'SELECT "version:label" AS label FROM dataset ORDER BY "taco:sample_index"'
+    return dataset.sql(query).column("label").to_pylist()
+
+
+def snapshots(root: Path) -> list[Path]:
+    return sorted(root.glob(".open-*"))
+
+
+def test_a_republished_archive_of_the_same_size_is_read_again(tmp_path: Path, cache_dir: Path) -> None:
+    archive = tmp_path / "remote.zip"
+    uri = publish(archive, {"first": b"A" * 50, "again": b"B" * 70})
+    size = archive.stat().st_size
+    assert labels(taco.open_dataset(uri)) == ["first", "again"]
+
+    # Padding makes archive sizes equal; the integrity hash distinguishes them.
+    publish(archive, {"second": b"B" * 70, "later": b"A" * 50})
+    assert archive.stat().st_size == size
+    dataset = taco.open_dataset(uri)
+    assert labels(dataset) == ["second", "later"]
+    data = archive.read_bytes()
+    locations = dataset.read().column("data.bin::location").to_pylist()
+    for location, expected in zip(locations, [b"B" * 70, b"A" * 50], strict=True):
+        match = re.match(r"/vsisubfile/(\d+)_(\d+),", location)
+        assert match is not None
+        offset, length = int(match[1]), int(match[2])
+        assert data[offset : offset + length] == expected
+
+
+def test_an_open_remote_dataset_is_a_snapshot(tmp_path: Path, cache_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    archive = tmp_path / "remote.zip"
+    uri = publish(archive, {"old": b"o", "older": b"p"})
+    opened = taco.open_dataset(uri)
+    publish(archive, {"new": b"n", "newer": b"m", "newest": b"l"})
+    assert labels(taco.open_dataset(uri)) == ["new", "newer", "newest"]
+    assert labels(opened) == ["old", "older"]
+
+    monkeypatch.setenv("TACO_CACHE_REFRESH", "1")
+    assert labels(taco.open_dataset(uri)) == ["new", "newer", "newest"]
+    monkeypatch.delenv("TACO_CACHE_REFRESH")
+    assert labels(opened) == ["old", "older"]
+
+    # Another dataset over the size cap evicts the entry but not the snapshot.
+    monkeypatch.setenv("TACO_CACHE_SIZE", "1")
+    other = publish(tmp_path / "other.zip", {"other": b"x"})
+    assert labels(taco.open_dataset(other)) == ["other"]
+    entries = [item for item in cache_dir.iterdir() if item.is_dir() and not item.name.startswith(".open-")]
+    assert len(entries) == 1
+    assert labels(opened) == ["old", "older"]
+    assert opened.read().num_rows == 2
+
+    # SQL from a closed dataset still uses its process-owned snapshot.
+    sql = native.sql(opened._opened, idx=None, level="sample", pivoted=True, files=None, location=False)
+    del opened
+    gc.collect()
+    assert engine.open_reader().execute(sql).to_arrow_table().num_rows == 2
+    count = len(snapshots(cache_dir))
+    for _ in range(3):
+        assert labels(taco.open_dataset(other)) == ["other"]
+    assert len(snapshots(cache_dir)) == count
+
+
+def _close_in_child(dataset: taco.Dataset) -> None:
+    for handle in dataset._opened:
+        native._ffi.release(handle._handle)
+
+
+@pytest.mark.skipif(not hasattr(os, "fork"), reason="needs fork")
+def test_a_forked_child_keeps_the_snapshot_of_its_parent(tmp_path: Path, cache_dir: Path) -> None:
+    dataset = taco.open_dataset(publish(tmp_path / "remote.zip", {"a": b"a", "b": b"b"}))
+    [snapshot] = snapshots(cache_dir)
+    process = multiprocessing.get_context("fork").Process(target=_close_in_child, args=(dataset,))
+    process.start()
+    process.join(30)
+    if process.is_alive():
+        process.kill()
+        process.join()
+        pytest.fail("the forked child hung")
+    assert process.exitcode == 0
+    assert snapshot.is_dir()
+    assert labels(dataset) == ["a", "b"]

@@ -16,6 +16,14 @@ std::string utf8_path(const std::filesystem::path& path);
 
 // scheme://, as opposed to a local path such as C:/data or /data.
 bool has_uri_scheme(std::string_view path) noexcept;
+// http:// or https://. Paths appended to such a URL are percent-encoded.
+bool is_http_url(std::string_view uri) noexcept;
+// Every component of a relative path encoded like JavaScript's
+// encodeURIComponent, with '/' kept between them.
+std::string encode_uri_path(std::string_view path);
+// The local path a file:// URI names: the rest of the URI, percent-decoded.
+// On Windows, file:///C:/data names C:/data.
+std::string file_uri_path(std::string_view uri);
 
 // The object path of a URI, without its query or fragment.
 std::string_view without_query(std::string_view uri) noexcept;
@@ -33,9 +41,13 @@ std::string parent_path(std::string_view path);
 std::string source_name(std::string_view source);
 // Names that tell partitions apart: base names when unique, else the sources.
 std::vector<std::string> source_labels(const std::vector<std::string>& sources);
+// A TACOCAT partition file: a normalized relative POSIX path ending in .zip,
+// without an empty, '.' or '..' component or a backslash (SPEC 7.5).
+bool is_partition_path(std::string_view path);
 
+// The METADATA file of a level. There is no inverse: children/a_/b and
+// children/a/_b share a file, so levels come from the contract.
 std::string level_to_file(std::string_view level);
-std::string file_to_level(std::string_view file_name);
 // sample for children, children for children/before, and so on.
 std::string parent_level(std::string_view level);
 std::string last_segment(std::string_view level);
@@ -48,5 +60,7 @@ std::string default_cache_dir();
 
 std::string sql_identifier(std::string_view name);
 std::string sql_literal(std::string_view value);
+// A local path that DuckDB's glob matching resolves to exactly that file.
+std::string glob_escape(std::string_view path);
 
 } // namespace taco

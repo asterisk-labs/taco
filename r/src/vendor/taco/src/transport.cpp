@@ -72,8 +72,11 @@ std::shared_ptr<karu_client> client() {
 }
 
 Locator resolve(const std::string& uri) {
+    // karu reads a file:// URI as written. Read the path it names, which is
+    // what a location built from it holds.
+    const std::string target = uri.starts_with("file://") ? "file://" + file_uri_path(uri) : uri;
     karu_locator* raw = nullptr;
-    const karu_status status = karu_resolve(uri.c_str(), &raw);
+    const karu_status status = karu_resolve(target.c_str(), &raw);
     if (status != KARU_OK)
         transport_error(status, "could not resolve " + redact_uri(uri));
     return Locator(raw);

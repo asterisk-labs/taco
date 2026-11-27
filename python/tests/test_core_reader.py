@@ -1,16 +1,19 @@
 from __future__ import annotations
 
 import json
+import multiprocessing
 import os
 import re
 import shutil
 import threading
+import urllib.request
 from collections.abc import Iterator
 from contextlib import contextmanager
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Annotated
 
+import duckdb
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
@@ -190,6 +193,16 @@ def by_sample(table: pa.Table) -> list[dict]:
     )
 
 
+def read_location(location: str) -> bytes:
+    """The bytes at a local location: a file, or a /vsisubfile/ range of a local ZIP."""
+    match = re.fullmatch(r"/vsisubfile/(\d+)_(\d+),(.+)", location)
+    if match is None:
+        return Path(location).read_bytes()
+    with Path(match[3]).open("rb") as stream:
+        stream.seek(int(match[1]))
+        return stream.read(int(match[2]))
+
+
 def test_wide_rows_have_a_location_per_leaf(data: Path) -> None:
     table = taco.read(data / "nested.zip")
     assert table.num_rows == 3
@@ -282,6 +295,28 @@ def test_variable_leaves_are_ordered_lists(data: Path) -> None:
     assert len(nested.column("before/img::location")[0].as_py()) == 2
 
 
+def test_a_sequence_names_only_the_indices_below_its_maximum(tmp_path: Path) -> None:
+    from taco.reader import engine
+    from taco.reader.inspect import native_sql
+
+    def long_paths(source: Path, files: list[str]) -> list[str]:
+        statement = native_sql(source, layout="long", files=files)
+        return sorted(engine.open_reader().execute(statement).to_arrow_table().column("path").to_pylist())
+
+    # img*[1,3].tif names img0.tif to img2.tif, so img10.tif is a fixed file of its own.
+    contract = taco.Contract(structure=["img*[1,3].tif", "img10.tif"])
+    names = ["img0.tif", "img1.tif", "img10.tif"]
+    sample = taco.Sample(id="s0", assets=[taco.Asset(name.encode(), path=name) for name in names])
+    for output in (tmp_path / "bounded.zip", tmp_path / "bounded"):
+        write("bounded", contract, [sample], output)
+        row = taco.read(output).to_pylist()[0]
+        assert [read_location(location) for location in row["img::location"]] == [b"img0.tif", b"img1.tif"]
+        assert read_location(row["img10.tif::location"]) == b"img10.tif"
+        assert len(taco.read(output, files=["img*[1,3].tif"]).column("img::location")[0].as_py()) == 2
+        assert long_paths(output, ["img*[1,3].tif"]) == ["img0.tif", "img1.tif"]
+        assert long_paths(output, ["img10.tif"]) == ["img10.tif"]
+
+
 def test_raw_relations_keep_redeclared_fields_separate(data: Path) -> None:
     dataset = taco.open_dataset(data / "shadow.zip")
     raw = dataset.sql(
@@ -291,6 +326,60 @@ def test_raw_relations_keep_redeclared_fields_separate(data: Path) -> None:
         'ON asset."internal:parent_id" = folder."internal:current_id"'
     )
     assert raw.to_pydict() == {"folder_resolution": [1, 1], "asset_resolution": [3, 3]}
+
+
+def test_source_list_levels_join_within_each_source(data: Path, tmp_path: Path) -> None:
+    second = write("nested", NESTED, nested_samples()[:2], tmp_path / "second.zip")
+    dataset = taco.open_dataset([data / "nested.zip", second])
+
+    # The documented parent join pairs rows of one source only, as on a TACOCAT.
+    rows = dataset.sql(
+        'SELECT s.source_file AS sample_source, b.source_file AS file_source, c."internal:relative_path" AS folder, '
+        'b."internal:relative_path" AS file FROM sample AS s '
+        'JOIN children AS c ON c."internal:parent_id" = s."internal:current_id" '
+        'JOIN "children/before" AS b ON b."internal:parent_id" = c."internal:current_id"'
+    ).to_pylist()
+    assert len(rows) == 10
+    assert all(row["sample_source"] == row["file_source"] for row in rows)
+    assert all(row["file"].startswith(row["folder"] + "/") for row in rows)
+
+    # A sample keeps its taco:sample_index as internal:current_id.
+    pairs = dataset.sql(
+        'SELECT d."taco:sample_index" AS position, s."internal:current_id" AS current '
+        "FROM dataset AS d JOIN sample AS s ON s.source_file = d.source_file AND s.id = d.id"
+    ).to_pylist()
+    assert sorted(row["current"] for row in pairs) == [0, 1, 2, 3, 4]
+    assert all(row["position"] == row["current"] for row in pairs)
+    children = dataset.sql('SELECT "internal:current_id" AS id FROM children ORDER BY id').column("id").to_pylist()
+    assert children == list(range(len(children)))
+
+
+class Upper(BaseModel):
+    Score: float
+
+
+class Lower(BaseModel):
+    score: float
+
+
+def test_long_view_shadows_a_field_that_differs_only_in_case(tmp_path: Path) -> None:
+    from taco.reader import engine
+    from taco.reader.inspect import native_sql
+
+    contract = taco.Contract(
+        structure=["a.bin"], metadata=[taco.Level("sample", q=Upper), taco.Level("children", q=Lower)]
+    )
+    sample = taco.Sample(
+        id="s0",
+        metadata=taco.Metadata(q=Upper(Score=1.0)),
+        assets=[taco.Asset(b"x", path="a.bin", metadata=taco.Metadata(q=Lower(score=2.0)))],
+    )
+    output = write("case", contract, [sample], tmp_path / "case.zip")
+
+    long = engine.open_reader().execute(native_sql(output, layout="long")).to_arrow_table()
+    assert [name for name in long.column_names if name.lower() == "q:score"] == ["q:score"]
+    assert long.column("q:score").to_pylist() == [2.0]
+    assert taco.read(output).column("q:Score").to_pylist() == [1.0]
 
 
 def test_single_file_samples(data: Path) -> None:
@@ -318,6 +407,60 @@ def test_folder_and_catalog_locations(data: Path) -> None:
     assert catalog_root.equals(catalog)
 
 
+def test_catalog_partitions_stay_below_the_catalog(data: Path, tmp_path: Path) -> None:
+    escaping = tmp_path / "escaping"
+    shutil.copytree(data / "catalog", escaping)
+    collection = escaping / ".tacocat" / "COLLECTION.json"
+    document = json.loads(collection.read_text())
+    document["taco:sources"]["partitions"][0]["file"] = "../../etc/hosts.zip"
+    collection.write_text(json.dumps(document))
+    for source in (escaping, escaping.as_uri()):
+        with pytest.raises(ContainerError, match=r"partition '\.\./\.\./etc/hosts\.zip' is not a normalized relative"):
+            taco.open_dataset(source)
+
+    # A row naming a file taco:sources does not list fails the query instead of getting a location.
+    stray = tmp_path / "stray"
+    shutil.copytree(data / "catalog", stray)
+    for path in (stray / ".tacocat").glob("*.parquet"):
+        table = pq.read_table(path)
+        index = table.schema.get_field_index("internal:source_file")
+        files = [
+            "../../etc/hosts.zip" if file == "part_train.zip" else file for file in table.column(index).to_pylist()
+        ]
+        changed = table.set_column(index, table.schema.field(index), pa.array(files, pa.string()))
+        pq.write_table(changed.replace_schema_metadata(table.schema.metadata), path)
+    dataset = taco.open_dataset(stray)
+    with pytest.raises(duckdb.InvalidInputException, match=r"outside taco:sources: \.\./\.\./etc/hosts\.zip"):
+        dataset.read()
+    assert dataset.sql("SELECT count(*) AS n FROM sample").column("n").to_pylist() == [3]
+
+
+def test_folder_rows_stay_below_data(data: Path, tmp_path: Path) -> None:
+    from taco.reader import engine
+    from taco.reader.inspect import native_sql
+
+    stray = tmp_path / "stray"
+    shutil.copytree(data / "nested", stray)
+    children = stray / "METADATA" / "children.parquet"
+    table = pq.read_table(children)
+    index = table.schema.get_field_index("internal:relative_path")
+    field = table.schema.field(index)
+    paths = ["0/../../../etc/hosts" if path == "0/change.bin" else path for path in table.column(index).to_pylist()]
+    changed = table.set_column(index, field, pa.array(paths, field.type))
+    pq.write_table(changed.replace_schema_metadata(table.schema.metadata), children)
+
+    # A row whose relative path is not normalized fails the query in both views.
+    with ranged_origin(tmp_path) as (base, _):
+        for source in (str(stray), f"{base}/stray/"):
+            with pytest.raises(duckdb.InvalidInputException, match=r"not normalized: 0/\.\./\.\./\.\./etc/hosts"):
+                engine.open_reader().execute(native_sql(source, layout="long"))
+            dataset = taco.open_dataset(source)
+            with pytest.raises(duckdb.InvalidInputException, match="not normalized"):
+                dataset.read()
+            rows = dataset.sql("SELECT count(*) AS n FROM children").column("n").to_pylist()
+            assert rows == [table.num_rows]
+
+
 def test_contract_errors(data: Path, tmp_path: Path) -> None:
     broken = tmp_path / "broken"
     shutil.copytree(data / "nested", broken)
@@ -332,6 +475,128 @@ def test_contract_errors(data: Path, tmp_path: Path) -> None:
     (old / "COLLECTION.json").write_text(json.dumps(document))
     with pytest.raises(ContainerError, match="unsupported TACO version"):
         taco.reader.inspect.levels(old)
+
+
+def test_collection_json_repeats_no_key_and_fits_doubles(data: Path, tmp_path: Path) -> None:
+    # JSON readers keep different values of a repeated key, and 1e400 is no double.
+    original = (data / "nested" / "COLLECTION.json").read_text()
+    cases = {
+        "repeated": (original.replace("{", '{"id": "first", ', 1), 'duplicate key "id"'),
+        "nested": (
+            original.replace('"taco:metadata": {', '"taco:metadata": {"sample": {}, ', 1),
+            'duplicate key "sample"',
+        ),
+        "overflow": (original.replace("{", '{"x:big": 1e400, ', 1), "number does not fit a double"),
+    }
+    for name, (text, reason) in cases.items():
+        folder = tmp_path / name
+        shutil.copytree(data / "nested", folder)
+        (folder / "COLLECTION.json").write_text(text)
+        for source in (folder, folder.as_uri()):
+            with pytest.raises(ContainerError, match=rf"COLLECTION\.json is not valid JSON \({reason} at byte \d+\)"):
+                taco.open_dataset(source)
+
+
+def test_variable_sequence_bounds(tmp_path: Path) -> None:
+    from taco.reader import native
+
+    contract = taco.Contract(structure=["img*[1,3].bin"])
+    sample = taco.Sample(id="s0", assets=[taco.Asset(b"x", path="img0.bin")])
+    folder = write("bounds", contract, [sample], tmp_path / "bounds")
+    collection = folder / "COLLECTION.json"
+    document = json.loads(collection.read_text())
+
+    def declare(leaf: str) -> None:
+        document["taco:structure"] = [leaf]
+        collection.write_text(json.dumps(document))
+
+    # The names a sequence produces are checked, not its prefix as a name of its own.
+    for leaf in ("img.*[1,3].bin", "img *[1,3].bin", "img*[1,9007199254740991].bin"):
+        declare(leaf)
+        assert native.NativeDataset(folder).structure == [leaf]
+    for leaf in (
+        "img*[ 1,3].bin",
+        "img*[1, 3].bin",
+        "img*[01,3].bin",
+        "img*[+1,3].bin",
+        "img*[1,9007199254740992].bin",
+        "img*[1,18446744073709551616].bin",
+    ):
+        declare(leaf)
+        with pytest.raises(ContainerError, match=re.escape(f"malformed variable leaf '{leaf}'")):
+            taco.open_dataset(folder)
+
+
+def test_file_uris_give_the_locations_of_their_path(tmp_path: Path) -> None:
+    # A file:// source is percent-decoded and loses its scheme, ZIP archive parts included.
+    root = tmp_path.resolve() / "web data %41#x"
+    names = ["with space.bin", "pct%41.bin", "my dir%41/inner.bin"]
+    contract = taco.Contract(structure=names)
+    sample = taco.Sample(id="s0", assets=[taco.Asset(name.encode(), path=name) for name in names])
+    write("names", contract, [sample], root / "names.zip")
+    write("names", contract, [sample], root / "names")
+    split = taco.Contract(structure=["with space.bin"], metadata=[taco.Level("sample", info=Split)])
+    samples = [
+        taco.Sample(
+            id=f"s{index}",
+            metadata=taco.Metadata(info=Split(split=split_name, n_images=1)),
+            assets=taco.Asset(f"payload {index}".encode(), path="with space.bin"),
+        )
+        for index, split_name in enumerate(["train", "val"])
+    ]
+    write("names", split, samples, root / "cat" / "part.zip", partition_by="info:split")
+
+    for path in (root / "names.zip", root / "names", root / "cat"):
+        assert "/web%20data%20%2541%23x/" in path.as_uri()
+        assert taco.read(path.as_uri()).equals(taco.read(path))
+
+    archive = taco.read((root / "names.zip").as_uri())
+    folder = taco.read((root / "names").as_uri())
+    for name in names:
+        location = archive.column(f"{name}::location")[0].as_py()
+        assert location.endswith(f",{root / 'names.zip'}")
+        assert read_location(location) == name.encode()
+        assert read_location(folder.column(f"{name}::location")[0].as_py()) == name.encode()
+    for row in taco.read((root / "cat").as_uri()).to_pylist():
+        assert row["with space.bin::location"].endswith(f",{root / 'cat' / row['source_file']}")
+
+
+@pytest.mark.skipif(not hasattr(os, "fork"), reason="needs fork")
+def test_a_fork_while_another_thread_opens_a_local_zip(data: Path, tmp_path: Path) -> None:
+    from taco.reader import native
+
+    busy, other = tmp_path / "busy.zip", tmp_path / "other.zip"
+    for path in (busy, other):
+        shutil.copy(data / "nested.zip", path)
+    parent = os.getpid()
+    entered, released = threading.Event(), threading.Event()
+
+    @native._ffi.callback("void(const char*, uint64_t, uint64_t, void*)")
+    def pause(phase: object, done: int, total: int, user: object) -> None:
+        if os.getpid() == parent and not entered.is_set():
+            entered.set()
+            released.wait(30)
+
+    library = native._load()
+    library.taco_set_progress(pause, native._ffi.NULL)
+    opener = threading.Thread(target=native.NativeDataset, args=(busy,))
+    opener.start()
+    try:
+        assert entered.wait(30)
+        # The opener waits in its progress callback, halfway through extracting.
+        process = multiprocessing.get_context("fork").Process(target=native.NativeDataset, args=(other,))
+        process.start()
+        process.join(30)
+        if process.is_alive():
+            process.kill()
+            process.join()
+            pytest.fail("the forked child hung")
+        assert process.exitcode == 0
+    finally:
+        released.set()
+        opener.join()
+        library.taco_set_progress(native._progress_callback, native._ffi.NULL)
+    assert native.NativeDataset(busy).levels == ["sample", "children", "children/after", "children/before"]
 
 
 def test_remote_folder_cache_recovers_when_a_metadata_level_disappears(data: Path, tmp_path: Path) -> None:
@@ -404,12 +669,55 @@ def test_remote_open_sizes_each_object_once(data: Path, tmp_path: Path, monkeypa
         taco.open_dataset(f"{base}/nested.zip")
         assert size_probes(requests, "/nested.zip") == 1
         requests.clear()
+        # A cached archive is checked against the CoZIP integrity hash at bytes 43 to 50.
         taco.open_dataset(f"{base}/nested.zip")
-        assert requests == [("/nested.zip", "bytes=0-0")]
+        assert requests == [("/nested.zip", "bytes=43-50")]
 
         requests.clear()
         taco.open_dataset(f"{base}/nested/")
         assert size_probes(requests, "/nested/COLLECTION.json") == 1
+
+
+def test_http_paths_are_percent_encoded(tmp_path: Path) -> None:
+    # Each appended component is encoded like encodeURIComponent; the URL given is kept.
+    encoded = {
+        "with space.bin": "with%20space.bin",
+        "hash#1.bin": "hash%231.bin",
+        "pct%41.bin": "pct%2541.bin",
+        "it's (1).bin": "it's%20(1).bin",
+        "my dir/inner.bin": "my%20dir/inner.bin",
+    }
+    sample = taco.Sample(id="s0", assets=[taco.Asset(name.encode(), path=name) for name in encoded])
+    write("names", taco.Contract(structure=list(encoded)), [sample], tmp_path / "web data" / "names")
+    split = taco.Contract(structure=["with space.bin"], metadata=[taco.Level("sample", info=Split)])
+    samples = [
+        taco.Sample(
+            id=f"s{index}",
+            metadata=taco.Metadata(info=Split(split=split_name, n_images=1)),
+            assets=taco.Asset(f"payload {index}".encode(), path="with space.bin"),
+        )
+        for index, split_name in enumerate(["train", "val"])
+    ]
+    write("names", split, samples, tmp_path / "web data" / "my cat#1.zip", partition_by="info:split")
+
+    with ranged_origin(tmp_path) as (base, requests):
+        folder = taco.read(f"{base}/web%20data/names/")
+        assert ("/web%20data/names/METADATA/children__my%20dir.parquet", "bytes=0-0") in requests
+        for name, path in encoded.items():
+            location = folder.column(f"{name}::location")[0].as_py()
+            assert location == f"/vsicurl/{base}/web%20data/names/DATA/0/{path}"
+            with urllib.request.urlopen(location.removeprefix("/vsicurl/")) as response:
+                assert response.read() == name.encode()
+
+        catalog = taco.read(f"{base}/web%20data/.tacocat")
+        for row in catalog.to_pylist():
+            match = re.fullmatch(r"/vsisubfile/(\d+)_(\d+),/vsicurl/(.+)", row["with space.bin::location"])
+            assert match is not None
+            assert match[3] == f"{base}/web%20data/" + row["source_file"].replace(" ", "%20").replace("#", "%23")
+            first, size = int(match[1]), int(match[2])
+            ranged = urllib.request.Request(match[3], headers={"Range": f"bytes={first}-{first + size - 1}"})
+            with urllib.request.urlopen(ranged) as response:
+                assert response.read() == f"payload {row['id'].removeprefix('s')}".encode()
 
 
 @pytest.mark.skipif(

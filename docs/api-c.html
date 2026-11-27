@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#ffffff">
 <meta name="description" content="The libtaco C API, function by function.">
 <title>TACO · C</title>
-<link rel="icon" href="assets/svg/taco-mark-static.svg?v=2" type="image/svg+xml">
+<link rel="icon" href="assets/svg/taco-mark-static.svg?v=3" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=League+Spartan:wght@300;400;500;600&display=swap" rel="stylesheet">
@@ -17,7 +17,7 @@
 <div class="page">
   <header class="masthead">
     <a class="lockup" href="index.html" aria-label="TACO home">
-      <img class="marksvg" src="assets/svg/taco-mark.svg?v=2" alt="">
+      <img class="marksvg" src="assets/svg/taco-mark.svg?v=3" alt="">
       <span class="wm-sm">TACO</span>
     </a>
 
@@ -69,11 +69,11 @@
         <li>C API 3, library 0.14.2</li>
         <li>C++23, on Karu 0.2.3, libcurl and OpenSSL</li>
       </ul>
-      <p class="lede">libtaco is the reader core that Python, R and Julia load. It opens a ZIP, FOLDER or TACOCAT, copies <code>COLLECTION.json</code> and the metadata Parquet files to local disk, checks the contract, and returns DuckDB SQL over those copies. It does not run the SQL.</p>
-      <p>The caller runs the SQL with its own DuckDB, which reads the local Parquet copies and builds the location of every file from its row. libtaco links neither DuckDB nor a Parquet library, and it never decodes Parquet. Besides the cozip index and the metadata, it reads only the bytes <code>taco_profile</code> and <code>taco_fetch</code> ask for. It does not write datasets, which is the Python package's job, and the JavaScript reader does not use it. The header declares 18 functions, grouped below by purpose.</p>
+      <p class="lede">libtaco is the reader core used by Python, R and Julia. It opens ZIP, FOLDER and TACOCAT datasets, checks their contracts, and generates DuckDB SQL. It does not run queries or write datasets.</p>
+      <p>DuckDB reads the metadata Parquet files and builds file locations from their rows. libtaco does not link DuckDB or a Parquet library. Beyond the CoZIP index and metadata, it reads only byte ranges requested through <code>taco_profile</code> or <code>taco_fetch</code>. The JavaScript reader uses a separate implementation. The C header declares 18 functions, grouped below by purpose.</p>
 
       <h2 class="part" id="start">A complete program</h2>
-      <p>The program opens the single partition ZIP of Major TOM Core-DEM, asks libtaco for the wide view, runs a query over it with DuckDB's C API, and copies the file of the highest sample with <code>taco_fetch</code>.</p>
+      <p>The program opens the single-partition ZIP of Major TOM Core-DEM, asks libtaco for the wide view, runs a query over it with DuckDB's C API, and copies the file of the highest sample with <code>taco_fetch</code>.</p>
 <pre><code class="language-c">#include &lt;taco/taco.h&gt;
 #include &lt;duckdb.h&gt;
 #include &lt;stdio.h&gt;
@@ -198,10 +198,11 @@ taco_sql: 1869 bytes of SQL
 492 samples in Peru above 4500 m, highest MT10km_0137D_0827L at 5634.956 m
 /vsisubfile/764362320_42283,/vsicurl/https://data.source.coop/major-tom/core-dem/core-dem_MT3000km_0001D_0003L.zip
 downloading 1 file: 42283 bytes</code></pre>
-      <p>The second and the last lines come from the progress callback. The 2,697,870 bytes are the three ranges the cozip index lists at the end of the 1.23 GB archive: <code>COLLECTION.json</code> (7,033 B), <code>METADATA/sample.parquet</code> (1,309,304 B) and <code>METADATA/children.parquet</code> (1,381,533 B). They land in <code>cache/major-tom-core-dem-zip-https-815e5df3eedb/</code>, and a second run finds them there after checking the size of the archive, so it prints every line but that one. DuckDB reads only those local Parquet copies. The archive is read again only by <code>taco_fetch</code>, which copies the 42,283 bytes of the highest sample's <code>dem.rumi</code> into <code>highest.rumi</code>, a file that starts with the Rumi magic <code>RUMI</code>.</p>
+      <p>The progress callback prints the metadata download and final file copy. The 2,697,870 metadata bytes come from three ranges at the end of the 1.23 GB archive: <code>COLLECTION.json</code> (7,033 B), <code>METADATA/sample.parquet</code> (1,309,304 B) and <code>METADATA/children.parquet</code> (1,381,533 B). DuckDB reads those local copies.</p>
+      <p>On a second run, libtaco checks the archive's 8-byte CoZIP integrity hash and reuses the cached metadata. Only <code>taco_fetch</code> reads a payload: it copies the highest sample's 42,283-byte <code>dem.rumi</code> into <code>highest.rumi</code>.</p>
 
       <h2 class="part" id="build">Build and link</h2>
-      <p>libtaco builds with CMake 3.21 or newer and a C++23 compiler. It needs the Karu source in the <code>extern/karu</code> submodule, libcurl 7.83 or newer, OpenSSL 3 and a thread library. <code>make core</code> configures <code>core/build</code> with the tests on, passes <code>OPENSSL_ROOT_DIR</code> from <code>brew --prefix openssl@3</code> when Homebrew has it, builds, runs <code>ctest</code>, and copies the library into <code>python/taco/_lib/</code>, where the Python package looks for it.</p>
+      <p>libtaco needs CMake 3.21+, a C++23 compiler, the <code>extern/karu</code> submodule, libcurl 7.83+, OpenSSL 3 and a thread library. <code>make core</code> configures and tests the build, then copies the library into <code>python/taco/_lib/</code>. On Homebrew systems it sets <code>OPENSSL_ROOT_DIR</code> from <code>brew --prefix openssl@3</code>.</p>
 <pre><code class="language-sh">git submodule update --init extern/karu
 make core
 
@@ -251,7 +252,7 @@ ctest --test-dir core/build --output-on-failure</code></pre>
       <p>The calls that can fail return a <code>taco_status</code>: <code>taco_open</code>, <code>taco_sql</code>, <code>taco_profile</code> and <code>taco_fetch</code>. No C++ exception leaves the library; each call turns it into a status and a message. <code>taco_last_error()</code> returns the message of the latest failed call on the calling thread. A successful call does not clear it, so read it only after a status other than <code>TACO_OK</code>.</p>
       <table class="spec"><thead><tr><th>Status</th><th>Value</th><th>Returned for</th></tr></thead><tbody>
         <tr><td><code>TACO_OK</code></td><td>0</td><td>Success.</td></tr>
-        <tr><td><code>TACO_ERR_INVALID</code></td><td>1</td><td>A <code>NULL</code> argument, a bad read option, a source that is not a valid TACO dataset (another cozip profile, a broken index, an invalid <code>COLLECTION.json</code>, a <code>taco:version</code> other than 3.0.0), a URI Karu does not accept, a <code>TACO_CACHE_SIZE</code> that is not a number of bytes, a fetch offset past the end of the object.</td></tr>
+        <tr><td><code>TACO_ERR_INVALID</code></td><td>1</td><td>A <code>NULL</code> argument, a bad read option, a source that is not a valid TACO dataset (another cozip profile, a broken index, an invalid <code>COLLECTION.json</code>, a <code>taco:version</code> other than 3.0.0), a URI Karu does not accept, a <code>TACO_CACHE_SIZE</code> that is not a number of bytes, or a fetch offset past the end of the object.</td></tr>
         <tr><td><code>TACO_ERR_IO</code></td><td>2</td><td>A transport failure, such as a network, TLS, authentication or server error. A missing local file. A failed write to the cache, the temporary directory or a fetch target.</td></tr>
         <tr><td><code>TACO_ERR_NOT_FOUND</code></td><td>3</td><td>A remote object that does not exist.</td></tr>
         <tr><td><code>TACO_ERR_INTERNAL</code></td><td>99</td><td>Out of memory, or any other unexpected exception.</td></tr>
@@ -269,7 +270,7 @@ ctest --test-dir core/build --output-on-failure</code></pre>
       <p>In the transport messages it writes, libtaco replaces the user info, query and fragment of a URI with <code>&lt;redacted&gt;</code>. Messages about the content of a source quote the source as passed, so a presigned URL can appear whole in them. The bindings raise these messages as their own errors, described on the <a href="api.html#errors">overview</a> and each language page.</p>
 
       <h2 class="part" id="open">Opening a dataset</h2>
-      <table class="spec"><thead><tr><th>Function</th><th>Behaviour</th></tr></thead><tbody>
+      <table class="spec"><thead><tr><th>Function</th><th>Behavior</th></tr></thead><tbody>
         <tr><td><code>taco_open</code><br><code>(source, cache_dir, &amp;out)</code></td><td>Opens a dataset, copies its metadata to local files when it is remote or inside a local ZIP, checks <code>COLLECTION.json</code>, and returns a handle in <code>*out</code>. <code>source</code> is a local path or a URI Karu reads (<a href="api.html#sources">Sources and cache</a>). <code>cache_dir</code> is where remote metadata goes; <code>NULL</code> selects <code>TACO_CACHE_DIR</code>, then <code>$XDG_CACHE_HOME/taco</code>, then <code>~/.cache/taco</code>, or <code>%LOCALAPPDATA%\taco\cache</code> on Windows, and <code>.taco-cache</code> in the working directory when none is set. Every binding passes <code>NULL</code>.</td></tr>
         <tr><td><code>taco_close</code><br><code>(dataset)</code></td><td>Frees the handle and its strings. It deletes no metadata copy.</td></tr>
         <tr><td><code>taco_dataset_source</code></td><td>The source as opened. A local directory loses its trailing <code>/</code>, a local TACOCAT directory becomes the path of its <code>.tacocat</code> folder, and a remote directory loses its trailing <code>/</code> and query.</td></tr>
@@ -278,7 +279,7 @@ ctest --test-dir core/build --output-on-failure</code></pre>
         <tr><td><code>taco_dataset_level_count</code>, <code>taco_dataset_level</code><br><code>(dataset, index)</code></td><td>The metadata levels, parents before children: by depth, then by name, such as <code>sample</code>, <code>children</code>, <code>children/after</code>, <code>children/before</code>.</td></tr>
         <tr><td><code>taco_dataset_structure_count</code>, <code>taco_dataset_structure</code><br><code>(dataset, index)</code></td><td>The <code>taco:structure</code> declarations in <code>COLLECTION.json</code> order, such as <code>dem.rumi</code> or <code>img*[4,16].tif</code>. These are the names <code>files</code> takes.</td></tr>
       </tbody></table>
-      <p><code>taco_open</code> decides the container from the source, as <a href="api.html#containers">Containers</a> describes them:</p>
+      <p><code>taco_open</code> decides the container from the source, as <a href="api.html#containers">Containers</a> describes:</p>
       <ul class="list">
         <li>A local directory with <code>COLLECTION.json</code> and <code>METADATA/</code> is a FOLDER. One with <code>.tacocat/COLLECTION.json</code>, or a <code>.tacocat</code> folder itself, is a TACOCAT. Any other local path is opened as a ZIP.</li>
         <li>A URI whose cache entry is complete and still matches the origin is opened from the cache with the container it had.</li>
@@ -286,12 +287,13 @@ ctest --test-dir core/build --output-on-failure</code></pre>
         <li>A URI that names a directory is read as one: a trailing <code>/</code>, a last component <code>.tacocat</code>, a bucket or host with no path, a <code>hf://</code> repository, a <code>source://</code> product, or a <code>file://</code> directory. libtaco reads its <code>COLLECTION.json</code>, or <code>.tacocat/COLLECTION.json</code> when that is missing, and calls it a TACOCAT when the collection has <code>taco:sources</code>.</li>
         <li>Any other URI is probed as a cozip archive first and read as a directory when it is not one. When the probe is refused with an authentication error, libtaco tries the directory, and reports the first error if that fails too.</li>
       </ul>
-      <p>A ZIP must be a cozip of profile 2 whose index lists <code>COLLECTION.json</code>. Then the collection must have <code>taco:version</code> 3.0.0, a non-empty <code>taco:structure</code> of valid declarations, and a <code>taco:metadata</code> entry for each level's Parquet file and no other (<a href="spec/index.html#76-validation">spec 7.6</a>). A <code>COLLECTION.json</code> larger than 64 MiB is refused. libtaco never decodes the Parquet files, so it checks neither their schemas nor their rows; <code>taco.validate</code> does (<a href="api.html#validate">Validate</a>).</p>
+      <p>A ZIP must use CoZIP binary version 1 and profile 2, with <code>COLLECTION.json</code> in its index. The collection must declare <code>taco:version</code> 3.0.0, a non-empty valid <code>taco:structure</code>, and exactly one <code>taco:metadata</code> entry per level (<a href="spec/index.html#76-validation">spec 7.6</a>). A TACOCAT lists ZIP partitions as normalized relative paths in <code>taco:sources</code> (<a href="spec/index.html#75-tacocat">spec 7.5</a>).</p>
+      <p>libtaco rejects <code>COLLECTION.json</code> files larger than 64 MiB, and one that repeats a key in an object or holds a number beyond the finite double range, such as <code>1e400</code>. It does not decode Parquet, so use <code>taco.validate</code> to check schemas and rows (<a href="api.html#validate">Validate</a>).</p>
       <p>Where the copies go (<a href="spec/index.html#82-reader">spec 8.2</a>) matters in C, because the SQL names them by path:</p>
       <table class="spec"><thead><tr><th>Source</th><th>Metadata read from</th><th>Kept until</th></tr></thead><tbody>
         <tr><td>a local ZIP</td><td>A directory <code>taco-&lt;hex&gt;/&lt;hex&gt;/</code> in the system temporary directory, one per archive. <code>cache_dir</code> is not used.</td><td>The process exits normally. Opening the same file again, with the same size and modification time, reuses the copy.</td></tr>
         <tr><td>a local FOLDER or TACOCAT</td><td>The dataset's own <code>METADATA/</code> or <code>.tacocat/</code>, in place.</td><td>Always; they are the dataset's files.</td></tr>
-        <tr><td>a remote ZIP, FOLDER or TACOCAT</td><td>A cache entry <code>&lt;id&gt;-&lt;container&gt;-&lt;scheme&gt;-&lt;hash&gt;/</code> under the cache directory, laid out like a FOLDER without <code>DATA/</code>.</td><td>The cache replaces the entry, or drops it to stay under <code>TACO_CACHE_SIZE</code>.</td></tr>
+        <tr><td>a remote ZIP, FOLDER or TACOCAT</td><td>A snapshot <code>.open-&lt;host&gt;-&lt;pid&gt;-&lt;n&gt;/</code> under the cache directory: hard links, or copies where links fail, to the files of the cache entry <code>&lt;id&gt;-&lt;container&gt;-&lt;scheme&gt;-&lt;hash&gt;/</code>, which is laid out like a FOLDER without <code>DATA/</code>.</td><td>The process exits normally. Opening the same unchanged entry again reuses the snapshot, a rebuild or an eviction of the entry leaves it intact, and a later open removes the snapshots of processes that have ended.</td></tr>
       </tbody></table>
       <p>The cache variables and how an entry is checked against its origin are on the <a href="api.html#sources">overview</a>.</p>
 
@@ -309,7 +311,7 @@ taco_status taco_sql(const taco_dataset *const *datasets, size_t count,
                      const taco_read_options *options, char **out_sql);</code></pre>
       <p><code>taco_sql</code> reads only the handles and touches no file. It returns one statement in <code>*out_sql</code>, which the caller releases with <code>taco_free</code>. <code>datasets</code> holds <code>count</code> handles, at least one and none <code>NULL</code>.</p>
       <table class="spec"><thead><tr><th>Field</th><th>Meaning</th></tr></thead><tbody>
-        <tr><td><code>idx</code></td><td><code>NULL</code> for every sample, <code>"5"</code> for the sample with index 5, <code>"[0, 100]"</code> for indexes 0 to 99. Non-negative integers, spaces allowed, and a start no larger than the end. For several datasets it filters the index across all of them. It is ignored when <code>level</code> is set.</td></tr>
+        <tr><td><code>idx</code></td><td><code>NULL</code> for every sample, <code>"5"</code> for the sample with index 5, <code>"[0, 100]"</code> for indices 0 to 99. Non-negative integers, spaces allowed, and a start no larger than the end. For several datasets it filters the index across all of them. It is ignored when <code>level</code> is set.</td></tr>
         <tr><td><code>level</code></td><td><code>NULL</code> for the joined view. Otherwise one of the names <code>taco_dataset_level</code> returns, read raw: every column of that Parquet file, the <code>internal:</code> columns included. <code>pivoted</code> and <code>location</code> do not apply.</td></tr>
         <tr><td><code>pivoted</code></td><td>Nonzero for the wide shape, one row per sample with a column per file, as <a href="api.html#read">read</a> returns it. Zero for the long shape, one row per file.</td></tr>
         <tr><td><code>files</code>, <code>file_count</code></td><td><code>NULL</code> for every file. Otherwise an array of <code>file_count</code> declarations exactly as <code>taco_dataset_structure</code> returns them, which keeps only those files. Refused with <code>level</code>, and with a name the structure does not have.</td></tr>
@@ -317,11 +319,12 @@ taco_status taco_sql(const taco_dataset *const *datasets, size_t count,
       </tbody></table>
       <p>A zeroed <code>taco_read_options</code> asks for the long shape without locations. Set <code>pivoted</code> and <code>location</code> to 1 for the shape of <code>read</code>.</p>
       <ul class="list">
-        <li><b>Wide.</b> A <code>WITH</code> clause names each level <code>l0</code>, <code>l1</code>, ... over <code>read_parquet</code> of its local copy. The sample rows then take a <code>LEFT JOIN LATERAL</code> that pivots their child rows into the <code>{file}::location</code> columns and the columns extensions generate, such as <code>dem.rumi::header</code>. A location is built in SQL from the row, with <code>internal:offset</code>, <code>internal:size</code> and the archive for a ZIP, or <code>DATA/</code> and <code>internal:relative_path</code> for a FOLDER, so it costs no request.</li>
-        <li><b>Long.</b> One <code>UNION ALL BY NAME</code> branch per child level, each joined up to the sample level: <code>source_file</code> for a TACOCAT, <code>taco:sample_index</code>, <code>id</code>, <code>path</code>, <code>taco:location</code>, then the fields of every level sorted by name. Folder rows are left out, and a field declared at two levels takes the value of the deeper one.</li>
+        <li><b>Wide.</b> A <code>WITH</code> clause names the local Parquet levels. A <code>LEFT JOIN LATERAL</code> pivots child rows into <code>{file}::location</code> and extension columns such as <code>dem.rumi::header</code>. SQL builds locations from ZIP offsets or FOLDER paths without fetching payloads. It percent-encodes paths appended to HTTP URLs. DuckDB's <code>error()</code> rejects FOLDER paths with empty, <code>.</code> or <code>..</code> components, a leading slash or a backslash, and TACOCAT partitions absent from <code>taco:sources</code>.</li>
+        <li><b>Long.</b> One <code>UNION ALL BY NAME</code> branch per child level, each joined up to the sample level: <code>source_file</code> for a TACOCAT, <code>taco:sample_index</code>, <code>id</code>, <code>path</code>, <code>taco:location</code>, then the fields of every level sorted by name. Folder rows are left out, and a field declared at two levels, in any letter case, takes the value and the spelling of the deeper one.</li>
         <li><b>Level.</b> One <code>SELECT</code> over that level's Parquet file.</li>
       </ul>
-      <p>For one dataset the statement has no <code>ORDER BY</code>. For several, each dataset's statement is wrapped and joined with <code>UNION ALL BY NAME</code>, a <code>source_file</code> column names its part (the file name when names are unique, else the full source), <code>taco:sample_index</code> is numbered again across the list in list order, and the result is ordered by it. A raw level of several datasets gets <code>source_file</code> and keeps its rows unordered.</p>
+      <p>A single dataset's statement has no <code>ORDER BY</code>. A source list combines statements with <code>UNION ALL BY NAME</code>, adds <code>source_file</code> for each part, and renumbers <code>taco:sample_index</code> in list order. It then orders the wide result by that index.</p>
+      <p>Raw levels in a source list remain unordered. Their <code>internal:current_id</code> and <code>internal:parent_id</code> values continue across sources, as in TACOCAT, so parent joins cannot cross source boundaries. A sample's <code>internal:current_id</code> equals its <code>taco:sample_index</code>. When source filenames are unique, <code>source_file</code> uses them; otherwise it uses full source paths.</p>
       <p>libtaco does not check that several datasets belong together. The bindings compare their collections first, as <a href="api.html#read">Read</a> describes, and refuse a TACOCAT in a list. A C caller should do the same with <code>taco_dataset_collection</code>.</p>
       <p>With the handle of the program above, a raw level gives the shortest statement:</p>
 <pre><code class="language-c">taco_read_options raw = {0};
@@ -330,8 +333,9 @@ char *sql = NULL;
 if (taco_sql(datasets, 1, &amp;raw, &amp;sql) == TACO_OK)
     puts(sql);
 taco_free(sql);</code></pre>
-<pre class="output"><code>SELECT COLUMNS(lambda c: c != 'cozip:location' AND c != 'taco:location' AND c != 'taco:sample_index') FROM read_parquet('cache/major-tom-core-dem-zip-https-815e5df3eedb/METADATA/sample.parquet')</code></pre>
-      <p>Every shape leaves out stored columns named <code>cozip:location</code>, <code>taco:location</code> or <code>taco:sample_index</code>, names the reader computes. The path is relative because <code>TACO_CACHE_DIR</code> was.</p>
+<pre class="output"><code>SELECT COLUMNS(lambda c: c != 'cozip:location' AND c != 'taco:location' AND c != 'taco:sample_index') FROM read_parquet('cache/.open-&lt;host&gt;-&lt;pid&gt;-&lt;n&gt;/METADATA/sample.parquet', hive_partitioning = false)</code></pre>
+      <p>All shapes exclude stored <code>cozip:location</code>, <code>taco:location</code> and <code>taco:sample_index</code> columns because the reader computes them. The example path is relative because <code>TACO_CACHE_DIR</code> was; it names a process-owned snapshot and changes between runs.</p>
+      <p>DuckDB treats <code>[</code>, <code>]</code>, <code>?</code> and <code>*</code> as glob syntax, so libtaco writes them as <code>[[]</code>, <code>[]]</code>, <code>[?]</code> and <code>[*]</code> in a file path. <code>hive_partitioning = false</code> also prevents a folder like <code>id=7/</code> from replacing a column value.</p>
 
       <h2 class="part" id="run">Running the SQL</h2>
       <p>libtaco returns text and never runs it. Run it in the same process with a DuckDB connection of your own. The bindings expose it the way <a href="api.html#sql">SQL</a> describes, one relation for the dataset and one per level. Python, for example, sends DuckDB this statement:</p>
@@ -344,11 +348,11 @@ SELECT * FROM (
       <ul class="list">
         <li>The statements use <code>read_parquet</code>, <code>COLUMNS</code> with a lambda, <code>LEFT JOIN LATERAL</code>, <code>UNION ALL BY NAME</code>, <code>list(... ORDER BY ...)</code> and regular expressions. The bindings require DuckDB 1.5: Python and R ask for 1.5.5 or newer, and Julia for DuckDB.jl 1.5 or a later 1.x.</li>
         <li>DuckDB reads only the local Parquet copies. Payloads are read later from the locations, by GDAL, Rumi, <code>taco_fetch</code> or any client that reads byte ranges (<a href="api.html#files">Open a file</a>).</li>
-        <li>A statement names the copies by path, so it stays valid only while they exist: until the process exits for a local ZIP, and while the cache keeps the entry for a remote source. Generate it again in each process instead of storing it.</li>
+        <li>A statement names the copies by path, so it stays valid only while they exist: until the process that generated it exits, for a local ZIP and a remote source alike. Generate it again in each process instead of storing it.</li>
       </ul>
 
       <h2 class="part" id="fetch">Profiles and byte copies</h2>
-      <table class="spec"><thead><tr><th>Function</th><th>Behaviour</th></tr></thead><tbody>
+      <table class="spec"><thead><tr><th>Function</th><th>Behavior</th></tr></thead><tbody>
         <tr><td><code>taco_profile</code><br><code>(source, &amp;name)</code></td><td>Reads the size of the object, refuses one below 32,819 bytes, reads its first 58 bytes, checks the <code>__cozip__</code> header and returns <code>"none"</code>, <code>"flat"</code>, <code>"taco"</code> or <code>"unknown:&lt;n&gt;"</code> in <code>*name</code>. It does not read the index or check the hash. Release the name with <code>taco_free</code>. <code>inspect(source, "profile")</code> in the bindings calls it.</td></tr>
         <tr><td><code>taco_fetch</code><br><code>(items, count)</code></td><td>Copies each item's byte range into its file, creating parent directories. <code>items</code> may be <code>NULL</code> when <code>count</code> is 0.</td></tr>
       </tbody></table>
@@ -359,7 +363,7 @@ SELECT * FROM (
     const char *path;     /* the local file to write */
 } taco_fetch_item;</code></pre>
       <ul class="list">
-        <li><code>uri</code> is anything Karu reads, the VSI forms included, so the archive part of a location works as it is: the program above passes <code>/vsicurl/https://...</code>.</li>
+        <li><code>uri</code> is anything Karu reads, the VSI forms included, so the archive part of a location works as it is: the program above passes <code>/vsicurl/https://...</code>. A <code>file://</code> URI is percent-decoded into the local path it names first.</li>
         <li>A <code>length</code> of 0 reads the size of the object and copies to its end. An <code>offset</code> past the end is refused.</li>
         <li>Every target is created or emptied before the first byte is read, so a call that fails can leave empty or partial files.</li>
         <li>Bytes are read in pieces of at most 8 MiB, grouped into Karu batches of at most 64 MiB, and appended to the files in order, so at most 64 MiB of file data is in memory at a time.</li>
@@ -371,7 +375,7 @@ SELECT * FROM (
 void taco_set_progress(taco_progress_fn callback, void *user);</code></pre>
       <ul class="list">
         <li>One callback serves the whole process. <code>NULL</code> restores the built-in bar, one line per phase on stderr, drawn only when stderr is a terminal.</li>
-        <li><code>phase</code> is <code>"downloading &lt;name&gt; metadata"</code> while <code>taco_open</code> copies metadata, a local ZIP included, and <code>"downloading &lt;n&gt; file"</code> or <code>"files"</code> in <code>taco_fetch</code>. <code>done</code> and <code>total</code> count bytes. A phase starts at <code>done</code> 0 and ends when <code>done</code> reaches <code>total</code>, which is 0 while unknown. An open served from the cache reports nothing.</li>
+        <li><code>phase</code> is <code>"downloading &lt;name&gt; metadata"</code> while <code>taco_open</code> copies metadata, a local ZIP included, and <code>"downloading &lt;n&gt; file"</code> or <code>"downloading &lt;n&gt; files"</code> in <code>taco_fetch</code>. <code>done</code> and <code>total</code> count bytes. A phase starts at <code>done</code> 0 and ends when <code>done</code> reaches <code>total</code>, which is 0 while unknown. An open served from the cache reports nothing.</li>
         <li>The callback runs on the thread doing the work while libtaco holds a lock, so calls from several threads never overlap. It must return normally and must not call <code>taco_set_progress</code>. The bindings swallow every error their bar raises; R evaluates its handler with <code>R_tryEvalSilent</code> so an R error cannot jump through libtaco.</li>
       </ul>
 
@@ -379,15 +383,15 @@ void taco_set_progress(taco_progress_fn callback, void *user);</code></pre>
       <p>The header promises three things. <code>taco_last_error</code> belongs to the calling thread, the progress callback runs on the thread doing the work, and <code>taco_shutdown()</code> releases the transport resources the calling thread has cached. Call <code>taco_shutdown</code> before unloading the library; calling it twice is safe. The rest of this section is what the source does.</p>
       <ul class="list">
         <li>Each thread keeps its own Karu client and its connections, reused while the Karu settings read from the environment stay the same. <code>taco_shutdown</code> frees the calling thread's client; other threads free theirs when they exit.</li>
-        <li>The progress callback and the table of extracted local ZIPs are shared by the process and guarded by locks.</li>
-        <li>A handle does not change after <code>taco_open</code> returns: the getters and <code>taco_sql</code> only read it. The header makes no promise about using one handle from several threads. Python does, with one DuckDB connection per thread.</li>
+        <li>The progress callback, the table of extracted local ZIPs and the table of cache snapshots are shared by the process and guarded by locks. A fork takes the two table locks first and gives the child fresh ones, and the child gets a fresh progress lock unless the forking thread is reporting progress.</li>
+        <li>A handle does not change after <code>taco_open</code> returns: the getters and <code>taco_sql</code> only read it. The header makes no promise about using one handle from several threads. Python uses one handle from several threads, with one DuckDB connection per thread.</li>
         <li>Opening a remote FOLDER or TACOCAT, from the network or from the cache, starts short-lived threads that read up to eight object sizes at once.</li>
-        <li>The cache is shared between processes through the file system. An entry is assembled in a staging directory and renamed into place, so no reader sees half an entry.</li>
+        <li>The cache is shared between processes through the file system. An entry is assembled in a staging directory and renamed into place, so no reader sees half an entry. When several processes build the same entry at once, the first rename wins and the others use that entry, unless <code>TACO_CACHE_REFRESH</code> asks each for a rebuild. Each process reads its own snapshot of an entry, so a process that rebuilds or evicts the entry never changes what another one reads.</li>
       </ul>
 
       <h2 class="part" id="bindings">Bindings</h2>
       <table class="spec"><thead><tr><th>Binding</th><th>Finds the library</th><th>Version check</th><th>Calls</th></tr></thead><tbody>
-        <tr><td>Python</td><td><code>TACO_LIB</code>, else <code>taco/_lib/libtaco.dylib</code>, <code>libtaco.so</code> or <code>taco.dll</code> inside the package, loaded with cffi</td><td>Raises <code>ContainerError: the TACO core at &lt;path&gt; has C API &lt;n&gt;, expected 3</code></td><td>Every function but <code>taco_shutdown</code></td></tr>
+        <tr><td>Python</td><td><code>TACO_LIB</code>, else <code>taco/_lib/libtaco.dylib</code>, <code>libtaco.so</code> or <code>taco.dll</code> inside the package, loaded with cffi</td><td>Raises <code>ContainerError: the TACO core at &lt;path&gt; has C API &lt;n&gt;, expected 3</code></td><td>Every function but <code>taco_version_string</code> and <code>taco_shutdown</code></td></tr>
         <tr><td>R</td><td>Compiles its own copy of <code>core/</code> and Karu into the package, against libcurl 7.83 or newer and OpenSSL 3 found with <code>pkg-config</code>. <code>make sync-r-core</code> refreshes the copy.</td><td>Stops at load with <code>libtaco has C API &lt;n&gt;, this package needs 3</code></td><td>Opening, the getters, <code>taco_sql</code>, <code>taco_profile</code>, progress, and <code>taco_shutdown</code> when the package unloads</td></tr>
         <tr><td>Julia</td><td><code>TACO_LIB</code>, else <code>core/build/</code> in a checkout, else the release archive named in <code>Artifacts.toml</code></td><td>Throws <code>taco: the TACO core at &lt;path&gt; has C API &lt;n&gt;, expected 3</code></td><td>Opening, the collection, levels and structure, <code>taco_sql</code>, <code>taco_profile</code>, progress</td></tr>
       </tbody></table>

@@ -2,11 +2,13 @@
 
 #include <cstdio>
 #include <mutex>
+#include <new>
 
 #ifdef _WIN32
 #include <io.h>
 #define TACO_ISATTY(stream) _isatty(_fileno(stream))
 #else
+#include <pthread.h>
 #include <unistd.h>
 #define TACO_ISATTY(stream) isatty(fileno(stream))
 #endif
@@ -15,8 +17,27 @@ namespace taco {
 namespace {
 
 std::mutex progress_mutex;
+// Whether this thread holds progress_mutex to report.
+thread_local bool reporting = false;
 taco_progress_fn progress_callback = nullptr;
 void* progress_user = nullptr;
+
+// progress_mutex, held by this thread for the rest of the scope.
+struct ReportLock {
+    std::lock_guard<std::mutex> lock{progress_mutex};
+    ReportLock() { reporting = true; }
+    ~ReportLock() { reporting = false; }
+};
+
+#ifndef _WIN32
+// Callbacks run under the lock, so fork() cannot wait for it. A child forked
+// while another thread reported gets a new lock. One forked from a callback
+// keeps the lock, which its only thread holds and releases.
+[[maybe_unused]] const int fork_handler = pthread_atfork(nullptr, nullptr, [] {
+    if (!reporting)
+        new (&progress_mutex) std::mutex;
+});
+#endif
 
 std::string human_bytes(std::uint64_t bytes) {
     const char* units[] = {"B", "KB", "MB", "GB", "TB"};
@@ -60,7 +81,7 @@ void set_progress(taco_progress_fn callback, void* user) {
 }
 
 void report_progress(const std::string& phase, std::uint64_t done, std::uint64_t total) {
-    const std::lock_guard lock(progress_mutex);
+    const ReportLock lock;
     if (progress_callback)
         progress_callback(phase.c_str(), done, total, progress_user);
     else

@@ -102,7 +102,10 @@ The query is wrapped as `WITH <relations> SELECT * FROM (<query>) AS taco_query`
 it must be a single statement. A trailing `;` is stripped; an empty query or one
 containing NUL is refused. The connection is one cached DuckDB handle per thread,
 configured with `TimeZone=UTC` so timestamps compare and print identically whatever
-the host timezone is.
+the host timezone is. The time zone is set after connecting, so the ICU built into
+the DuckDB wheel is used and nothing is downloaded; without ICU the connection stays
+in UTC and turns off extension autoinstall. A forked child, such as a `DataLoader`
+worker, opens its own handle.
 
 ## Source lists and TACOCAT
 
@@ -124,8 +127,12 @@ source otherwise. The core streams the parts with `UNION ALL BY NAME` and assign
 **reversing the list renumbers every sample**. `id` does not change.
 
 A source list does **not** check `id` uniqueness across different compatible sources,
-so two partitions may return the same `id` under distinct indices. Repeating the same
-source path is rejected earlier with `source paths must be unique`. Only
+so two partitions may return the same `id` under distinct indices. Repeating a source is
+rejected earlier with `source paths must be unique`, also when it is spelled another
+way: local sources are compared by device and inode after decoding `file://`, remote
+ones as given. A leading `~` is expanded everywhere, `inspect` included. A list may
+mix partitions whose `split:counts` differ; `Dataset.collection` adds them up per key
+and joins the extents, as `consolidate` does. Only
 `consolidate` checks duplicate ids across partitions.
 
 ## Two level orders
@@ -197,10 +204,12 @@ like a TACO FOLDER without `DATA/`, plus a `taco-cache.json` stamp.
 | `TACO_CACHE_SIZE` | Cap in bytes, default 5 GiB. Least recently opened entries are evicted first |
 | `TACO_CACHE_REFRESH` | Any non-empty value rebuilds the entries it touches |
 
-A remote entry is revalidated against the origin-reported object size. A local ZIP is
-extracted to a process-owned temporary directory. If the probe
-fails, opening fails rather than serving metadata that cannot be validated. Local
-FOLDER and TACOCAT containers are read in place with no cache entry.
+A remote ZIP entry is revalidated against the integrity hash in the archive's cozip
+header, and a FOLDER or TACOCAT entry against the sizes of its metadata files. An open
+dataset reads its own `.open-<host>-<pid>-<n>/` snapshot of the entry, kept until the
+process exits. Cache refreshes and evictions do not affect that snapshot. If the
+remote check fails, opening fails. A local ZIP uses a process-owned temporary
+directory; local FOLDER and TACOCAT containers are read in place.
 
 Payload bytes are never cached. A `::location` path is fetched by whatever reads it,
 and `taco.export` downloads payloads through `taco_fetch` in bounded batches.

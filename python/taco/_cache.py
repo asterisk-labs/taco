@@ -28,6 +28,9 @@ _CACHEDIR_TAG = (
 _RETRY_DELAYS = (1, 2, 4)
 _NETWORK_ERRORS = (urllib.error.URLError, TimeoutError, ConnectionError, http.client.HTTPException)
 _WINDOWS = os.name == "nt"
+# Entries this process downloaded again for TACO_CACHE_REFRESH. A refresh happens
+# once, as GeoEnrich asks for its index once per batch.
+_refreshed: set[Path] = set()
 
 
 def cache_root() -> Path:
@@ -56,18 +59,22 @@ def cached_download(url: str, label: str) -> Path:
     key = _retrying(lambda: _validator(url))
     stamp = _read_stamp(entry)
     target = entry / name
-    if _reusable(stamp, key, target):
+    refresh = bool(os.environ.get("TACO_CACHE_REFRESH")) and entry not in _refreshed
+    if not refresh and _reusable(stamp, key, target):
         assert stamp is not None
         stamp["opened"] = _now()
         # A read-only cache still serves its entries.
         with contextlib.suppress(OSError):
             _write_atomically(entry / _STAMP, json.dumps(stamp))
         return target
-    return _store(url, entry, name, key)
+    path = _store(url, entry, name, key)
+    if refresh:
+        _refreshed.add(entry)
+    return path
 
 
 def _reusable(stamp: dict[str, Any] | None, key: str, target: Path) -> bool:
-    if stamp is None or not key or os.environ.get("TACO_CACHE_REFRESH"):
+    if stamp is None or not key:
         return False
     return stamp.get("key") == key and target.is_file() and target.stat().st_size == stamp.get("size")
 

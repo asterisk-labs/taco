@@ -1,6 +1,8 @@
 #pragma once
 
-// A strict RFC 8259 parser. Values keep their raw text so a caller can pass a
+// A strict RFC 8259 parser. Like I-JSON (RFC 7493) it refuses a key repeated
+// in an object, which JSON readers resolve differently, and a number beyond
+// the range of a double. Values keep their raw text so a caller can pass a
 // nested object on without serializing it again.
 
 #include <stdexcept>
@@ -32,7 +34,7 @@ struct Value {
     [[nodiscard]] bool is_array() const noexcept { return kind == Kind::array; }
     [[nodiscard]] bool is_object() const noexcept { return kind == Kind::object; }
 
-    // The first member named key, or nullptr.
+    // The member named key, or nullptr.
     [[nodiscard]] const Value* find(std::string_view key) const;
 };
 

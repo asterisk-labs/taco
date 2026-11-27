@@ -12,6 +12,8 @@ namespace {
 
 // The __cozip__ payload starts after its fixed 51-byte Local File Header.
 constexpr std::uint64_t lfh_size = 51;
+// The hash value inside the 0xCA0C extra field of that header.
+constexpr std::uint64_t integrity_offset = 43;
 constexpr std::uint64_t index_header_size = 11;
 // name length (2) + offset (8) + size (8) + at least one name byte
 constexpr std::uint64_t entry_min_size = 19;
@@ -127,6 +129,10 @@ std::uint8_t read_cozip_profile(const std::string& uri) {
     return parse_profile_prefix(read_ranges({Range{uri, 0, lfh_size + 7}}).front(), uri);
 }
 
+std::uint64_t read_cozip_integrity(const std::string& uri) {
+    return read_u64(read_ranges({Range{uri, integrity_offset, 8}}).front(), 0);
+}
+
 CozipIndex read_cozip_index(const std::string& uri) {
     return read_cozip_index(uri, object_size(uri));
 }
@@ -161,7 +167,7 @@ CozipIndex read_cozip_index(const std::string& uri, std::uint64_t file_size) {
         hash = fnv1a(suffix, hash);
     else
         hash = fnv1a(std::string_view(suffix).substr(payload_end - suffix_start), hash);
-    index.integrity = read_u64(head, 43);
+    index.integrity = read_u64(head, integrity_offset);
     if (hash != index.integrity)
         fail("cozip integrity hash mismatch: " + uri);
 

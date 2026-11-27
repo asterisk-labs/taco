@@ -8,6 +8,11 @@
 // Cached remote metadata is revalidated against an origin-provided value.
 // TACO_CACHE_REFRESH rebuilds every entry it touches. TACO_CACHE_SIZE caps
 // the cache in bytes; the least recently opened entries go first.
+//
+// An open dataset uses a private snapshot under .open-<host>-<pid>-<n>.
+// Hard links, or copies when linking fails, keep its metadata available after
+// cache replacement or eviction. The process retains snapshots until exit so
+// generated SQL can outlive a Dataset object.
 
 #include <cstdint>
 #include <filesystem>
@@ -38,19 +43,25 @@ class CacheEntry {
     // is missing, damaged, incomplete or being refreshed.
     std::optional<CacheStamp> find(const std::vector<std::string>& files, std::string_view key);
 
-    // Writes the files and the stamp as <label>-<hash>, replacing any entry
-    // of this source, then trims the cache to its size cap.
-    void store(const std::string& label, const std::vector<std::pair<std::string, std::string>>& files,
-               CacheStamp stamp);
+    // Writes the files and the stamp as <label>-<hash>, replacing any
+    // outdated entry of this source, then trims the cache to its size cap.
+    // Reuse a concurrent writer's complete entry unless refreshing. Return a
+    // snapshot of the stored files.
+    std::filesystem::path store(const std::string& label,
+                                const std::vector<std::pair<std::string, std::string>>& files, CacheStamp stamp);
+
+    // Snapshot the entry found by find(). Return nothing if it changed or
+    // disappeared. Read it in place when the cache is read-only.
+    [[nodiscard]] std::optional<std::filesystem::path> snapshot(const std::vector<std::string>& files) const;
 
     [[nodiscard]] std::string path(std::string_view file) const;
-    // The METADATA Parquet files of the entry, by name.
-    [[nodiscard]] std::vector<std::string> parquet_files() const;
 
   private:
     std::filesystem::path root_;
     std::string hash_;
     std::filesystem::path directory_;
+    // Compare with the current stamp before using a snapshot.
+    CacheStamp stamp_;
 };
 
 // A file system friendly form of a name for use in entry labels.

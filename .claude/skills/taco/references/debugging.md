@@ -60,7 +60,9 @@ A stale `TACO_LIB` or a leftover `_lib/` from another version. Rebuild, or unset
 | `could not open <path>: ...: Is a directory` | An archive-only call on a directory; `inspect(..., "profile")` does this |
 | `directory has no COLLECTION.json or .tacocat/COLLECTION.json: <dir>` | Not a TACO directory |
 | `taco needs a TACO-profile archive (profile=2). Got profile=<n>` | A plain ZIP, or a flat CoZIP |
-| `COLLECTION.json metadata levels do not match its Parquet files` | A level was added or a Parquet removed by hand |
+| `TACO dataset has no <file> for metadata level '<level>'` | A Parquet was removed by hand, or the contract declares a level that was never written |
+| `Parquet file <file> matches no metadata level in COLLECTION.json` | A stray Parquet in `METADATA/` |
+| `COLLECTION.json levels '<a>' and '<b>' would share the Parquet file <file>` | Folder paths such as `a_/b` and `a/_b`; rename one folder |
 | `source does not belong to the same collection: <path>` | A source list mixing collections |
 | `a source list cannot contain TACOCAT datasets` | Open the catalog on its own |
 | `COLLECTION.json is larger than 64 MiB, refusing to read it` | Collection metadata is being abused as a data store |
@@ -75,13 +77,14 @@ backend. Credentials come from the environment karu documents in
 `extern/karu/CONFIGURATION.md`; for a private Hugging Face repository run
 `hf auth login` and karu reads that token.
 
-Opening fails rather than serving stale metadata when the origin size cannot be
-probed, so a 403 surfaces at `open_dataset`, not at the first read. Check the
-credentials for the **object**, not the bucket root: the core probes
-`COLLECTION.json` under the source.
+Opening fails if the origin cannot be checked: the CoZIP header for a ZIP, or
+metadata file sizes for a FOLDER or TACOCAT. A 403 surfaces at `open_dataset`.
+Check credentials for the object being read; directory sources probe
+`COLLECTION.json`, not the bucket root.
 
-When a remote dataset looks out of date, the cache is revalidated against the origin
-size. A source that changed without changing size will not be noticed; force it:
+The cache checks a ZIP's CoZIP integrity hash and a FOLDER or TACOCAT's
+metadata file sizes. If directory metadata changes without changing size,
+force a rebuild:
 
 ```bash
 TACO_CACHE_REFRESH=1 python script.py

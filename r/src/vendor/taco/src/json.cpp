@@ -1,11 +1,40 @@
 #include "json.hpp"
 
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
+#include <cstdlib>
+#include <unordered_set>
 
 namespace taco::json {
 namespace {
 
 constexpr int max_depth = 256;
+
+// Whether a number that matches the JSON grammar is within the range of a
+// double. strtod takes the radix point from the locale, so it reads the
+// digits as an integer with an exponent.
+bool fits_double(std::string_view number) {
+    const auto mark = number.find_first_of("eE");
+    std::int64_t exponent = 0;
+    if (mark != std::string_view::npos) {
+        std::string_view digits = number.substr(mark + 1);
+        const bool negative = digits.front() == '-';
+        if (digits.front() == '+' || negative)
+            digits.remove_prefix(1);
+        // Clamped far beyond the range of a double.
+        for (const char c : digits)
+            exponent = std::min<std::int64_t>(exponent * 10 + (c - '0'), 1'000'000'000);
+        if (negative)
+            exponent = -exponent;
+    }
+    std::string mantissa(number.substr(0, mark));
+    if (const auto point = mantissa.find('.'); point != std::string::npos) {
+        exponent -= static_cast<std::int64_t>(mantissa.size() - point - 1);
+        mantissa.erase(point, 1);
+    }
+    return std::isfinite(std::strtod((mantissa + "e" + std::to_string(exponent)).c_str(), nullptr));
+}
 
 class Parser {
   public:
@@ -21,8 +50,8 @@ class Parser {
     }
 
   private:
-    [[noreturn]] void invalid(const char* reason) const {
-        throw InvalidJson(std::string(reason) + " at byte " + std::to_string(position_));
+    [[noreturn]] void invalid(const std::string& reason) const {
+        throw InvalidJson(reason + " at byte " + std::to_string(position_));
     }
 
     [[nodiscard]] bool at_end() const noexcept { return position_ >= text_.size(); }
@@ -78,6 +107,8 @@ class Parser {
             break;
         default:
             parse_number();
+            if (!fits_double(text_.substr(start, position_ - start)))
+                invalid("number does not fit a double");
             value.kind = Kind::number;
             break;
         }
@@ -94,11 +125,14 @@ class Parser {
             ++position_;
             return value;
         }
+        std::unordered_set<std::string> keys;
         for (;;) {
             skip_space();
             if (peek() != '"')
                 invalid("expected an object key");
             std::string key = parse_string();
+            if (!keys.insert(key).second)
+                invalid("duplicate key " + quote(key));
             skip_space();
             if (peek() != ':')
                 invalid("expected ':' after an object key");

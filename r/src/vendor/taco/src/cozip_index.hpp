@@ -38,6 +38,9 @@ CozipIndex read_cozip_index(const std::string& uri, std::uint64_t file_size);
 // Reads only the fixed prefix that holds the profile byte.
 std::uint8_t read_cozip_profile(const std::string& uri);
 
+// Reads only the stored integrity hash, without verifying it.
+std::uint64_t read_cozip_integrity(const std::string& uri);
+
 std::string profile_name(std::uint8_t profile);
 
 } // namespace taco

@@ -127,8 +127,8 @@ and only ZIP metadata carries the byte offsets that make random access possible.
   source then row order, so reversing the list renumbers it. Never persist it.
 - **A source list does not check `id` uniqueness across different sources.** Two
   compatible archives may contain the same `id`, and `open_dataset(["part-a.zip",
-  "part-b.zip"])` will return both under distinct indices. Repeating the same source
-  path is rejected. `consolidate` rejects duplicate ids across partitions.
+  "part-b.zip"])` will return both under distinct indices. Repeating a source, even
+  spelled another way (`./a.zip`, `file://`, another case on macOS), is rejected. `consolidate` rejects duplicate ids across partitions.
 - **Two level orders exist.** `Dataset.contract.levels` follows structure declaration
   order (`children/before`, `children/after`); `inspect(path, "levels")` and the native
   handle return the core's sorted order. Both put parents before children. Do not zip
@@ -172,16 +172,17 @@ and only ZIP metadata carries the byte offsets that make random access possible.
   namespaces and `__` in names are reserved. Path components reject `<>:"\|?` and a
   trailing space or dot. `*`, `[` and `]` are allowed only in the final component of a
   valid variable-sequence declaration. Structure paths are normalized relative POSIX
-  and printable ASCII. Names that differ only in letter case are rejected.
+  and printable ASCII. Names that differ only in letter case are rejected, and so
+  are folder paths whose levels share a Parquet filename, such as `a_/b` and `a/_b`.
 - **Empty data is refused.** Every dataset needs a sample, every sample a declared
   file, and every stored file at least one byte.
 - **Remote metadata is cached, payloads are not.** Entries live under `TACO_CACHE_DIR`
-  (default `~/.cache/taco`), capped by `TACO_CACHE_SIZE` (5 GiB, least recently opened
-  evicted first) and revalidated against the origin size; `TACO_CACHE_REFRESH` forces a
-  rebuild. Local FOLDER and TACOCAT are read in place; a local ZIP is extracted to a
-  process-owned temporary directory. GeoEnrich keeps the MajorTOM
-  index there too. On a server with a small home, set `TACO_CACHE_DIR`. An open
-  `Dataset` is a snapshot.
+  (default `~/.cache/taco`), with a 5 GiB default cap set by `TACO_CACHE_SIZE`.
+  Each open checks a ZIP's CoZIP integrity hash or a FOLDER or TACOCAT's metadata
+  file sizes. `TACO_CACHE_REFRESH` forces a rebuild. An open remote dataset keeps
+  a metadata snapshot until process exit, even if its cache entry is evicted.
+  Local FOLDER and TACOCAT are read in place; a local ZIP uses a temporary
+  directory. GeoEnrich also caches the MajorTOM index here.
 - **The core must be loadable.** Python looks for `taco/_lib/libtaco.dylib|so` or
   `TACO_LIB`, and rejects a library whose C API is not 3. `make core` builds it and
   stages the copy Python uses.

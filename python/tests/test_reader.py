@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import gc
 import inspect as python_inspect
+import json
+import os
 import shutil
 import threading
 from pathlib import Path
@@ -10,10 +12,12 @@ import duckdb
 import pytest
 
 import taco
+import taco.reader.collection as collection_module
 import taco.reader.dataset as dataset_module
 import taco.reader.engine as engine
 import taco.reader.inspect as inspect_module
 import taco.reader.native as native
+from taco.contract.extension_registry import models
 from taco.errors import ContainerError
 
 from .datasets import get_case
@@ -42,12 +46,42 @@ def test_reader_inspects_an_archive(archive: Path) -> None:
         taco.inspect(archive, "unknown")
 
 
+def test_inspect_expands_the_home_directory(archive: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HOME", str(archive.parent))
+    monkeypatch.setenv("USERPROFILE", str(archive.parent))
+    source = f"~/{archive.name}"
+
+    assert taco.inspect(source, "structure") == inspect_module.structure(archive)
+    assert taco.inspect(source, "levels") == inspect_module.levels(archive)
+    assert taco.inspect(source, "contract").equals(inspect_module.contract(archive))
+    assert taco.inspect(source, "collection")["id"] == "tiny-change"
+    assert taco.inspect(source, "profile") == "taco"
+    assert "read_parquet(" in taco.inspect(source, "native_sql")
+    assert taco.open_dataset(source).sources == (archive.resolve(),)
+
+
 def test_native_sql_survives_string_operations(archive: Path) -> None:
     sql = inspect_module.native_sql(archive).replace("SELECT", "SELECT", 1)
     gc.collect()
 
     assert type(sql) is str
     assert engine.open_reader().execute(sql).to_arrow_table().num_rows == 4
+
+
+def test_native_sql_of_a_remote_source_outlives_its_handle(
+    archive: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    statements = [inspect_module.native_sql(archive.as_uri()), taco.inspect(archive.as_uri(), "native_sql")]
+    gc.collect()
+    # Generated SQL keeps using its snapshot after close and cache eviction.
+    copy = tmp_path / "copy" / "dataset.zip"
+    copy.parent.mkdir()
+    shutil.copy(archive, copy)
+    monkeypatch.setenv("TACO_CACHE_SIZE", "1")
+    taco.open_dataset(copy.as_uri())
+    for sql in statements:
+        assert isinstance(sql, str)
+        assert engine.open_reader().execute(sql).to_arrow_table().num_rows == 4
 
 
 def test_dataset_api(archive: Path) -> None:
@@ -132,6 +166,67 @@ def test_reader_combines_partitions(archive: Path, tmp_path: Path) -> None:
     window = engine.open_reader().execute(inspect_module.native_sql([archive, copy], idx=(3, 5))).to_arrow_table()
     assert window.column("taco:sample_index").to_pylist() == [3, 4]
     assert window.column("source_file").to_pylist() == ["dataset.zip", "part.zip"]
+
+
+def test_source_list_rejects_two_spellings_of_one_file(archive: Path, tmp_path: Path) -> None:
+    link = tmp_path / "link.zip"
+    os.link(archive, link)
+    spellings: list[str | Path] = [f"file://{archive}", link]
+    upper = archive.with_name(archive.name.upper())
+    if upper.exists():  # a case-insensitive file system
+        spellings.append(upper)
+    for spelling in spellings:
+        with pytest.raises(ValueError, match="unique"):
+            taco.open_dataset([archive, spelling])
+
+
+def split_collection() -> taco.Collection:
+    from taco.extensions.sample.split import Split
+
+    return taco.Collection(
+        contract=taco.Contract(structure=["a.bin"], metadata=[taco.Level("sample", split=Split)]),
+        id="splits",
+        description="Split partitions",
+        licenses=["MIT"],
+        providers=["TACO tests"],
+    )
+
+
+def test_source_list_adds_up_the_split_counts_of_partitions(tmp_path: Path) -> None:
+    from taco.extensions.sample.split import Split
+
+    with taco.open_writer(split_collection(), tmp_path / "parts.zip", partition_by="split:split") as writer:
+        for index, name in enumerate(("train", "train", "test")):
+            writer.add(taco.Sample(id=f"s{index}", assets=b"x", metadata=taco.Metadata(split=Split(split=name))))
+        result = writer.run()
+
+    dataset = taco.open_dataset(result.parts)
+    assert sorted(dataset.read().column("id").to_pylist()) == ["s0", "s1", "s2"]
+    counts = {"train": 2, "validation": 0, "test": 1, "excluded": 0}
+    assert dataset.collection.to_dict()["split:counts"] == counts
+    assert taco.open_dataset(result.path).collection.to_dict()["split:counts"] == counts
+
+
+def test_source_list_rejects_split_counts_it_cannot_add(tmp_path: Path) -> None:
+    from taco.extensions.sample.split import Split
+
+    paths = [tmp_path / "a", tmp_path / "b"]
+    for path in paths:
+        with taco.open_writer(split_collection(), path) as writer:
+            writer.add(taco.Sample(id=path.name, assets=b"x", metadata=taco.Metadata(split=Split(split="train"))))
+            writer.run()
+    document = json.loads((paths[1] / "COLLECTION.json").read_text(encoding="utf-8"))
+    document["split:counts"] = "many"
+    (paths[1] / "COLLECTION.json").write_text(json.dumps(document), encoding="utf-8")
+
+    with pytest.raises(ContainerError, match="split:counts"):
+        taco.open_dataset(paths)
+
+
+def test_source_lists_know_every_builtin_summary() -> None:
+    # The reader names the summaries itself, as it cannot import the extensions.
+    fields = {summary.field for model in models().values() for summary in getattr(model, "__taco_summaries__", ())}
+    assert fields == {"extent", *collection_module._SUMMARIES}
 
 
 def test_reader_keeps_the_location_of_single_file_samples(tmp_path: Path) -> None:

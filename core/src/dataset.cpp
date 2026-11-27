@@ -17,14 +17,17 @@
 #include <filesystem>
 #include <fstream>
 #include <mutex>
+#include <new>
 #include <optional>
 #include <random>
+#include <set>
 #include <sstream>
 #include <unordered_map>
 
 #ifdef _WIN32
 #include <process.h>
 #else
+#include <pthread.h>
 #include <unistd.h>
 #endif
 
@@ -38,11 +41,12 @@ constexpr std::string_view metadata_prefix = "METADATA/";
 constexpr std::string_view parquet_suffix = ".parquet";
 constexpr std::string_view supported_version = "3.0.0";
 constexpr std::uint64_t collection_limit = 64ULL * 1024 * 1024;
+constexpr std::uint64_t max_sequence_bound = (1ULL << 53) - 1;
 
 struct Level {
     std::string name;
-    // The index entry of a ZIP level, or where a directory level is read from.
-    std::string origin;
+    // Its Parquet file, under METADATA/ or beside COLLECTION.json in a TACOCAT.
+    std::string file;
 };
 
 std::string utf8(const fs::path& path) {
@@ -72,14 +76,13 @@ void validate_structure_leaf(const std::string& declaration, const std::string& 
         fail("COLLECTION.json: malformed variable leaf '" + declaration + "': " + source);
     }
 
+    // Decimal digits without a sign, spaces or leading zeros, at most
+    // 2^53 - 1 so that every reader holds the bound exactly.
     const auto parse_bound = [&](std::string_view text) {
-        while (!text.empty() && text.front() == ' ')
-            text.remove_prefix(1);
-        while (!text.empty() && text.back() == ' ')
-            text.remove_suffix(1);
         std::uint64_t value = 0;
         const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), value);
-        if (text.empty() || error != std::errc() || end != text.data() + text.size())
+        if (text.empty() || error != std::errc() || end != text.data() + text.size() ||
+            (text.size() > 1 && text.front() == '0') || value > max_sequence_bound)
             fail("COLLECTION.json: malformed variable leaf '" + declaration + "': " + source);
         return value;
     };
@@ -117,27 +120,107 @@ void sort_and_validate(std::vector<Level>& levels, const std::string& source) {
         fail("TACO dataset has child levels but no children.parquet: " + source);
 }
 
-// Local paths stay as the caller wrote them. URIs take karu's canonical form,
-// and HTTP keeps the /vsicurl/ prefix that GDAL expects.
+Contract read_contract(const std::string& collection, const std::string& source);
+
+// The levels COLLECTION.json declares, parents first. A file name cannot be
+// read back as a level: children/a_/b and children/a/_b share one.
+std::vector<Level> declared_levels(const Contract& contract, const std::string& source) {
+    const auto folded = [](std::string text) {
+        for (char& c : text)
+            c = c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c;
+        return text;
+    };
+    std::vector<Level> levels;
+    for (const auto& [name, fields] : contract.fields) {
+        Level level{name, level_to_file(name)};
+        // Names that differ only in case would share a file on most file systems.
+        for (const auto& other : levels) {
+            if (folded(other.file) == folded(level.file))
+                fail("COLLECTION.json levels '" + other.name + "' and '" + name + "' would share the Parquet file " +
+                     level.file + ": " + source);
+        }
+        levels.push_back(std::move(level));
+    }
+    sort_and_validate(levels, source);
+    if (levels.size() < 2)
+        fail("COLLECTION.json structure requires sample and children metadata levels: " + source);
+    return levels;
+}
+
+// The Parquet files must be exactly those of the levels.
+void match_files(const std::vector<Level>& levels, const std::vector<std::string>& files,
+                 const std::string& source) {
+    for (const auto& level : levels) {
+        if (std::find(files.begin(), files.end(), level.file) == files.end())
+            fail("TACO dataset has no " + level.file + " for metadata level '" + level.name + "': " + source);
+    }
+    for (const auto& file : files) {
+        if (std::none_of(levels.begin(), levels.end(), [&](const Level& level) { return level.file == file; }))
+            fail("Parquet file " + file + " matches no metadata level in COLLECTION.json: " + source);
+    }
+}
+
+std::vector<std::string> read_partitions(const std::string& collection, const std::string& source);
+
+// Reads the contract and levels of dataset.collection. files are the Parquet
+// files found in directory.
+void read_levels(Dataset& dataset, const fs::path& directory, const std::vector<std::string>& files) {
+    dataset.contract = read_contract(dataset.collection, dataset.source);
+    const auto levels = declared_levels(dataset.contract, dataset.source);
+    match_files(levels, files, dataset.source);
+    for (const auto& level : levels) {
+        dataset.level_names.push_back(level.name);
+        dataset.level_paths.push_back(utf8(directory / local_path(level.file)));
+    }
+    if (dataset.container == Container::tacocat)
+        dataset.partitions = read_partitions(dataset.collection, dataset.source);
+}
+
+std::vector<std::string> parquet_names(const fs::path& directory) {
+    std::vector<std::string> names;
+    std::error_code error;
+    for (const auto& entry : fs::directory_iterator(directory, error)) {
+        const std::string name = utf8(entry.path().filename());
+        if (entry.is_regular_file(error) && name.ends_with(parquet_suffix))
+            names.push_back(name);
+    }
+    if (error)
+        throw Error(TACO_ERR_IO, "could not list " + utf8(directory) + ": " + error.message());
+    return names;
+}
+
+// Local paths stay as the caller wrote them, and a file:// URI becomes the
+// path it names. Other URIs take karu's canonical form, and HTTP keeps the
+// /vsicurl/ prefix that GDAL expects.
 std::string location_base(const std::string& path) {
     if (!has_uri_scheme(path))
         return path;
+    if (path.starts_with("file://"))
+        return file_uri_path(path);
     std::string canonical = canonical_uri(path);
     if (canonical.starts_with("http://") || canonical.starts_with("https://"))
         return "/vsicurl/" + canonical;
     return canonical;
 }
 
-std::string remote_size_key(std::uint64_t size) {
-    return "remote size " + std::to_string(size);
+// Encode child paths for HTTP and file://, whose paths are percent-decoded;
+// other remote schemes use the original path.
+std::string remote_child(const std::string& directory, const std::string& file) {
+    const bool encoded = is_http_url(directory) || directory.starts_with("file://");
+    return child_path(directory, encoded ? encode_uri_path(file) : file);
 }
 
-// Local archives use size and modification time. Remote objects use the
-// origin-reported content length. If the probe fails, opening fails instead
-// of silently serving metadata that can no longer be validated.
+// The CoZIP hash covers the metadata-bearing archive tail. Size alone cannot
+// identify a version because CoZIP pads small archives to a fixed size.
+std::string remote_zip_key(std::uint64_t integrity) {
+    return "remote cozip " + hex64(integrity);
+}
+
+// Local keys use size and mtime; remote keys use the CoZIP integrity hash.
+// A failed remote probe prevents opening with unverifiable cached metadata.
 std::string cache_key(const std::string& source) {
     if (has_uri_scheme(source))
-        return remote_size_key(object_size(source));
+        return remote_zip_key(read_cozip_integrity(source));
     std::error_code error;
     const auto path = local_path(source);
     const auto size = fs::file_size(path, error);
@@ -179,21 +262,15 @@ CacheStamp make_stamp(const std::string& source, Container container, std::strin
     return stamp;
 }
 
+// Keep an open remote dataset independent of cache replacement or eviction.
 Dataset cached_dataset(const std::string& source, Container container, std::string location_base,
-                       const CacheEntry& cache) {
+                       const fs::path& snapshot) {
     Dataset dataset;
     dataset.source = source;
     dataset.container = container;
     dataset.location_base = std::move(location_base);
-    dataset.collection = read_local(local_path(cache.path(collection_name)));
-    std::vector<Level> levels;
-    for (const auto& file : cache.parquet_files())
-        levels.push_back(Level{file_to_level(file), cache.path("METADATA/" + file)});
-    sort_and_validate(levels, source);
-    for (const auto& level : levels) {
-        dataset.level_names.push_back(level.name);
-        dataset.level_paths.push_back(level.origin);
-    }
+    dataset.collection = read_local(snapshot / collection_name);
+    read_levels(dataset, snapshot / "METADATA", parquet_names(snapshot / "METADATA"));
     return dataset;
 }
 
@@ -251,20 +328,7 @@ Dataset extracted_dataset(const std::string& source, const fs::path& directory) 
     dataset.container = Container::zip;
     dataset.location_base = location_base(source);
     dataset.collection = read_local(directory / collection_name);
-    std::vector<Level> levels;
-    std::error_code error;
-    for (const auto& entry : fs::directory_iterator(directory / "METADATA", error)) {
-        const std::string name = utf8(entry.path().filename());
-        if (entry.is_regular_file(error) && name.ends_with(parquet_suffix))
-            levels.push_back(Level{file_to_level(name), utf8(entry.path())});
-    }
-    if (error)
-        throw Error(TACO_ERR_IO, "could not list extracted metadata of " + source + ": " + error.message());
-    sort_and_validate(levels, source);
-    for (const auto& level : levels) {
-        dataset.level_names.push_back(level.name);
-        dataset.level_paths.push_back(level.origin);
-    }
+    read_levels(dataset, directory / "METADATA", parquet_names(directory / "METADATA"));
     return dataset;
 }
 
@@ -274,11 +338,24 @@ void store_extracted(const fs::path& directory, const std::vector<std::string>& 
         write_extracted(directory / local_path(names[i]), contents[i]);
 }
 
+struct LocalExtractions;
+LocalExtractions& local_extractions();
+
+// The local ZIPs this process extracted. The lock guards short updates, never
+// archive reads or progress callbacks, so fork() can take it first, as glibc
+// does for malloc: a child never inherits it held by a thread it lacks.
 struct LocalExtractions {
     std::mutex mutex;
     std::uint64_t pid = process_id();
     fs::path root;
     std::unordered_map<std::string, fs::path> entries;
+
+    LocalExtractions() {
+#ifndef _WIN32
+        pthread_atfork([] { local_extractions().mutex.lock(); }, [] { local_extractions().mutex.unlock(); },
+                       [] { new (&local_extractions().mutex) std::mutex; });
+#endif
+    }
 
     ~LocalExtractions() {
         if (!root.empty() && pid == process_id()) {
@@ -296,7 +373,33 @@ struct LocalExtractions {
         entries.clear();
     }
 
+    std::optional<fs::path> find(const std::string& key) {
+        const std::lock_guard lock(mutex);
+        reset_after_fork();
+        if (const auto found = entries.find(key); found != entries.end())
+            return found->second;
+        return std::nullopt;
+    }
+
+    // Keeps directory as the extraction of key, unless another thread kept
+    // one first; then directory goes and that one is returned.
+    fs::path add(const std::string& key, const fs::path& directory) {
+        fs::path kept;
+        {
+            const std::lock_guard lock(mutex);
+            reset_after_fork();
+            kept = entries.emplace(key, directory).first->second;
+        }
+        if (kept != directory) {
+            std::error_code ignored;
+            fs::remove_all(directory, ignored);
+        }
+        return kept;
+    }
+
     fs::path create_entry() {
+        const std::lock_guard lock(mutex);
+        reset_after_fork();
         if (root.empty())
             root = temporary_directory();
         std::random_device random;
@@ -318,28 +421,18 @@ LocalExtractions& local_extractions() {
 Dataset open_zip(const std::string& source, const std::string& cache_root) {
     const bool remote = has_uri_scheme(source);
     std::optional<CacheEntry> cache;
-    std::unique_lock<std::mutex> local_lock;
     LocalExtractions* local = nullptr;
     std::string local_key;
-    // A remote archive is sized once: the cache check, the index and the
-    // stamp all use that answer.
-    std::uint64_t remote_size = 0;
     if (remote) {
-        remote_size = object_size(source);
         cache.emplace(cache_root, cache_identity(source));
-        if (const auto stamp = cache->find({std::string(collection_name)}, remote_size_key(remote_size));
-            stamp && stamp->container == "zip")
-            return cached_dataset(source, Container::zip, location_base(source), *cache);
     } else {
         local = &local_extractions();
-        local_lock = std::unique_lock(local->mutex);
-        local->reset_after_fork();
         local_key = cache_identity(source) + "\n" + expected_key(source);
-        if (const auto found = local->entries.find(local_key); found != local->entries.end())
-            return extracted_dataset(source, found->second);
+        if (const auto found = local->find(local_key))
+            return extracted_dataset(source, *found);
     }
 
-    const CozipIndex index = remote ? read_cozip_index(source, remote_size) : read_cozip_index(source);
+    const CozipIndex index = read_cozip_index(source);
     if (index.profile != cozip_profile_taco)
         fail("taco needs a TACO-profile archive (profile=2). Got profile=" + profile_name(index.profile) +
              " in: " + source);
@@ -349,21 +442,29 @@ Dataset open_zip(const std::string& source, const std::string& cache_root) {
     if (collection->size > collection_limit)
         fail("COLLECTION.json is larger than 64 MiB, refusing to read it: " + source);
 
-    std::vector<Level> levels;
-    for (const auto& entry : index.entries) {
-        if (entry.name.starts_with(metadata_prefix) && entry.name.ends_with(parquet_suffix))
-            levels.push_back(Level{file_to_level(entry.name.substr(metadata_prefix.size())), entry.name});
-    }
-    sort_and_validate(levels, source);
-
+    // Every METADATA Parquet file comes in one batch with COLLECTION.json,
+    // which then says the levels they must be.
     std::vector<std::string> names = {std::string(collection_name)};
+    std::vector<std::string> parquet;
     std::vector<Range> ranges = {Range{source, collection->offset, collection->size}};
-    for (const auto& level : levels) {
-        const CozipEntry* entry = index.find(level.origin);
-        names.push_back(level.origin);
-        ranges.push_back(Range{source, entry->offset, entry->size});
+    for (const auto& entry : index.entries) {
+        if (entry.name.starts_with(metadata_prefix) && entry.name.ends_with(parquet_suffix)) {
+            names.push_back(entry.name);
+            parquet.push_back(entry.name.substr(metadata_prefix.size()));
+            ranges.push_back(Range{source, entry.offset, entry.size});
+        }
+    }
+    if (parquet.empty())
+        fail("no METADATA Parquet files found: " + source);
+    // Openers that missed the cache together use the entry the first one stored.
+    if (remote) {
+        if (const auto stamp = cache->find(names, remote_zip_key(index.integrity)); stamp && stamp->container == "zip") {
+            if (const auto snapshot = cache->snapshot(names))
+                return cached_dataset(source, Container::zip, location_base(source), *snapshot);
+        }
     }
     const auto contents = download(ranges, metadata_phase(source));
+    match_files(declared_levels(read_contract(contents[0], source), source), parquet, source);
     if (!remote) {
         const fs::path directory = local->create_entry();
         try {
@@ -373,16 +474,15 @@ Dataset open_zip(const std::string& source, const std::string& cache_root) {
             fs::remove_all(directory, ignored);
             throw;
         }
-        local->entries.emplace(local_key, directory);
-        return extracted_dataset(source, directory);
+        return extracted_dataset(source, local->add(local_key, directory));
     }
 
     std::vector<std::pair<std::string, std::string>> files;
     for (std::size_t i = 0; i < names.size(); ++i)
         files.emplace_back(names[i], contents[i]);
-    cache->store(entry_label(contents[0], Container::zip, source), files,
-                 make_stamp(source, Container::zip, remote_size_key(remote_size)));
-    return cached_dataset(source, Container::zip, location_base(source), *cache);
+    const auto snapshot = cache->store(entry_label(contents[0], Container::zip, source), files,
+                                       make_stamp(source, Container::zip, remote_zip_key(index.integrity)));
+    return cached_dataset(source, Container::zip, location_base(source), snapshot);
 }
 
 Dataset open_local_directory(const std::string& source) {
@@ -404,24 +504,11 @@ Dataset open_local_directory(const std::string& source) {
     dataset.container = folder ? Container::folder : Container::tacocat;
     dataset.location_base = folder ? directory : parent_path(directory);
 
-    std::vector<Level> levels;
-    const fs::path parquet_directory = folder ? root / "METADATA" : root;
-    for (const auto& entry : fs::directory_iterator(parquet_directory, error)) {
-        const std::string name = utf8(entry.path().filename());
-        if (entry.is_regular_file(error) && name.ends_with(parquet_suffix))
-            levels.push_back(Level{file_to_level(name), utf8(entry.path())});
-    }
-    if (error)
-        throw Error(TACO_ERR_IO, "could not list " + utf8(parquet_directory) + ": " + error.message());
-    sort_and_validate(levels, directory);
-
     if (fs::file_size(root / collection_name, error) > collection_limit)
         fail("COLLECTION.json is larger than 64 MiB, refusing to read it: " + directory);
     dataset.collection = read_local(root / collection_name);
-    for (const auto& level : levels) {
-        dataset.level_names.push_back(level.name);
-        dataset.level_paths.push_back(level.origin);
-    }
+    const fs::path parquet_directory = folder ? root / "METADATA" : root;
+    read_levels(dataset, parquet_directory, parquet_names(parquet_directory));
     return dataset;
 }
 
@@ -431,9 +518,34 @@ json::Value parse_collection(const std::string& text, const std::string& source)
         if (!root.is_object())
             fail("COLLECTION.json must be a JSON object: " + source);
         return root;
-    } catch (const json::InvalidJson&) {
-        fail("COLLECTION.json is not valid JSON: " + source);
+    } catch (const json::InvalidJson& error) {
+        fail("COLLECTION.json is not valid JSON (" + std::string(error.what()) + "): " + source);
     }
+}
+
+// Require taco:sources partitions to stay below the catalog directory (SPEC 7.5).
+std::vector<std::string> read_partitions(const std::string& collection, const std::string& source) {
+    const json::Value root = parse_collection(collection, source);
+    const json::Value* sources = root.find("taco:sources");
+    if (!sources || !sources->is_object())
+        fail("COLLECTION.json has an invalid taco:sources object: " + source);
+    const json::Value* partitions = sources->find("partitions");
+    if (!partitions || !partitions->is_array() || partitions->items.empty())
+        fail("COLLECTION.json: taco:sources.partitions must be a non-empty array: " + source);
+    std::vector<std::string> files;
+    std::set<std::string> seen;
+    for (const auto& partition : partitions->items) {
+        const json::Value* file = partition.is_object() ? partition.find("file") : nullptr;
+        if (!file || !file->is_string())
+            fail("COLLECTION.json: every taco:sources partition needs a file: " + source);
+        if (!is_partition_path(file->string))
+            fail("COLLECTION.json: taco:sources partition '" + file->string +
+                 "' is not a normalized relative path ending in .zip: " + source);
+        if (!seen.insert(file->string).second)
+            fail("COLLECTION.json: taco:sources lists partition '" + file->string + "' twice: " + source);
+        files.push_back(file->string);
+    }
+    return files;
 }
 
 // <id>-<container>-<origin>: what people see in the cache.
@@ -455,42 +567,33 @@ Dataset open_uri_directory(const std::string& source, const std::string& cache_r
     // COLLECTION.json is the directory index: it declares every metadata
     // level, so opening an object-store dataset never requires listing it.
     const std::string collection = read_object(collection_source, collection_limit, "COLLECTION.json");
-    const json::Value root = parse_collection(collection, directory);
-    const json::Value* metadata = root.find("taco:metadata");
-    if (!metadata || !metadata->is_object())
-        fail("COLLECTION.json has no valid taco:metadata object: " + directory);
-    const json::Value* sources = root.find("taco:sources");
-    if (sources && !sources->is_object())
-        fail("COLLECTION.json has an invalid taco:sources object: " + directory);
-
-    const bool tacocat = sources != nullptr;
+    const auto levels = declared_levels(read_contract(collection, directory), directory);
+    const bool tacocat = parse_collection(collection, directory).find("taco:sources") != nullptr;
+    // Partitions that would leave the catalog directory fail before any download.
+    if (tacocat)
+        read_partitions(collection, directory);
     const Container container = tacocat ? Container::tacocat : Container::folder;
     const std::string parquet_directory = tacocat ? directory : child_path(directory, "METADATA");
-
-    std::vector<Level> levels;
-    for (const auto& [name, value] : metadata->members)
-        levels.push_back(Level{name, child_path(parquet_directory, level_to_file(name))});
-    sort_and_validate(levels, directory);
 
     std::vector<std::string> level_sources;
     level_sources.reserve(levels.size());
     for (const auto& level : levels)
-        level_sources.push_back(level.origin);
+        level_sources.push_back(remote_child(parquet_directory, level.file));
     const auto level_sizes = object_sizes(level_sources);
 
     std::vector<std::uint64_t> validation_sizes = {collection.size()};
     std::vector<Range> ranges;
     for (std::size_t index = 0; index < levels.size(); ++index) {
         validation_sizes.push_back(level_sizes[index]);
-        ranges.push_back(Range{levels[index].origin, 0, level_sizes[index]});
+        ranges.push_back(Range{level_sources[index], 0, level_sizes[index]});
     }
     const auto contents = download(ranges, metadata_phase(directory));
     std::vector<std::pair<std::string, std::string>> files = {{std::string(collection_name), collection}};
     for (std::size_t i = 0; i < levels.size(); ++i)
-        files.emplace_back(std::string(metadata_prefix) + level_to_file(levels[i].name), contents[i]);
-    cache.store(entry_label(collection, container, directory), files,
-                make_stamp(directory, container, remote_sizes_key(validation_sizes)));
-    return cached_dataset(directory, container, tacocat ? parent_path(location) : location, cache);
+        files.emplace_back(std::string(metadata_prefix) + levels[i].file, contents[i]);
+    const auto snapshot = cache.store(entry_label(collection, container, directory), files,
+                                      make_stamp(directory, container, remote_sizes_key(validation_sizes)));
+    return cached_dataset(directory, container, tacocat ? parent_path(location) : location, snapshot);
 }
 
 std::optional<Dataset> cached_uri_dataset(const std::string& source, const std::string& cache_root);
@@ -501,14 +604,8 @@ Dataset open_uri_directory_or_catalog(const std::string& source, const std::stri
     } catch (const Error& error) {
         bool missing = error.status() == TACO_ERR_NOT_FOUND || error.transport() == KARU_ERR_AUTH;
         if (source.starts_with("file://")) {
-            std::string_view path = without_query(source);
-            path.remove_prefix(7);
-#ifdef _WIN32
-            if (path.size() >= 3 && path[0] == '/' && path[2] == ':')
-                path.remove_prefix(1);
-#endif
             std::error_code ignored;
-            missing = !fs::is_regular_file(local_path(path) / collection_name, ignored);
+            missing = !fs::is_regular_file(local_path(file_uri_path(without_query(source))) / collection_name, ignored);
         }
         if (!missing || source_name(source) == ".tacocat")
             throw;
@@ -565,16 +662,19 @@ std::optional<Dataset> cached_uri_dataset(const std::string& source, const std::
             for (const auto& level : levels) {
                 files.push_back(std::string(metadata_prefix) + level_to_file(level));
                 if (*container != Container::zip)
-                    validation_sources.push_back(child_path(parquet_directory, level_to_file(level)));
+                    validation_sources.push_back(remote_child(parquet_directory, level_to_file(level)));
             }
             const std::string key = *container == Container::zip ? expected_key(source)
                                                                   : remote_sizes_key(validation_sources);
             if (!entry.find(files, key))
                 continue;
+            const auto snapshot = entry.snapshot(files);
+            if (!snapshot)
+                continue;
             if (*container == Container::zip)
-                return cached_dataset(source, Container::zip, location_base(source), entry);
+                return cached_dataset(source, Container::zip, location_base(source), *snapshot);
             return cached_dataset(directory, *container,
-                                  *container == Container::tacocat ? parent_path(location) : location, entry);
+                                  *container == Container::tacocat ? parent_path(location) : location, *snapshot);
         } catch (const Error&) {
             // A stale entry may name metadata that no longer exists. Treat any
             // failed validation as a miss and rebuild it from COLLECTION.json.
@@ -598,9 +698,8 @@ bool is_remote_cozip(const std::string& source) {
     }
 }
 
-Contract read_contract(const Dataset& dataset) {
-    const std::string& source = dataset.source;
-    const json::Value root = parse_collection(dataset.collection, source);
+Contract read_contract(const std::string& collection, const std::string& source) {
+    const json::Value root = parse_collection(collection, source);
 
     Contract contract;
     const json::Value* version = root.find("taco:version");
@@ -675,14 +774,6 @@ Contract read_contract(const Dataset& dataset) {
         }
         contract.fields.emplace_back(level, std::move(names));
     }
-    for (const auto& level : dataset.level_names) {
-        if (!contract.fields_of(level))
-            fail("COLLECTION.json has no metadata declaration for level '" + level + "': " + source);
-    }
-    if (contract.fields.size() != dataset.level_names.size())
-        fail("COLLECTION.json metadata levels do not match its Parquet files: " + source);
-    if (dataset.level_names.size() < 2)
-        fail("COLLECTION.json structure requires sample and children metadata levels: " + source);
     return contract;
 }
 
@@ -727,14 +818,8 @@ bool is_explicit_remote_directory(std::string_view source) {
         return components(rest) == 1;
     if (scheme != "file")
         return false;
-
-    auto path = rest;
-#ifdef _WIN32
-    if (path.size() >= 3 && path[0] == '/' && path[2] == ':')
-        path.remove_prefix(1);
-#endif
     std::error_code error;
-    return fs::is_directory(local_path(path), error);
+    return fs::is_directory(local_path(file_uri_path(object)), error);
 }
 
 const std::vector<std::string>* Contract::fields_of(std::string_view level) const {
@@ -776,10 +861,8 @@ Dataset open_dataset(const std::string& source, const std::string& cache_dir) {
     if (has_uri_scheme(source)) {
         // A complete cache entry settles the container type after revalidation.
         // Otherwise use URI shape first and probe only ambiguous URLs.
-        if (auto cached = cached_uri_dataset(source, cache_root)) {
-            cached->contract = read_contract(*cached);
+        if (auto cached = cached_uri_dataset(source, cache_root))
             return *cached;
-        }
         if (is_zip_name(source)) {
             dataset = open_zip(source, cache_root);
         } else if (is_explicit_remote_directory(source)) {
@@ -812,7 +895,6 @@ Dataset open_dataset(const std::string& source, const std::string& cache_dir) {
         dataset = open_local_directory(source);
     else
         dataset = open_zip(source, cache_root);
-    dataset.contract = read_contract(dataset);
     return dataset;
 }
 

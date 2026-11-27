@@ -36,7 +36,7 @@ because R and Julia bind it as C.
 
 ## The C API
 
-`core/include/taco/taco.h`, ABI version **2**. The Python binding declares the same
+`core/include/taco/taco.h`, C API version **3**. The Python binding declares the same
 cdef in `reader/native.py` and refuses a library reporting another version.
 
 ```c
@@ -85,10 +85,10 @@ Status is `TACO_OK`, `TACO_ERR_INVALID`, `TACO_ERR_IO`, `TACO_ERR_NOT_FOUND` or
 directories; a zero length reads to the end. `taco.export` uses it to download
 payloads. Objects are read in 8 MiB chunks so memory stays bounded.
 
-Progress is a callback `(phase, done, total, user)` running on the working thread;
-`total` is 0 while unknown, and `NULL` restores the built-in bar that writes to stderr
-only when stderr is a terminal. Python installs a tqdm callback keyed by phase and
-swallows every exception, so a broken bar can never break a download.
+Progress callbacks run on the working thread as `(phase, done, total, user)`;
+`total` is 0 while unknown. Passing `NULL` restores the built-in bar, which writes
+only to terminal stderr. Python uses tqdm and suppresses callback errors so they
+do not interrupt downloads.
 
 ## Opening a container
 
@@ -102,11 +102,17 @@ swallows every exception, so a broken bar can never break a download.
 
 The contract is then checked: a supported `taco:version`, a non-empty
 `taco:structure` of strings with parseable variable leaves, a `taco:metadata` object
-whose levels match the Parquet files exactly, `sample` present, `children` present
+whose levels map one to one onto the Parquet files, `sample` present, `children` present
 whenever child levels exist, every `children/...` level preceded by its parent, and
 `rumi` fields limited to the header and statistics. Their types and optional file
 selections are checked here as well. `core/src/rumi.hpp` holds the statistic grammar
 shared with the SQL builder.
+
+`declared_levels` takes the levels from `taco:metadata` and computes each filename
+with `level_to_file`. It never reads a level back from a filename, because
+`children/a_/b` and `children/a/_b` share one, and it refuses two levels whose
+filenames are equal ignoring case. `match_files` then fails on a missing or a stray
+Parquet.
 
 For a ZIP the core reads the byte-zero index and fetches `COLLECTION.json` plus every
 indexed Parquet range in one batch. For a remote directory it fetches the files named
@@ -120,23 +126,51 @@ a TACO FOLDER without `DATA/`: `COLLECTION.json`, `METADATA/`, and a `taco-cache
 stamp recording source, container, validation key, size and timestamps. The label
 names the dataset for humans; the hash names the source for lookups.
 
-Validation keys: a remote source uses the origin-reported object size. A local ZIP
+Processes that open one source together all build it. Each writes a `.tmp-` staging
+directory and renames it into place. When the rename finds a complete entry with the
+same key and container, that entry is kept and the staging copy deleted. An outdated
+entry, or any entry under `TACO_CACHE_REFRESH`, is swapped in one step
+(`renamex_np` with `RENAME_SWAP` on macOS, `renameat2` with `RENAME_EXCHANGE` on
+Linux) or else moved aside to a `.trash-` directory first, for up to 8 attempts.
+Cleanup and eviction skip the `.tmp-` and `.trash-` directories of other processes.
+
+Validation keys: a remote ZIP uses the 8-byte integrity hash at bytes 43-50 of its
+CoZIP header (`read_cozip_integrity`, `remote_zip_key`), read with one `bytes=43-50`
+request, because cozip pads every small archive to 32,819 bytes and a size cannot tell
+two of them apart. A remote FOLDER or TACOCAT uses the origin-reported sizes of its
+metadata files, since Karu reports no ETag or modification time. A local ZIP
 never enters the cache: its process owns a temporary metadata directory. A failed
 probe fails the open rather than serving metadata that cannot be validated.
-`TACO_CACHE_REFRESH` rebuilds, `TACO_CACHE_SIZE`
-caps the root at 5 GiB by default and evicts least-recently-opened entries first, and
-`TACO_CACHE_DIR` moves the root. Local FOLDER and TACOCAT are read in place.
+`TACO_CACHE_REFRESH` rebuilds entries. `TACO_CACHE_SIZE` caps the root at 5 GiB by
+default and evicts the least recently opened entries first. `TACO_CACHE_DIR` moves
+the root. Local FOLDER and TACOCAT are read in place.
 
 `TACO_CACHE_SIZE` takes plain bytes: `TACO_CACHE_SIZE must be a number of bytes, got
 4GB`.
+
+Snapshots: an open never reads the entry itself. It links the entry's files (hard
+links, copies where links fail) into `.open-<host>-<pid>-<n>/` under the root, checks
+the stamp again so a concurrent rebuild counts as a miss, and points the SQL there. A
+process-wide registry, like the one for local ZIP extractions, keeps one snapshot per
+entry version, reuses it on later opens, and removes it at exit, only in the process
+that made it (a forked child clears its copy of the registry without deleting).
+`store` removes the snapshots of dead processes on the same host; the host hash keeps
+a cache on NFS from judging another machine's pids. Eviction and size accounting skip
+`.open-`, so an evicted or refreshed entry never breaks an open dataset, and SQL from
+`native_sql` stays valid until the process exits. A read-only cache is read in place.
 
 ## SQL generation
 
 `core/src/sql.cpp` builds one statement. Every level becomes a CTE `l0`, `l1`, ...
 over `read_parquet`, with a `COLUMNS(lambda c: ...)` projection that drops the
-reserved reader names. Three shapes come out:
+reserved reader names. `parquet_scan` writes every scan as
+`read_parquet('<path>', hive_partitioning = false)`, the path passed through
+`glob_escape` (`core/src/paths.cpp`), which turns `[`, `]`, `?` and `*` into
+`[[]`, `[]]`, `[?]` and `[*]`. Without it `run[1]/` would also match `run1/`, and a
+folder such as `id=7/` in the path would replace the `id` column. Three shapes come
+out:
 
-- **level**: `SELECT <projection> FROM read_parquet('<level>.parquet')`, the raw view.
+- **level**: `SELECT <projection> FROM read_parquet('<level>.parquet', hive_partitioning = false)`, the raw view.
 - **flat (long)**: one `UNION ALL BY NAME` branch per child level, each joined up to
   the sample level, projecting `path`, `taco:location` and the ancestor columns.
   `ancestor_projection` walks child to sample and keeps the first occurrence of each
@@ -153,6 +187,19 @@ Folder rows are excluded from file branches by `file_filter`, which lists the na
 that have their own child level: a name is a folder exactly when a level exists below
 it.
 
+A raw level of a source list (`level_union`) shifts `internal:current_id` and
+`internal:parent_id` by a materialized `taco_offsets` CTE, a `count(*)` per source and
+a window prefix sum, so ids count across the list as in a TACOCAT and the parent join
+stays within each source.
+
+Locations: below an http(s) base, FOLDER paths go through `url_encode` with `/` and
+`!*'()` put back, which is `encodeURIComponent` per component, and TACOCAT partition
+names are encoded in C++ (`encode_uri_path`). A FOLDER row whose relative path is not
+normalized, and a TACOCAT row whose `internal:source_file` is not listed in
+`taco:sources` (a `CASE` over the listed files), fail the query through DuckDB's
+`error()`, so no location leaves `DATA/` or the catalog directory. The long view
+dedupes fields ignoring ASCII case, deepest level first, as DuckDB resolves names.
+
 A source list wraps each dataset's query in a `UNION ALL BY NAME`, adds a label and an
 order column, and assigns the public index with
 `dense_rank() OVER (ORDER BY internal_source_order, "taco:sample_index") - 1`. `idx`
@@ -160,7 +207,26 @@ filtering moves to the outer query so it applies to the global index.
 
 ## Thread safety and shutdown
 
+A `file://` source is percent-decoded into its local path (`file_uri_path` in
+`paths.cpp`) for locations and for reads, so its locations are the local path's.
+The JSON parser (`json.cpp`) refuses a repeated key in an object and a number beyond
+the finite double range. A variable sequence matches only indices below its maximum
+(`variable_index`, `variable_match` in `sql.cpp`).
+
+The process-wide registries (`LocalExtractions`, `Snapshots`) hold their mutex only
+for short sections and register `pthread_atfork` handlers: lock before the fork,
+unlock in the parent, reinitialise in the child. The progress mutex stays held across
+callbacks, so the child reinitialises it unless the forking thread is reporting.
+
 The Python binding loads the library once under a lock and keeps one DuckDB connection
 per thread. `NativeDataset` wraps the handle in `ffi.gc(..., taco_close)`, so closing
 follows the Python object. The transport client is thread-local; call `taco_shutdown`
 before unloading the library.
+
+DuckDB is not fork-safe, so `python/taco/reader/engine.py` registers fork handlers: a
+forked child keeps every inherited connection alive without using or closing it, and
+opens its own on first use. Taco.jl wraps `taco_open`, `taco_profile` and
+`taco_set_progress` in `@_gc_safe_ccall` (`@ccall gc_safe = true` on Julia 1.12, and
+`jl_gc_safe_enter`/`jl_gc_safe_leave` before), so a task blocked on a lock of the core
+does not stop a garbage collection, and its progress bar writes to stderr without
+yielding.

@@ -5,14 +5,14 @@ import pyarrow as pa
 from . import native
 from .collection import load_collection
 from .query import Files, Index, build_native_sql
-from .source import PathInput
+from .source import PathInput, normalize_source
 
 _QUERIES = {"collection", "contract", "levels", "native_sql", "profile", "structure"}
 
 
 def contract(path: PathInput) -> pa.Table:
     """Return the contract as rows of ``kind`` and ``value``."""
-    dataset = native.NativeDataset(path)
+    dataset = native.NativeDataset(normalize_source(path))
     rows = [("structure", item) for item in dataset.structure]
     rows += [("level", level) for level in dataset.levels]
     return pa.table(
@@ -25,22 +25,22 @@ def contract(path: PathInput) -> pa.Table:
 
 def structure(path: PathInput) -> list[str]:
     """Return the declared ``taco:structure`` paths."""
-    return native.NativeDataset(path).structure
+    return native.NativeDataset(normalize_source(path)).structure
 
 
 def levels(path: PathInput) -> list[str]:
     """Return metadata levels, parents before children."""
-    return native.NativeDataset(path).levels
+    return native.NativeDataset(normalize_source(path)).levels
 
 
 def collection(path: PathInput) -> dict[str, object]:
     """Return parsed ``COLLECTION.json`` metadata."""
-    return load_collection(path)
+    return load_collection(normalize_source(path))
 
 
 def profile(path: PathInput) -> str:
     """Return the CoZIP profile: ``none``, ``flat`` or ``taco``."""
-    return native.profile(path)
+    return native.profile(normalize_source(path))
 
 
 def native_sql(

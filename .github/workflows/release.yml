@@ -113,7 +113,7 @@ jobs:
             library: libtaco.so
             shell: bash
           - name: macos-aarch64
-            runner: macos-14
+            runner: macos-15
             container: ""
             triplet: arm64-osx
             library: libtaco.dylib
@@ -268,7 +268,7 @@ jobs:
             platform: manylinux_2_28_aarch64
             shell: bash
           - name: macos-aarch64
-            runner: macos-14
+            runner: macos-15
             container: ""
             library: libtaco.dylib
             shell: bash
@@ -429,7 +429,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, macos-14, windows-2022]
+        os: [ubuntu-24.04, macos-15, windows-2022]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -490,7 +490,7 @@ jobs:
             runner: ubuntu-24.04-arm
             library: libtaco.so
           - name: macos-aarch64
-            runner: macos-14
+            runner: macos-15
             library: libtaco.dylib
           - name: macos-x86_64
             runner: macos-15-intel
@@ -670,7 +670,7 @@ jobs:
           - name: linux-aarch64
             runner: ubuntu-24.04-arm
           - name: macos-aarch64
-            runner: macos-14
+            runner: macos-15
           - name: macos-x86_64
             runner: macos-15-intel
           - name: windows-x86_64

@@ -24,21 +24,20 @@ permissions:
 
 jobs:
   test:
-    name: Julia ${{ matrix.julia }}
+    name: Julia
     runs-on: ubuntu-24.04
-    strategy:
-      fail-fast: false
-      matrix:
-        julia: ["1.10", "1"]
     steps:
       - uses: actions/checkout@v7
         with:
           submodules: true
           persist-credentials: false
 
+      # Julia 1.10 bundles a libcurl without the symbol versions of the system
+      # libcurl this build links, so it cannot load it. Release builds link curl
+      # statically and do not have this problem.
       - uses: julia-actions/setup-julia@v3
         with:
-          version: ${{ matrix.julia }}
+          version: "1"
 
       - uses: julia-actions/cache@v3
 

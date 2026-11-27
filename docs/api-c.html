@@ -66,7 +66,7 @@
       <h1>C</h1>
       <ul class="facts">
         <li>Header <a href="https://github.com/asterisk-labs/taco/blob/main/core/include/taco/taco.h"><code>core/include/taco/taco.h</code></a>, C11</li>
-        <li>C API 3, library 0.14.2</li>
+        <li>C API 3, library 0.15.0</li>
         <li>C++23, on Karu 0.2.3, libcurl and OpenSSL</li>
       </ul>
       <p class="lede">libtaco is the reader core used by Python, R and Julia. It opens ZIP, FOLDER and TACOCAT datasets, checks their contracts, and generates DuckDB SQL. It does not run queries or write datasets.</p>
@@ -191,7 +191,7 @@ DUCKDB=$(brew --prefix duckdb)
 cc -std=c11 -Wall -Wextra highest.c -I$TACO/core/include -I$DUCKDB/include \
    -L$TACO/core/build -ltaco -L$DUCKDB/lib -lduckdb -Wl,-rpath,$TACO/core/build -o highest
 TACO_CACHE_DIR=cache ./highest</code></pre>
-<pre class="output"><code>libtaco 0.14.2, C API 3
+<pre class="output"><code>libtaco 0.15.0, C API 3
 downloading core-dem_MT3000km_0001D_0003L.zip metadata: 2697870 bytes
 container zip, levels sample children, structure dem.rumi
 taco_sql: 1869 bytes of SQL
@@ -229,9 +229,9 @@ ctest --test-dir core/build --output-on-failure</code></pre>
       <table class="spec"><thead><tr><th>Name</th><th>Returns</th></tr></thead><tbody>
         <tr><td><code>TACO_API_VERSION</code></td><td>The C API version of the header, <code>3</code>. Removing <code>taco_dataset_derived</code> raised it from 2 to 3. CMake reads it from the header and stops the configure when it is missing.</td></tr>
         <tr><td><code>int taco_api_version(void)</code></td><td>The C API version the library was built with. Compare it with <code>TACO_API_VERSION</code> after loading the library, as the program above does.</td></tr>
-        <tr><td><code>const char *taco_version_string(void)</code></td><td>The library version from <code>core/CMakeLists.txt</code>, such as <code>"0.14.2"</code>. Static storage.</td></tr>
+        <tr><td><code>const char *taco_version_string(void)</code></td><td>The library version from <code>core/CMakeLists.txt</code>, such as <code>"0.15.0"</code>. Static storage.</td></tr>
       </tbody></table>
-      <p>The 0.14.2 release archives carry C API 2, which still had <code>taco_dataset_derived</code>. The development core reports version 0.14.2 with C API 3, so check the API number, not the version string. Each binding's check is listed under <a href="#bindings">Bindings</a>.</p>
+      <p>Release archives up to 0.14.2 carry C API 2, which still had <code>taco_dataset_derived</code>. From 0.15.0 they carry C API 3. Check the API number, not the version string. Each binding's check is listed under <a href="#bindings">Bindings</a>.</p>
 
       <h2 class="part" id="conventions">Conventions</h2>
       <ul class="list">

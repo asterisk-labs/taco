@@ -16,6 +16,8 @@ const NESTED_FIXTURE = joinpath(@__DIR__, "data", "taco_nested.zip")
         @test_throws "unique" Taco.read(["a.zip", "a.zip"])
         @test_throws "NUL byte" Taco.read("bad\0.zip")
         @test_throws "entries must be non-empty" Taco.read(FIXTURE; files=[""])
+        @test occursin("older than this Taco.jl", Taco._version_message("old.dylib", Taco._API_VERSION - 1))
+        @test occursin("newer than this Taco.jl", Taco._version_message("new.dylib", Taco._API_VERSION + 1))
     end
 
     @testset "read a TACO dataset" begin
@@ -38,6 +40,7 @@ const NESTED_FIXTURE = joinpath(@__DIR__, "data", "taco_nested.zip")
         @test size(wide, 1) == 3
         @test issubset(["taco:sample_index", "split:split", "image.bin::location", "mask.bin::location"], names(wide))
         @test wide[!, "split:split"] == ["train", "train", "test"]
+        @test wide[!, "taco:sample_index"] == 0:2
 
         queried = Taco.sql(dataset, "SELECT * FROM dataset")
         @test size(queried, 1) == 3

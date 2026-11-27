@@ -118,8 +118,7 @@ function _load_core()
             _SYMBOLS[name] = Libdl.dlsym(handle, name)
         end
         version = ccall(_SYMBOLS[:taco_api_version], Cint, ())
-        version == _API_VERSION ||
-            error("taco: the TACO core at $path has C API $version, expected $_API_VERSION")
+        version == _API_VERSION || error(_version_message(path, version))
         fill!(resize!(_BARS, Threads.maxthreadid()), nothing)
         _PROGRESS_OUTPUT[] = IOContext(
             Base.Filesystem.File(Base.RawFD(2)),
@@ -133,6 +132,19 @@ function _load_core()
         _HANDLE[] = handle
     end
     return nothing
+end
+
+
+# A checkout of Taco.jl can be ahead of the released core that Artifacts.toml
+# names, so say which side is older and how to pair them.
+function _version_message(path, version)
+    message = "taco: the TACO core at $path has C API $version, expected $_API_VERSION. "
+    if version < _API_VERSION
+        return message * "The core is older than this Taco.jl, as happens when Taco.jl comes from " *
+               "a source checkout ahead of the last release. Build the core with `make core` and " *
+               "set $_LIBRARY_ENV to it, or install a registered Taco release"
+    end
+    return message * "The core is newer than this Taco.jl; update Taco.jl or point $_LIBRARY_ENV at a matching core"
 end
 
 

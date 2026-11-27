@@ -83,6 +83,8 @@ Pkg.add("Taco")</code></pre>
       </ol>
       <p>The binding requires C API version 3 and refuses any other. <code>read_bytes</code> also checks that the chosen library provides its functions. A library that cannot be loaded throws an <code>ErrorException</code>:</p>
 <pre class="output"><code>taco: could not load the TACO core from /nonexistent/libtaco.dylib: could not load library "/nonexistent/libtaco.dylib" ... Build it with `make core` or set TACO_LIB</code></pre>
+      <p>A checkout of Taco.jl newer than the last release still names that release's archive in <code>Artifacts.toml</code>, which may carry an older C API. The error then says so and how to pair them:</p>
+<pre class="output"><code>taco: the TACO core at .../libtaco-0.14.2-macos-aarch64/lib/libtaco.dylib has C API 2, expected 3. The core is older than this Taco.jl, as happens when Taco.jl comes from a source checkout ahead of the last release. Build the core with `make core` and set TACO_LIB to it, or install a registered Taco release</code></pre>
       <p>The <a href="api-c.html#bindings">C page</a> lists which C functions each binding calls.</p>
 
       <h2 class="part" id="reading">Reading</h2>
@@ -151,7 +153,7 @@ Taco.read(dataset::Taco.Dataset; files = nothing) -&gt; DataFrame</code></pre>
 size(samples)</code></pre>
 <pre class="output"><code>(50178, 33)</code></pre>
       <p>The first read took 1.3 s here, most of it compiling, and later reads of the same dataset 0.09 s.</p>
-      <p>The overview promises rows in <code>taco:sample_index</code> order. In 0.14.2 Taco.jl keeps that promise only for a source list: for one source the query it runs has no <code>ORDER BY</code>. This partition came back in order here, but the Core-DEM TACOCAT did not. When the order matters, ask for it in SQL:</p>
+      <p><code>Taco.read</code> returns rows in <code>taco:sample_index</code> order, for one source or a list. Releases up to 0.14.2 ordered only a source list. A query has no implicit order, so ask for it in SQL:</p>
 <pre><code class="language-julia">samples = Taco.sql(dataset, "SELECT * FROM dataset ORDER BY \"taco:sample_index\"")
 samples[1, "taco:sample_index"]
 Int(samples[1, "taco:sample_index"])</code></pre>

@@ -27,6 +27,7 @@ describe("read a TACO dataset", {
     expect_identical(nrow(result), 3L)
     expect_true(all(c("taco:sample_index", "split:split", "image.bin::location", "mask.bin::location") %in% names(result)))
     expect_identical(result[["split:split"]], c("train", "train", "test"))
+    expect_identical(as.numeric(result[["taco:sample_index"]]), c(0, 1, 2))
   })
 
   it("reads an open dataset", {

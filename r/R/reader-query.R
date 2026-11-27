@@ -20,5 +20,7 @@
     datasets <- lapply(source, function(path) .Call(taco_r_open, path))
   }
   sql <- .Call(taco_r_sql, datasets, NULL, NULL, TRUE, files, TRUE)
+  # The core orders only a source list; one source comes back in scan order.
+  sql <- sprintf('SELECT * FROM (\n%s\n) AS taco_read ORDER BY "taco:sample_index"', sql)
   tibble::as_tibble(DBI::dbGetQuery(.open_reader(), sql))
 }

@@ -1,0 +1,59 @@
+name: Julia
+
+on:
+  pull_request:
+    paths:
+      - "julia/**"
+      - "core/**"
+      - "extern/**"
+      - ".gitmodules"
+      - "Makefile"
+      - ".github/workflows/julia.yml"
+  push:
+    branches: [main]
+    paths:
+      - "julia/**"
+      - "core/**"
+      - "extern/**"
+      - ".gitmodules"
+      - "Makefile"
+      - ".github/workflows/julia.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Julia ${{ matrix.julia }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        julia: ["1.10", "1"]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+          persist-credentials: false
+
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: ${{ matrix.julia }}
+
+      - uses: julia-actions/cache@v3
+
+      # The tests load this build through TACO_LIB, not the release archive in
+      # Artifacts.toml, so they check the Julia code against the core it ships with.
+      - name: Build the reader core
+        run: |
+          sudo rm -f /etc/apt/sources.list.d/google-chrome.list \
+            /etc/apt/sources.list.d/google-chrome.sources
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libcurl4-openssl-dev libssl-dev
+          make core
+
+      - name: Test
+        env:
+          TACO_LIB: ${{ github.workspace }}/core/build/libtaco.so
+          TACO_CORE_DIR: ${{ github.workspace }}/core
+        run: julia --project=julia -t 4 -e 'using Pkg; Pkg.instantiate(); Pkg.test()'

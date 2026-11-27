@@ -88,7 +88,7 @@ pip install "taco-eo[writer]"    # read and write</code></pre>
       <h3 id="library">The native library</h3>
       <p>The wheel ships the core as <code>taco/_lib/libtaco.so</code>, <code>libtaco.dylib</code> or <code>taco.dll</code>, and in a checkout <code>make core</code> builds it and copies it there. Set <code>TACO_LIB</code> to the path of another build before the first dataset opens. The binding requires C API version 3 and refuses any other. A library that cannot be loaded raises <a href="#errors"><code>ContainerError</code></a> at the first open, not at import:</p>
 <pre class="output"><code>ContainerError: could not load the TACO core from /nope/libtaco.dylib: cannot load library '/nope/libtaco.dylib': dlopen(/nope/libtaco.dylib, 0x0002): tried: ... Build it with `make core` or set TACO_LIB.</code></pre>
-      <p><code>taco.__version__</code> is the version of the installed package, <code>'0.14.2'</code> here.</p>
+      <p><code>taco.__version__</code> is the version of the installed package, <code>'0.15.0'</code> here.</p>
 
       <h2 class="part" id="reading">Reading</h2>
 

@@ -119,7 +119,7 @@ dataset$collection$title</code></pre>
 dim(samples)</code></pre>
 <pre class="output"><code>[1] 50178    33</code></pre>
       <p>That read took 0.30 s here.</p>
-      <p>The overview promises rows in <code>taco:sample_index</code> order. In 0.14.2 R keeps that promise only for a source list: for one source the query it runs has no <code>ORDER BY</code>, and this partition and the Core-DEM TACOCAT both came back out of order here. When the order matters, ask for it in SQL:</p>
+      <p><code>read</code> returns rows in <code>taco:sample_index</code> order, for one source or a list. Releases up to 0.14.2 ordered only a source list. A query has no implicit order, so ask for it in SQL:</p>
 <pre><code class="language-r">samples &lt;- sql(dataset, 'SELECT * FROM dataset ORDER BY "taco:sample_index"')
 samples[1:3, c("taco:sample_index", "id")]</code></pre>
 <pre class="output"><code># A tibble: 3 × 2

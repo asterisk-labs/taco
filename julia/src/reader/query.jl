@@ -51,6 +51,8 @@ function _read_table(
         files=files,
         location=true,
     )
+    # The core orders only a source list; one source comes back in scan order.
+    sql = "SELECT * FROM (\n$sql\n) AS taco_read ORDER BY \"taco:sample_index\""
     return GC.@preserve datasets begin
         _with_reader() do con
             _dataframe(con, sql)

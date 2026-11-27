@@ -78,7 +78,7 @@
         <li>Nothing is cached on disk. A <code>Dataset</code> keeps what it fetched in memory.</li>
         <li>Besides the wide view of <code>read()</code>, it has a long view with one row per file.</li>
       </ul>
-      <p>This page follows the source in the repository. The 0.14.2 release on npm lacks <code>TacoAsset.byteLength</code> and <code>TacoAsset.read</code>, their <code>signal</code> and <code>maxFullBytes</code> options, and the ETag check described under <a href="#caching">Caching</a>.</p>
+      <p>This page follows the source in the repository. Releases up to 0.14.2 on npm lack <code>TacoAsset.byteLength</code> and <code>TacoAsset.read</code>, their <code>signal</code> and <code>maxFullBytes</code> options, and the ETag check described under <a href="#caching">Caching</a>.</p>
 
       <h2 class="part" id="sources">Sources</h2>
       <p>Sources must be absolute ASCII <code>http://</code> or <code>https://</code> URLs. Other schemes fail with <code>INVALID_URL</code>; relative paths throw <code>TypeError</code>. Local datasets must be served over HTTP, including in Node. Remote sources can use <code>https://data.source.coop/...</code>, a Hugging Face <code>resolve</code> URL or a presigned URL. For native reader sources and credentials, see <a href="api.html#sources">Sources and cache</a>.</p>
@@ -399,7 +399,7 @@ true TacoError HTTP_ERROR taco HTTP_ERROR: HTTP 404  for https://data.source.coo
 
       <h2 class="part" id="browser">In the browser</h2>
       <p>The package needs no build step. A page can import it from a CDN that bundles hyparquet with it, such as jsDelivr:</p>
-<pre><code class="language-js">import { openDataset } from "https://cdn.jsdelivr.net/npm/@asterisk-labs/taco@0.14.2/+esm";
+<pre><code class="language-js">import { openDataset } from "https://cdn.jsdelivr.net/npm/@asterisk-labs/taco@0.15.0/+esm";
 
 const url = "https://data.source.coop/major-tom/core-dem/core-dem_MT3000km_0001D_0003L.zip";
 const dataset = await openDataset(url);

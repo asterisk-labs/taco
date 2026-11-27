@@ -6,6 +6,8 @@ JavaScript reader are documented here. The format follows
 
 ## Unreleased
 
+## 0.15.0 - 2026-11-27
+
 ### Added
 
 - The `split` extension: `taco.extensions.sample.split.Split` stores each
@@ -26,6 +28,8 @@ JavaScript reader are documented here. The format follows
 
 ### Changed
 
+- R and Julia `read` return rows in `taco:sample_index` order for one source
+  too, as Python does. Before, only a source list was ordered.
 - Built-ins now live under `taco.extensions.sample` or
   `taco.extensions.collection`. Sample fields cover samples, folders and files.
 - STAC profiles use the same class in contracts and rows and fill a missing

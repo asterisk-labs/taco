@@ -5,6 +5,15 @@ describe("read input validation", {
     expect_error(taco::read(c("a.zip", "a.zip")), "unique")
   })
 
+  it("treats two spellings of one file as one source", {
+    expect_error(taco::read(c(taco_fixture(), file.path(".", taco_fixture()))), "unique")
+    expect_error(taco::read(c(taco_fixture(), paste0("file://", normalizePath(taco_fixture())))), "unique")
+    upper <- file.path(dirname(taco_fixture()), "TACO.ZIP")
+    if (file.exists(upper)) {
+      expect_error(taco::read(c(taco_fixture(), upper)), "unique")
+    }
+  })
+
   it("checks file selections", {
     expect_error(taco::read("a.zip", files = ""), "non-empty")
   })
@@ -95,6 +104,21 @@ describe("read a TACO dataset", {
     expect_identical(nrow(taco::read(copy)), 3L)
   })
 
+  it("expands a leading ~", {
+    skip_on_os("windows")
+    home <- tempfile("taco-home-")
+    dir.create(home)
+    on.exit(unlink(home, recursive = TRUE), add = TRUE)
+    expect_true(file.copy(taco_fixture(), file.path(home, "taco.zip")))
+    old <- Sys.getenv("HOME")
+    Sys.setenv(HOME = home)
+    on.exit(Sys.setenv(HOME = old), add = TRUE)
+
+    expect_identical(nrow(taco::read("~/taco.zip")), 3L)
+    expect_identical(taco::open_dataset("~/taco.zip")$sources, file.path(home, "taco.zip"))
+    expect_identical(taco::inspect("~/taco.zip", "levels"), c("sample", "children"))
+  })
+
   it("combines compatible sources", {
     copy <- file.path(tempdir(), "part-1.zip")
     expect_true(file.copy(taco_fixture(), copy, overwrite = TRUE))
@@ -104,6 +128,10 @@ describe("read a TACO dataset", {
     expect_identical(nrow(result), 6L)
     expect_identical(sort(unique(result[["source_file"]])), c("part-1.zip", "taco.zip"))
     expect_equal(as.numeric(result[["taco:sample_index"]]), 0:5)
+    expect_identical(
+      taco::open_dataset(c(taco_fixture(), copy))$collection[["split:counts"]],
+      list(train = 4L, validation = 0L, test = 2L, excluded = 0L)
+    )
   })
 
   it("rejects sources with different contracts", {
@@ -123,21 +151,19 @@ describe("read a TACO dataset", {
 
 
 describe("open a TACO dataset", {
-  it("combines partition extents", {
-    make_partition <- function(path, spatial, temporal) {
-      dir.create(path)
-      utils::unzip(taco_fixture(), exdir = path)
-      collection_path <- file.path(path, "COLLECTION.json")
-      collection <- jsonlite::read_json(collection_path, simplifyVector = FALSE)
-      collection$extent <- list(spatial = as.list(spatial), temporal = as.list(temporal))
-      jsonlite::write_json(collection, collection_path, auto_unbox = TRUE)
-    }
+  extent <- function(spatial, temporal) {
+    list(extent = list(spatial = as.list(spatial), temporal = as.list(temporal)))
+  }
+  counts <- function(train, test) {
+    list(`split:counts` = list(train = train, validation = 0L, test = test, excluded = 0L))
+  }
 
+  it("combines partition extents", {
     first <- tempfile("taco-part-")
     second <- tempfile("taco-part-")
     on.exit(unlink(c(first, second), recursive = TRUE), add = TRUE)
-    make_partition(first, c(-76, -12, -75, -11), c("2024-01-02T00:00:00Z", "2024-01-03T00:00:00Z"))
-    make_partition(second, c(-74, -10, -73, -9), c("2024-01-01T00:00:00Z", "2024-01-04T00:00:00Z"))
+    taco_partition(first, extent(c(-76, -12, -75, -11), c("2024-01-02T00:00:00Z", "2024-01-03T00:00:00Z")))
+    taco_partition(second, extent(c(-74, -10, -73, -9), c("2024-01-01T00:00:00Z", "2024-01-04T00:00:00Z")))
 
     dataset <- taco::open_dataset(c(first, second))
     expect_equal(unlist(dataset$collection$extent$spatial), c(-76, -12, -73, -9))
@@ -145,5 +171,63 @@ describe("open a TACO dataset", {
       unlist(dataset$collection$extent$temporal),
       c("2024-01-01T00:00:00Z", "2024-01-04T00:00:00Z")
     )
+  })
+
+  it("compares partition times as instants", {
+    paths <- c(tempfile("taco-part-"), tempfile("taco-part-"), tempfile("taco-part-"))
+    on.exit(unlink(paths, recursive = TRUE), add = TRUE)
+    taco_partition(paths[[1L]], extent(c(1, 1, 2, 2), c("2024-05-01T00:00:00.500000Z", "2024-05-01T12:00:00.500000Z")))
+    taco_partition(paths[[2L]], extent(c(1, 1, 2, 2), c("2024-05-01T00:00:00Z", "2024-05-01T12:00:00Z")))
+    taco_partition(paths[[3L]], extent(c(1, 1, 2, 2), c("2024-05-01T01:00:00+02:00", "2024-05-01T11:00:00-02:00")))
+
+    expect_identical(
+      unlist(taco::open_dataset(paths[1:2])$collection$extent$temporal),
+      c("2024-05-01T00:00:00Z", "2024-05-01T12:00:00.500000Z")
+    )
+    expect_identical(
+      unlist(taco::open_dataset(paths[2:3])$collection$extent$temporal),
+      c("2024-05-01T01:00:00+02:00", "2024-05-01T11:00:00-02:00")
+    )
+  })
+
+  it("adds up the split counts of partitions", {
+    paths <- c(tempfile("taco-part-"), tempfile("taco-part-"), tempfile("taco-part-"))
+    on.exit(unlink(paths, recursive = TRUE), add = TRUE)
+    taco_partition(paths[[1L]], counts(2L, 0L))
+    taco_partition(paths[[2L]], counts(0L, 1L))
+    taco_partition(paths[[3L]], list(`split:counts` = "many"))
+
+    dataset <- taco::open_dataset(paths[1:2])
+    expect_identical(dataset$collection[["split:counts"]], list(train = 2L, validation = 0L, test = 1L, excluded = 0L))
+    expect_identical(nrow(taco::read(dataset)), 6L)
+    expect_error(taco::open_dataset(paths[c(1L, 3L)]), "split:counts")
+  })
+})
+
+
+describe("query a TACO dataset", {
+  it("never installs an extension", {
+    dataset <- taco::open_dataset(taco_fixture())
+    setting <- taco::sql(dataset, "SELECT current_setting('autoinstall_known_extensions') AS autoinstall")
+    expect_false(setting$autoinstall)
+  })
+
+  it("answers time zone queries in UTC with an installed ICU", {
+    skip_if_not(icu_installed(), "ICU is not installed")
+    # ICU takes the time zone of the process when it loads, so a reader that
+    # does not pin UTC answers in Lima time here.
+    zone <- Sys.getenv("TZ", unset = NA)
+    Sys.setenv(TZ = "America/Lima")
+    on.exit(if (is.na(zone)) Sys.unsetenv("TZ") else Sys.setenv(TZ = zone), add = TRUE)
+
+    dataset <- taco::open_dataset(taco_fixture())
+    result <- taco::sql(dataset, paste(
+      "SELECT current_setting('TimeZone') AS zone,",
+      "CAST(TIMESTAMPTZ '2024-03-01 03:30:00+00' AS DATE) AS day,",
+      "extract(hour FROM TIMESTAMPTZ '2024-03-01 03:30:00+00') AS hour"
+    ))
+    expect_identical(result$zone, "UTC")
+    expect_identical(result$day, as.Date("2024-03-01"))
+    expect_equal(result$hour, 3)
   })
 })

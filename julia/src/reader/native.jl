@@ -54,22 +54,47 @@ function _library_path()
 end
 
 
-const _BARS = Dict{String,Any}()
+# Core calls can wait on locks or call back into Julia; mark them GC-safe to
+# avoid deadlocks. Before Julia 1.12, switch GC state manually and pass values
+# that convert without allocating.
+macro _gc_safe_ccall(call)
+    @static if VERSION >= v"1.12"
+        return esc(:(@ccall gc_safe = true $call))
+    else
+        return quote
+            local state = ccall(:jl_gc_safe_enter, Int8, ())
+            local result = $(esc(:(@ccall $call)))
+            ccall(:jl_gc_safe_leave, Cvoid, (Int8,), state)
+            result
+        end
+    end
+end
 
 
-# Native download progress, grouped by phase. C callbacks must not throw.
+# The core reports progress on the working thread; keep one bar per thread.
+const _BARS = Union{Nothing,Pair{String,Any}}[]
+const _PROGRESS_OUTPUT = Ref{IO}(devnull)
+
+
+# The callback runs under core locks: do not yield or throw. Write directly to
+# terminal stderr because Julia's stderr may wait on the event loop.
 function _progress(phase::Cstring, done::UInt64, total::UInt64, user::Ptr{Cvoid})::Cvoid
     try
+        stderr isa Base.TTY || return nothing
+        thread = Threads.threadid()
+        thread <= length(_BARS) || return nothing
         name = unsafe_string(phase)
-        enabled = stderr isa Base.TTY
-        bar = get!(_BARS, name) do
-            total > 0 ? Progress(Int(total); desc = name * " ", enabled = enabled) :
-            ProgressUnknown(; desc = name * " ", enabled = enabled)
+        current = _BARS[thread]
+        if current === nothing || current.first != name
+            output = _PROGRESS_OUTPUT[]
+            bar = total > 0 ? Progress(Int(total); desc = name * " ", output = output) :
+                  ProgressUnknown(; desc = name * " ", output = output)
+            current = _BARS[thread] = name => bar
         end
-        update!(bar, Int(done))
+        update!(current.second, Int(done))
         if total > 0 && done >= total
-            finish!(bar)
-            delete!(_BARS, name)
+            finish!(current.second)
+            _BARS[thread] = nothing
         end
     catch
     end
@@ -95,8 +120,15 @@ function _load_core()
         version = ccall(_SYMBOLS[:taco_api_version], Cint, ())
         version == _API_VERSION ||
             error("taco: the TACO core at $path has C API $version, expected $_API_VERSION")
+        fill!(resize!(_BARS, Threads.maxthreadid()), nothing)
+        _PROGRESS_OUTPUT[] = IOContext(
+            Base.Filesystem.File(Base.RawFD(2)),
+            :color => get(stderr, :color, false),
+            :displaysize => displaysize(stderr),
+        )
+        set_progress = _SYMBOLS[:taco_set_progress]
         callback = @cfunction(_progress, Cvoid, (Cstring, UInt64, UInt64, Ptr{Cvoid}))
-        ccall(_SYMBOLS[:taco_set_progress], Cvoid, (Ptr{Cvoid}, Ptr{Cvoid}), callback, C_NULL)
+        @_gc_safe_ccall $set_progress(callback::Ptr{Cvoid}, C_NULL::Ptr{Cvoid})::Cvoid
         # Published last, so a reader never sees a handle without its symbols.
         _HANDLE[] = handle
     end
@@ -139,15 +171,10 @@ end
 
 
 function _open_native(source)
+    path = _c_text(source, "source")
     out = Ref{Ptr{Cvoid}}(C_NULL)
-    status = ccall(
-        _symbol(:taco_open),
-        Cint,
-        (Cstring, Ptr{UInt8}, Ref{Ptr{Cvoid}}),
-        _c_text(source, "source"),
-        C_NULL,
-        out,
-    )
+    open = _symbol(:taco_open)
+    status = @_gc_safe_ccall $open(path::Cstring, C_NULL::Ptr{UInt8}, out::Ref{Ptr{Cvoid}})::Cint
     _check_core(status)
     dataset = NativeDataset(out[])
     close = _symbol(:taco_close)
@@ -220,8 +247,10 @@ end
 
 
 function _native_text(name::Symbol, text)
+    source = _c_text(text, "source")
     out = Ref{Ptr{UInt8}}(C_NULL)
-    status = ccall(_symbol(name), Cint, (Cstring, Ref{Ptr{UInt8}}), _c_text(text, "source"), out)
+    native = _symbol(name)
+    status = @_gc_safe_ccall $native(source::Cstring, out::Ref{Ptr{UInt8}})::Cint
     _check_core(status)
     return _take_string(out[])
 end

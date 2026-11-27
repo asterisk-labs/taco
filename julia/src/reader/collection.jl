@@ -23,11 +23,53 @@ function _parse_collection(document)
 end
 
 
+function _add_counts(summaries)
+    totals = Dict{String,Any}()
+    for counts in summaries
+        counts isa AbstractDict && all(count -> count isa Integer && !(count isa Bool), values(counts)) ||
+            error("taco: split:counts must be an object of sample counts")
+        for (name, count) in counts
+            totals[name] = get(totals, name, 0) + count
+        end
+    end
+    return totals
+end
+
+
+# Besides extent, the collection fields that summarize the rows of each source,
+# so the partitions of one build differ in them (SPEC 7.5). A list combines them
+# as taco.consolidate does.
+const _SUMMARIES = Dict("split:counts" => _add_counts)
+
+
 function _same_collection(collection)
     result = deepcopy(collection)
-    pop!(result, "extent", nothing)
-    pop!(result, "taco:sources", nothing)
+    for name in ("extent", "taco:sources", keys(_SUMMARIES)...)
+        pop!(result, name, nothing)
+    end
     return result
+end
+
+
+# Microseconds since 1970 of an ISO 8601 time. As text, 00:00:00.5Z sorts before
+# 00:00:00Z. A time without an offset is UTC. Taco does not load Dates, so the
+# days come from Howard Hinnant's days_from_civil.
+function _iso_micros(value)
+    pattern = r"^([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})(?:\.([0-9]+))?(?:[Zz]|([+-])([0-9]{2}):?([0-9]{2}))?$"
+    m = match(pattern, value)
+    m === nothing && error("taco: extent.temporal must hold ISO 8601 times: $value")
+    year, month, day, hour, minute, second = (parse(Int, m[index]) for index in 1:6)
+    year -= month <= 2
+    era = fld(year, 400)
+    years = year - 400 * era
+    days = 146097 * era + 365 * years + years ÷ 4 - years ÷ 100 + (153 * mod(month - 3, 12) + 2) ÷ 5 + day - 719469
+    minutes = (24 * days + hour) * 60 + minute
+    if m[8] !== nothing
+        offset = 60 * parse(Int, m[9]) + parse(Int, m[10])
+        minutes -= m[8] == "+" ? offset : -offset
+    end
+    fraction = m[7] === nothing ? 0 : parse(Int, rpad(first(m[7], 6), 6, '0'))
+    return (60 * minutes + second) * 1_000_000 + fraction
 end
 
 
@@ -73,8 +115,8 @@ function _extent_union(values)
         nothing
     else
         Any[
-            minimum(String(value[1]) for value in temporals),
-            maximum(String(value[2]) for value in temporals),
+            argmin(_iso_micros, String(value[1]) for value in temporals),
+            argmax(_iso_micros, String(value[2]) for value in temporals),
         ]
     end
     return Dict{String,Any}(
@@ -96,5 +138,9 @@ function _merge_collections(collections, levels, sources)
     collection = deepcopy(first(collections))
     collection["extent"] = _extent_union([get(value, "extent", nothing) for value in collections])
     collection["extent"] === nothing && delete!(collection, "extent")
+    for (name, combine) in _SUMMARIES
+        summaries = [value[name] for value in collections if get(value, name, nothing) !== nothing]
+        isempty(summaries) || (collection[name] = combine(summaries))
+    end
     return collection
 end

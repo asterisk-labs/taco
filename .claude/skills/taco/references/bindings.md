@@ -49,6 +49,10 @@ samples <- taco::read(dataset)
 train   <- taco::sql(dataset, 'SELECT * FROM dataset WHERE "split:split" = \'train\'')
 ```
 
+The R reader disables DuckDB extension installation and uses UTC for timestamps.
+It loads installed extensions, including ICU, from DuckDB's extension directory.
+With `shared_home = FALSE`, other DuckDB files stay under `tempdir()`.
+
 WebAssembly is not supported: the reader core needs DuckDB, libcurl and OpenSSL.
 
 ## Julia
@@ -62,6 +66,13 @@ using Taco
 dataset = Taco.open_dataset("dataset.zip")
 samples = Taco.read(dataset)
 ```
+
+The Julia reader disables DuckDB extension installation and uses UTC for
+timestamps. It can load ICU when ICU is already installed under `~/.duckdb`.
+Timestamps come back as `Dates.DateTime`, which holds milliseconds; `epoch_us(column)`
+in `Taco.sql` returns the stored microseconds. R and Julia expand `~`, refuse a source
+spelled two ways (R through `normalizePath`, which misses hard links; Julia by device
+and inode) and add up `split:counts` across a source list, like Python.
 
 `julia/src/reader/` mirrors the Python reader module for module: `native`, `source`,
 `engine`, `collection`, `dataset`, `query`, `api`. Keep them aligned when the reader
@@ -100,7 +111,12 @@ Differences from the native readers:
 - **No SQL.** Filtering is a Mongo-style object supporting `$gt`, `$gte`, `$lt`,
   `$lte`, `$eq`, `$ne`, `$in`, `$nin`, `$not`, `$and`, `$or`, `$nor`. `readLevel`
   pushes projection, row ranges and filters into the Parquet reader, including
-  row-group pruning; `read({ filter })` filters completed rows.
+  row-group pruning. Row ranges select stored rows before filtering.
+  `read({ filter })` filters completed rows under the same rules: range operators
+  exclude nulls; `{ field: null }` matches null and missing values; negated
+  conditions retain nulls. Dates compare by time; arrays, bytes, and structs
+  compare by content. For 64-bit integers, `read` treats `5n` and `5` as equal,
+  while `readLevel` requires a BigInt.
 - **Both layouts are public.** `layout: "wide"` and `layout: "long"` are first-class,
   where Python exposes long only through `native_sql`.
 - **No local paths and no writer.** HTTP(S) sources only.

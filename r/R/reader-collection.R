@@ -60,10 +60,9 @@
 
   temporal <- Filter(Negate(is.null), lapply(extents, `[[`, "temporal"))
   temporal <- if (length(temporal)) {
-    list(
-      min(vapply(temporal, `[[`, character(1), 1L)),
-      max(vapply(temporal, `[[`, character(1), 2L))
-    )
+    starts <- vapply(temporal, `[[`, character(1), 1L)
+    ends <- vapply(temporal, `[[`, character(1), 2L)
+    list(starts[[which.min(.iso_seconds(starts))]], ends[[which.max(.iso_seconds(ends))]])
   } else {
     NULL
   }
@@ -71,9 +70,43 @@
 }
 
 
+# Seconds since 1970 of ISO 8601 times. As text, 00:00:00.5Z sorts before
+# 00:00:00Z. strptime reads an offset only as +hhmm, and a time without one is
+# UTC.
+.iso_seconds <- function(values) {
+  values <- sub("([+-][0-9]{2}):([0-9]{2})$", "\\1\\2", sub("[Zz]$", "+0000", values))
+  values <- ifelse(grepl("[+-][0-9]{4}$", values), values, paste0(values, "+0000"))
+  seconds <- as.numeric(as.POSIXct(values, format = "%Y-%m-%dT%H:%M:%OS%z", tz = "UTC"))
+  if (anyNA(seconds)) {
+    .taco_stop("extent.temporal must hold ISO 8601 times")
+  }
+  seconds
+}
+
+
+.add_counts <- function(values) {
+  totals <- list()
+  for (counts in values) {
+    if (!is.list(counts) || is.null(names(counts)) ||
+        !all(vapply(counts, function(count) is.numeric(count) && length(count) == 1L, logical(1)))) {
+      .taco_stop("split:counts must be an object of sample counts")
+    }
+    for (name in names(counts)) {
+      totals[[name]] <- sum(totals[[name]], counts[[name]])
+    }
+  }
+  totals
+}
+
+
+# Besides extent, the collection fields that summarize the rows of each source,
+# so the partitions of one build differ in them (SPEC 7.5). A list combines them
+# as taco.consolidate does.
+.summaries <- list(`split:counts` = .add_counts)
+
+
 .same_collection <- function(collection) {
-  collection[["extent"]] <- NULL
-  collection[["taco:sources"]] <- NULL
+  collection[c("extent", "taco:sources", names(.summaries))] <- NULL
   collection
 }
 
@@ -93,5 +126,11 @@
   }
   collection <- collections[[1L]]
   collection[["extent"]] <- .extent_union(lapply(collections, `[[`, "extent"))
+  for (name in names(.summaries)) {
+    values <- Filter(Negate(is.null), lapply(collections, `[[`, name))
+    if (length(values)) {
+      collection[[name]] <- .summaries[[name]](values)
+    }
+  }
   collection
 }

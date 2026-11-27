@@ -13,7 +13,15 @@
   if (!is.null(con) && DBI::dbIsValid(con)) {
     return(con)
   }
-  con <- DBI::dbConnect(duckdb::duckdb(shared_home = FALSE))
+  # Find installed extensions while keeping DuckDB's other files in tempdir().
+  storage <- duckdb::duckdb_storage_status()
+  config <- list(
+    autoinstall_known_extensions = "false",
+    extension_directory = storage$directory[storage$kind == "extensions"]
+  )
+  con <- DBI::dbConnect(duckdb::duckdb(config = config, shared_home = FALSE))
+  # Use UTC for timestamp comparisons and display across host time zones.
+  tryCatch(DBI::dbExecute(con, "SET TimeZone = 'UTC'"), error = function(error) NULL)
   .reader$con <- con
   con
 }

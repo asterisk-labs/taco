@@ -13,8 +13,17 @@ function _open_reader()
     con === nothing || return con
     db = DuckDB.DB()
     _DATABASE[] = db
-    _CONNECTION[] = DBInterface.connect(db)
-    return _CONNECTION[]
+    con = DBInterface.connect(db)
+    # Allow installed extensions without downloading new ones.
+    DBInterface.execute(con, "SET autoinstall_known_extensions = false")
+    # Use UTC for timestamp comparisons and display across host time zones.
+    try
+        DBInterface.execute(con, "SET TimeZone = 'UTC'")
+    catch err
+        err isa DuckDB.QueryException || rethrow()
+    end
+    _CONNECTION[] = con
+    return con
 end
 
 

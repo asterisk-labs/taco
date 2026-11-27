@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#ffffff">
 <meta name="description" content="The TACO R reader, function by function.">
 <title>TACO · R</title>
-<link rel="icon" href="assets/svg/taco-mark-static.svg?v=2" type="image/svg+xml">
+<link rel="icon" href="assets/svg/taco-mark-static.svg?v=3" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=League+Spartan:wght@300;400;500;600&display=swap" rel="stylesheet">
@@ -17,7 +17,7 @@
 <div class="page">
   <header class="masthead">
     <a class="lockup" href="index.html" aria-label="TACO home">
-      <img class="marksvg" src="assets/svg/taco-mark.svg?v=2" alt="">
+      <img class="marksvg" src="assets/svg/taco-mark.svg?v=3" alt="">
       <span class="wm-sm">TACO</span>
     </a>
 
@@ -69,8 +69,9 @@
         <li>Reader only</li>
       </ul>
 <pre><code class="language-r">install.packages("taco", repos = "https://asterisk-labs.r-universe.dev")</code></pre>
-      <p>The package carries the sources of libtaco and Karu and compiles them into its own shared library when it is installed, so there is no separate core to build or point at, and <code>TACO_LIB</code> plays no part. A source install needs a C++23 compiler, pkg-config, libcurl 7.83 or newer and OpenSSL 3 or newer. Queries run in DuckDB through the duckdb package, 1.5.5 or newer, and come back as tibbles. A WebAssembly build leaves the core out, so every call there stops with <code>the native TACO core is not available on WebAssembly</code>.</p>
-      <p>The exported functions are <a href="#open_dataset"><code>open_dataset</code></a>, <a href="#read"><code>read</code></a>, <a href="#sql"><code>sql</code></a> and <a href="#inspect"><code>inspect</code></a>. R reads every container but does not write: datasets are made with the Python package, as <a href="api-python.html#writing">Writing</a> describes. The rules every binding shares are on the <a href="api.html">API overview</a>. This page gives the R signatures and types, and what is specific to R.</p>
+      <p>The R package compiles its bundled libtaco and Karu sources into one shared library. <code>TACO_LIB</code> is not used. Source installs need a C++23 compiler, pkg-config, libcurl 7.83+ and OpenSSL 3+. Queries use duckdb 1.5.5+ and return tibbles.</p>
+      <p>WebAssembly builds omit the core; calls there stop with <code>the native TACO core is not available on WebAssembly</code>.</p>
+      <p>The package exports <a href="#open_dataset"><code>open_dataset</code></a>, <a href="#read"><code>read</code></a>, <a href="#sql"><code>sql</code></a> and <a href="#inspect"><code>inspect</code></a>. It reads all three containers; the <a href="api-python.html#writing">Python package writes</a> them. See the <a href="api.html">API overview</a> for shared concepts. This page covers R calls and behavior.</p>
 
       <h2 class="part" id="reading">Reading</h2>
 
@@ -78,7 +79,7 @@
 <pre><code class="sig language-r">open_dataset(source)</code></pre>
       <p>Opens a dataset, loads its collection and metadata, and returns a <a href="#dataset"><code>taco_dataset</code></a>. Payloads are not read.</p>
       <table class="spec">
-        <tr><th>source</th><td>A character vector of one or more paths or URLs, in the <a href="api.html#sources">source forms</a>. Two or more open a <a href="#sources">source list</a>. An empty vector, an <code>NA</code>, an empty string or a repeated path stops with an error. Paths are passed on as written, so a relative path gives relative locations. Use <code>normalizePath()</code> when the locations must work from another directory.</td></tr>
+        <tr><th>source</th><td>A character vector of one or more paths or URLs, in the <a href="api.html#sources">source forms</a>. Two or more open a <a href="#sources">source list</a>. An empty vector, an <code>NA</code>, an empty string or a repeated path, or two paths to one file such as <code>a.zip</code> and <code>./a.zip</code>, stops with an error. Paths are passed on as written, with a leading <code>~</code> expanded, so a relative path gives relative locations. Use <code>normalizePath()</code> when the locations must work from another directory.</td></tr>
       </table>
 <pre><code class="language-r">library(taco)
 
@@ -89,10 +90,10 @@ dataset</code></pre>
       <p>This partition of Major TOM Core-DEM holds 50,178 samples. Its first open fetched the metadata in 7.9 s here, and a second open read it from the <a href="#cache">cache</a> in 0.98 s.</p>
 
       <h3 id="dataset">taco_dataset</h3>
-      <p>A list of class <code>c("taco_dataset", "list")</code>. It has no methods of its own: pass it to <code>read</code> and <code>sql</code>.</p>
+      <p>A list of class <code>c("taco_dataset", "list")</code>. There is no <code>dataset$read()</code>: pass it to <code>read</code> and <code>sql</code>.</p>
       <table class="spec">
-        <tr><th>sources</th><td>The character vector given to <code>open_dataset</code>, unchanged.</td></tr>
-        <tr><th>collection</th><td><code>COLLECTION.json</code> parsed by jsonlite into nested lists, so <code>collection$extent$spatial</code> is a list of four numbers. For a source list, the collection of the first source with the extents of all of them merged.</td></tr>
+        <tr><th>sources</th><td>The character vector given to <code>open_dataset</code>, with a leading <code>~</code> expanded.</td></tr>
+        <tr><th>collection</th><td><code>COLLECTION.json</code> parsed by jsonlite into nested lists, so <code>collection$extent$spatial</code> is a list of four numbers. For a source list, the collection of the first source with the extents of all of them merged and their <code>split:counts</code> added up.</td></tr>
         <tr><th>contract</th><td>A list of class <code>taco_contract</code>: <code>structure</code>, a character vector of declarations; <code>metadata</code>, the <code>taco:metadata</code> object, a named list per level whose fields hold <code>type</code>, <code>nullable</code> and <code>description</code>; and <code>levels</code>, the level names in the order of <code>COLLECTION.json</code>.</td></tr>
         <tr><th>_opened</th><td>The native handles, one per source, which <code>read</code> and <code>sql</code> reuse. They close when the dataset is garbage collected.</td></tr>
       </table>
@@ -105,14 +106,14 @@ dataset$collection$title</code></pre>
 [1] "rumi:header"  "rumi:minimum" "rumi:maximum" "rumi:mean"    "rumi:stddev"
 [6] "rumi:p2"      "rumi:p98"
 [1] "Major TOM Core-DEM"</code></pre>
-      <p>Printing shows the collection <code>id</code> and the number of sources. A dataset is a snapshot of the metadata it loaded.</p>
+      <p>Printing shows the collection <code>id</code> and the number of sources. A dataset is a snapshot of the metadata it loaded, except a local FOLDER or TACOCAT, which is read in place (<a href="api.html#sources">Sources and cache</a>).</p>
 
       <h3 id="read">read</h3>
 <pre><code class="sig language-r">read(source, files = NULL)</code></pre>
       <p>Returns a tibble with one row per sample and the columns <a href="api.html#read">Read</a> describes. <code>read</code> is an S3 generic with a method for a <code>taco_dataset</code> and one for a character vector, which opens the source first.</p>
       <table class="spec">
         <tr><th>source</th><td>A <code>taco_dataset</code>, or a character vector as for <a href="#open_dataset"><code>open_dataset</code></a>.</td></tr>
-        <tr><th>files</th><td><code>NULL</code> for every declaration, or a character vector of full structure declarations, such as <code>"before/B02.tif"</code> or <code>"img*[1,3].png"</code>. Only the selected files get <code>::</code> columns; the metadata columns stay. An unknown declaration stops with <code>taco: files contains unknown structure leaf</code>, and an empty vector, an <code>NA</code> or an empty string with an argument error.</td></tr>
+        <tr><th>files</th><td><code>NULL</code> for every declaration, or a character vector of full structure declarations, such as <code>"before/B02.tif"</code> or <code>"img*[1,3].png"</code>. Only the selected files get <code>::</code> columns; the metadata columns stay. An unknown declaration stops with <code>taco: files contains unknown structure leaf</code>, and an empty vector, an <code>NA</code> or an empty string also stops with an error.</td></tr>
       </table>
 <pre><code class="language-r">samples &lt;- read(dataset)
 dim(samples)</code></pre>
@@ -164,7 +165,8 @@ peaks[1:3, 1:2]</code></pre>
                   &lt;dbl&gt;             &lt;dbl&gt;           &lt;dbl&gt;       &lt;dbl&gt;
 1                     0               224           28818        323.
 2                     1             29087           30332        340.</code></pre>
-      <p><code>read</code> and <code>sql</code> share one DuckDB connection per R session, opened by the first call and closed when the package unloads. The query runs as <code>SELECT * FROM (query)</code> under a <code>WITH</code> that defines the relations, so it must be a single statement, and DuckDB reports positions from <code>LINE 6</code> on.</p>
+      <p><code>read</code> and <code>sql</code> share one DuckDB connection per R session, opened on first use and closed when the package unloads or R exits. It uses UTC and never installs extensions. Functions such as <code>extract(year FROM ...)</code> on timestamps with time zones need ICU, which can load from DuckDB's extension directory (<code>?duckdb_storage</code>) if already installed.</p>
+      <p>Queries run as <code>SELECT * FROM (query)</code> under a <code>WITH</code> defining the relations, so each query must be one statement. DuckDB counts error lines from the start of that statement; the first line of a Core-DEM query appears as <code>LINE 6</code>.</p>
 
       <h3 id="inspect">inspect</h3>
 <pre><code class="sig language-r">inspect(source, query)</code></pre>
@@ -271,7 +273,7 @@ rawToChar(bytes[1:4])</code></pre>
 [1] "RUMI"</code></pre>
 
       <h2 class="part" id="errors">Errors</h2>
-      <p>R has no TACO condition classes. A check made in R and an error reported by the core both stop with a plain <code>simpleError</code>, and most of their messages start with <code>taco: </code>. A bad query fails inside duckdb, which signals an <code>rlang_error</code> whose message starts with the DuckDB error type. Catch either with <code>tryCatch(..., error = function(e) ...)</code> and read <code>conditionMessage(e)</code>. The <a href="api.html#errors">API overview</a> lists the causes.</p>
+      <p>R checks and core failures raise <code>simpleError</code>, usually with a <code>taco:</code> message. DuckDB query failures raise <code>rlang_error</code> with the DuckDB error type in the message. Catch either with <code>tryCatch(..., error = function(e) ...)</code> and read <code>conditionMessage(e)</code>. See <a href="api.html#errors">Errors</a> for causes.</p>
 <pre class="output"><code>taco: files contains unknown structure leaf: nope.rumi
 could not open missing.zip: missing.zip: No such file or directory
 taco: `source` paths must be unique
